@@ -15,7 +15,7 @@ A log source whose entries are plain text; fields like timestamp and level must 
 _Avoid_: Unstructured log, text log
 
 **Structured log**:
-A log source whose entries already carry named fields (e.g. Parquet, JSON lines). Structured logs are read in place.
+A log source whose entries already carry named fields (e.g. Parquet, JSON lines). Structured logs are read in place when SereneDB can reach them; a local file outside the mounted folder is copied instead.
 _Avoid_: Parsed log
 
 **Log source**:
