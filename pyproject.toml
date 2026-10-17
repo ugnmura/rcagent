@@ -13,6 +13,7 @@ dependencies = [
     "drain3",
     "sqlglot",
     "pyarrow>=26.0.0",
+    "google-re2>=1.1.20251105",
 ]
 
 [project.scripts]

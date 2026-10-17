@@ -131,31 +131,33 @@ def _ts_type(lt: LogTable, known_columns: dict[str, str]) -> str:
     return known_columns.get(col or "", "TIMESTAMP WITH TIME ZONE")
 
 
-def time_clause(lt: LogTable, tr: TimeRange, known_columns: dict[str, str], prefix: str = "t") -> tuple[str, dict[str, Any]]:
-    """Predicate for the time range. Literals are typed to match the column so Parquet can prune
+def ts_compare(lt: LogTable, op: str, dt: datetime, key: str, known_columns: dict[str, str]) -> tuple[str, dict[str, Any]]:
+    """`<timestamp role> <op> <dt>` with the literal typed to match the column so Parquet can prune
     (spike section 6): timestamptz_ns for nanosecond columns, never a cast of the column."""
-    if not tr.bounded:
-        return "TRUE", {}
     expr = role_sql(lt, "timestamp")
     typ = _ts_type(lt, known_columns).upper()
+    if not is_temporal(typ):
+        return f"({expr})::timestamptz {op} %({key})s::timestamptz", {key: dt.isoformat()}
+    if "WITH TIME ZONE" in typ or typ.startswith("TIMESTAMPTZ"):
+        cast = "timestamptz_ns" if typ.endswith("_NS") else "timestamptz"
+        return f"{expr} {op} %({key})s::{cast}", {key: dt.isoformat()}
+    cast = "timestamp_ns" if typ.endswith("_NS") else "timestamp"
+    local = dt.astimezone(get_zone(lt.timezone)).replace(tzinfo=None)
+    return f"{expr} {op} %({key})s::{cast}", {key: local.isoformat(sep=" ")}
+
+
+def time_clause(lt: LogTable, tr: TimeRange, known_columns: dict[str, str], prefix: str = "t") -> tuple[str, dict[str, Any]]:
+    """Predicate for the time range (start inclusive, end exclusive)."""
+    if not tr.bounded:
+        return "TRUE", {}
     parts: list[str] = []
     params: dict[str, Any] = {}
     for op, dt, name in ((">=", tr.start, "lo"), ("<", tr.end, "hi")):
         if dt is None:
             continue
-        key = f"{prefix}_{name}"
-        if not is_temporal(typ):
-            parts.append(f"({expr})::timestamptz {op} %({key})s::timestamptz")
-            params[key] = dt.isoformat()
-        elif "WITH TIME ZONE" in typ or typ.startswith("TIMESTAMPTZ"):
-            cast = "timestamptz_ns" if typ.endswith("_NS") else "timestamptz"
-            parts.append(f"{expr} {op} %({key})s::{cast}")
-            params[key] = dt.isoformat()
-        else:
-            cast = "timestamp_ns" if typ.endswith("_NS") else "timestamp"
-            local = dt.astimezone(get_zone(lt.timezone)).replace(tzinfo=None)
-            parts.append(f"{expr} {op} %({key})s::{cast}")
-            params[key] = local.isoformat(sep=" ")
+        c, p = ts_compare(lt, op, dt, f"{prefix}_{name}", known_columns)
+        parts.append(c)
+        params.update(p)
     return " AND ".join(parts), params
 
 

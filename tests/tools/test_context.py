@@ -67,3 +67,42 @@ async def test_before_after_limits_and_default_service_host(mcp, ctx_lt):
     occ = await _occ(mcp, "refused")
     out = await call(mcp, "get_context", log_table="ctxfx", occurrence=occ, scope=["service", "host"], before=1, after=1)
     assert "checkout" in out and "pool exhausted" not in out
+
+
+async def test_survey_and_get_context_both_registered(mcp_no_db):
+    tools = {t.name: t for t in (await mcp_no_db.list_tools()).tools}
+    assert "survey" in tools and "get_context" in tools
+    assert tools["get_context"].annotations.readOnlyHint is True
+    assert tools["survey"].annotations.readOnlyHint is False and tools["survey"].annotations.destructiveHint is False
+
+
+def _template(tid: str, regex: str):
+    from serenedb_extractor.catalog.models import Template
+
+    return Template("t", tid, tid, regex, [], "", None, None, None, None)
+
+
+def test_tags_trailing_whitespace_and_first_match():
+    from serenedb_extractor.query.tags import tag_entries
+
+    ts = [_template("T1", r"disk full on \S+"), _template("T2", r".*")]
+    assert tag_entries(ts, ["disk full on /dev/sda\n", "other", "disk full on x  "]) == ["T1", "T2", "T1"]
+
+
+def test_tags_bad_regex_is_logged_not_silent(caplog):
+    from serenedb_extractor.query.tags import tag_entries
+
+    with caplog.at_level("WARNING"):
+        assert tag_entries([_template("T9", "(unclosed"), _template("T2", "x")], ["x"]) == ["T2"]
+    assert "T9" in caplog.text
+
+
+def test_tags_linear_time_on_long_line_with_adjacent_placeholders():
+    import time
+
+    from serenedb_extractor.query.tags import tag_entries
+
+    t = _template("T1", r"(\S+)(\S+)(\S+)(\S+)(\S+)x")
+    start = time.monotonic()
+    assert tag_entries([t], ["a" * 10_000]) == [None]
+    assert time.monotonic() - start < 2

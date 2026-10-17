@@ -8,7 +8,6 @@ from serenedb_extractor.catalog.models import LogTable
 from serenedb_extractor.context import AppContext
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.query import cost, occurrence, sampling
-from serenedb_extractor.query.tags import tag_entries, tag_text
 from serenedb_extractor.query.filters import (
     FILTER_ROLES,
     Filters,
@@ -20,6 +19,7 @@ from serenedb_extractor.query.filters import (
     time_clause,
 )
 from serenedb_extractor.query.stats import role_columns
+from serenedb_extractor.query.tags import tag_entries, tag_text
 from serenedb_extractor.setup.paths import pct, sql_literal
 from serenedb_extractor.setup.roles import is_temporal, resolve_column, role_column
 from serenedb_extractor.setup.sniff import readable
@@ -42,7 +42,7 @@ NARROW = (
 )
 
 
-def _ts_select(lt: LogTable, cols: dict[str, str]) -> str:
+def ts_select(lt: LogTable, cols: dict[str, str]) -> str:
     if lt.roles.timestamp is None:
         return "NULL::timestamptz AS occ_ts"
     expr = role_sql(lt, "timestamp")
@@ -91,9 +91,9 @@ def _show_ts(value: Any, tr: TimeRange) -> str:
     return "(no timestamp)" if value is None else str(value)
 
 
-def _line(lt: LogTable, row: dict[str, Any], tr: TimeRange) -> str:
+def _line(lt: LogTable, row: dict[str, Any], tr: TimeRange, tag: str = "") -> str:
     roles = " ".join(f"{r}={row[f'occ_{r}']}" for r in FILTER_ROLES if row.get(f"occ_{r}") is not None)
-    parts = [_show_ts(row["occ_ts"], tr), occurrence.encode_occurrence(lt, row), roles, row.get("occ_tag", ""), fmt.shorten(str(row["occ_msg"] or ""))]
+    parts = [_show_ts(row["occ_ts"], tr), occurrence.encode_occurrence(lt, row), roles, tag, fmt.shorten(str(row["occ_msg"] or ""))]
     return "  " + "  ".join(p for p in parts if p)
 
 
@@ -146,25 +146,25 @@ def search_logs(
         measured = _count(db, lt, plan, scope_sql, match_sql, params, timeout, what)
         total = int(measured.hits or 0) if not plan.exact else int(measured.value)
         rows: list[dict[str, Any]] = []
+        tags: list[str] = []
         if total:
             role_sel = "".join(
                 f", ({role_sql(lt, r)})::varchar AS occ_{r}" for r in FILTER_ROLES if getattr(lt.roles, r) is not None
             )
             rows = db.read(
-                f"SELECT {_ts_select(lt, cols)}, ({role_sql(lt, 'message')})::varchar AS occ_msg{role_sel}"
+                f"SELECT {ts_select(lt, cols)}, ({role_sql(lt, 'message')})::varchar AS occ_msg{role_sel}"
                 f"{occurrence.select_sql(lt)} FROM {lt.relation} WHERE {scope_sql} AND {match_sql} "
-                f"{_order_sql(lt, order)} LIMIT {shown_limit}",
-                params,
+                f"{_order_sql(lt, order)} LIMIT %(shown_limit)s",
+                {**params, "shown_limit": shown_limit},
                 timeout_s=timeout,
                 what=what,
                 how_to_narrow=NARROW,
             ).dicts()
             templates = ctx.store.templates(lt.name)
             if templates:  # template tags once the catalog has templates
-                for r, tag in zip(rows, tag_entries(templates, [str(r["occ_msg"] or "") for r in rows]), strict=True):
-                    r["occ_tag"] = tag_text(tag)
+                tags = [tag_text(t) for t in tag_entries(templates, [str(r["occ_msg"] or "") for r in rows])]
         empty_why = diagnose_empty(db, lt, tr, f, cols) if plan.exact and total == 0 else []
-    return _render(lt, tr, f, text, timezone, plan, measured, rows, total, order, empty_why)
+    return _render(lt, tr, f, text, timezone, plan, measured, rows, tags, total, order, empty_why)
 
 
 def _count(
@@ -196,6 +196,7 @@ def _render(
     plan: cost.Plan,
     measured: fmt.Measured,
     rows: list[dict[str, Any]],
+    tags: list[str],
     total: int,
     order: str,
     empty_why: list[str],
@@ -230,5 +231,5 @@ def _render(
         lines = empty_why or ([f"No entry in this scope contains '{text}' (searched in any case)."] if text else ["No matching entries."])
         out += lines
         return "\n".join(out)
-    out += [_line(lt, r, tr) for r in rows]
+    out += [_line(lt, r, tr, tags[i] if tags else "") for i, r in enumerate(rows)]
     return "\n".join(out)
