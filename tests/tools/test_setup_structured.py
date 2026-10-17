@@ -292,3 +292,37 @@ async def test_user_text_says_entries_not_rows(mcp, fx_path):
         await call(mcp, "describe_logs", log_table="fx"),
     ):
         assert "rows" not in out.replace("row groups", "") and "catalog entry" not in out
+
+
+# Every entry has sub-microsecond digits, so setup's own 5-entry sample hits them. psycopg can't
+# parse a 9-digit fraction ("microsecond must be in 0..999999"; spike section 5), so the connection
+# reads such timestamps cut to microseconds.
+NS_ALL = """
+SELECT (('2026-03-01 00:0' || i::VARCHAR || ':00.123456789+00')::TIMESTAMPTZ_NS) AS ts,
+  ('2026-03-01 00:0' || i::VARCHAR || ':00.987654321')::TIMESTAMP_NS AS local_ts,
+  'disk full on ' || i::VARCHAR AS message
+FROM range(10) t(i) ORDER BY i
+"""
+
+
+async def test_setup_samples_sub_microsecond_timestamps(mcp, db_url):
+    path = container_parquet(db_url, "ns_all", NS_ALL)
+    inspect = await call(mcp, "inspect_source", source=path)
+    assert "could not read" not in inspect and "00:00:00.123456" in inspect, inspect
+    setup = await call(mcp, "setup_log_table", name="ns_all", source=path)
+    assert "Set up log table" in setup, setup
+    out = await call(mcp, "search_logs", log_table="ns_all", text="disk full")
+    assert "disk full on 9" in out, out
+
+
+async def test_database_reads_sub_microsecond_timestamps(database):
+    from datetime import datetime, timezone
+
+    row = database.read(
+        "SELECT '2026-03-01 00:00:01.123456789+00'::TIMESTAMPTZ_NS AS a, "
+        "'2026-03-01 00:00:01.9999999'::TIMESTAMP_NS AS b, '2026-03-01 00:00:01.5+00'::TIMESTAMPTZ AS c",
+        {},
+    ).rows[0]
+    assert row[0] == datetime(2026, 3, 1, 0, 0, 1, 123456, tzinfo=timezone.utc), row
+    assert row[1] == datetime(2026, 3, 1, 0, 0, 1, 999999), row
+    assert row[2] == datetime(2026, 3, 1, 0, 0, 1, 500000, tzinfo=timezone.utc), row

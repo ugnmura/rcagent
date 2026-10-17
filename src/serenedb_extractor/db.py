@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import psycopg
+from psycopg.types.datetime import TimestampLoader, TimestamptzLoader
 
 from serenedb_extractor.config import Settings
 from serenedb_extractor.errors import UserFacingError
@@ -20,6 +21,25 @@ _NAME = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 DEFAULT_NARROW = "narrow it: a shorter period (start/end) or more filters (level, service), then try again."
 CONNECT_TIMEOUT_CAP_S = 30  # libpq connect_timeout (whole seconds, at least 2): the query timeout, at most this
 CANCEL_TIMEOUT_S = 2.0  # how long the cancel request may take; finish() can wait at most this long for it
+
+
+_SUB_MICROSECOND = re.compile(rb"(\.\d{6})\d+")
+
+
+def _to_microseconds(data: Any) -> bytes:
+    """A timestamp in text form with its fraction cut to 6 digits: nanosecond columns come back
+    with 9, which psycopg can't parse (spike section 5)."""
+    return _SUB_MICROSECOND.sub(rb"\1", bytes(data), count=1)
+
+
+class _NsTimestampLoader(TimestampLoader):
+    def load(self, data: Any) -> Any:
+        return super().load(_to_microseconds(data))
+
+
+class _NsTimestamptzLoader(TimestamptzLoader):
+    def load(self, data: Any) -> Any:
+        return super().load(_to_microseconds(data))
 
 
 class QueryCancelledElsewhere(UserFacingError):
@@ -104,6 +124,8 @@ class _Conn:
                 cursor_factory=psycopg.ClientCursor,
                 connect_timeout=max(2, math.ceil(limit)),  # a hung connect is bounded too
             )
+            self._conn.adapters.register_loader("timestamp", _NsTimestampLoader)
+            self._conn.adapters.register_loader("timestamptz", _NsTimestamptzLoader)
         return self._conn
 
     def close(self) -> None:
