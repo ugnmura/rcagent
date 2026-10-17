@@ -79,6 +79,9 @@ class _Conn:
                     return Rows([], [])
                 return Rows([d.name for d in cur.description], cur.fetchall())
             except psycopg.OperationalError as exc:
+                conn = self._conn
+                if exc.sqlstate is not None and conn is not None and not conn.closed and not conn.broken:
+                    raise  # SereneDB answered with an error (e.g. a file could not be read): not a dead link
                 self.close()  # drop a dead connection so the next call reconnects
                 raise DatabaseUnreachable(self.setting, str(exc)) from exc
 

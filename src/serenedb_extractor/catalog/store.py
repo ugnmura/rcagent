@@ -1,5 +1,6 @@
-"""Reads and writes of the catalog tables. Later tickets add the write methods."""
+"""Reads and writes of the catalog tables. Later tickets add the template methods."""
 
+from datetime import UTC, datetime
 from typing import Any
 
 from serenedb_extractor.catalog.models import ROLE_FIELDS, FieldRoles, LogTable, UnknownLogTable
@@ -45,3 +46,37 @@ class CatalogStore:
         if not rows.rows:
             raise UnknownLogTable(name, [t.name for t in self.list_log_tables()])
         return _log_table(rows.dicts()[0])
+
+    def create_log_table(self, lt: LogTable) -> None:
+        """Insert a new log table; the template numbering starts at 1."""
+        cols = ["name", "source", "source_format", "mode", "relation"]
+        cols += [f"role_{f}" for f in ROLE_FIELDS]
+        cols += ["filter_index_name", "search_index_name", "row_count", "timezone", "created_at", "roles_updated_at"]
+        vals: dict[str, Any] = {
+            "name": lt.name,
+            "source": lt.source,
+            "source_format": lt.source_format,
+            "mode": lt.mode,
+            "relation": lt.relation,
+            **{f"role_{f}": getattr(lt.roles, f) for f in ROLE_FIELDS},
+            "filter_index_name": lt.filter_index_name,
+            "search_index_name": lt.search_index_name,
+            "row_count": lt.row_count,
+            "timezone": lt.timezone,
+            "created_at": lt.created_at,
+            "roles_updated_at": lt.roles_updated_at,
+        }
+        placeholders = ", ".join(f"%({c})s" for c in cols)
+        self.db.write(f"INSERT INTO extractor.log_tables ({', '.join(cols)}) VALUES ({placeholders})", vals)
+
+    def update_roles(self, name: str, roles: FieldRoles) -> None:
+        """Replace the field roles only; nothing else about the log table changes."""
+        sets = ", ".join(f"role_{f} = %({f})s" for f in ROLE_FIELDS)
+        params: dict[str, Any] = {f: getattr(roles, f) for f in ROLE_FIELDS}
+        params.update(name=name, now=datetime.now(UTC).replace(tzinfo=None))
+        self.db.write(f"UPDATE extractor.log_tables SET {sets}, roles_updated_at = %(now)s WHERE name = %(name)s", params)
+
+    def template_count(self, name: str) -> int:
+        return int(
+            self.db.read("SELECT count(*) FROM extractor.templates WHERE log_table = %(n)s", {"n": name}).scalar()
+        )

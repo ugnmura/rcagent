@@ -14,7 +14,7 @@ from mcp.types import ToolAnnotations
 from serenedb_extractor import format as fmt
 from serenedb_extractor.config import ConfigError, Settings
 from serenedb_extractor.context import AppContext
-from serenedb_extractor.tools import describe
+from serenedb_extractor.tools import describe, setup_tools
 
 SINGLE_ROLE_NOTE = (
     "Note: only a reader URL was configured, so SereneDB is not enforcing read-only limits "
@@ -37,7 +37,7 @@ class ToolRunner:
                 self._ctx = self._factory()
             return self._ctx
 
-    async def call_tool(self, name: str, fn: Callable[..., str], **kw: Any) -> str:
+    async def call_tool(self, name: str, fn: Callable[..., str], /, **kw: Any) -> str:
         """Run a blocking tool body off the event loop; any failure becomes one plain line.
 
         The process's first result, success or error, also carries the single-role note.
@@ -52,16 +52,58 @@ class ToolRunner:
                 out += "\n" + SINGLE_ROLE_NOTE
         return out
 
-    async def run_tool(self, fn: Callable[..., str], **kw: Any) -> str:
+    async def run_tool(self, fn: Callable[..., str], /, **kw: Any) -> str:
         """Register tools with this: it injects the AppContext (`fn(ctx, **kw)`) and routes through call_tool."""
         return await self.call_tool(fn.__name__, lambda **k: fn(self.ctx(), **k), **kw)
 
 
 def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-    async def describe_logs(log_table: str | None = None) -> str:
-        """Describe the log tables that are set up (or one of them): source, size and fields."""
-        return await runner.run_tool(describe.describe_logs, log_table=log_table)
+    async def inspect_source(source: str, format_hint: str | None = None, line_format: str | None = None) -> str:
+        """Look at a log source (Parquet/JSON file or URL, or a table) without changing anything: columns, sample entries and proposed field roles."""
+        return await runner.run_tool(
+            setup_tools.inspect_source, source=source, format_hint=format_hint, line_format=line_format
+        )
+
+    @mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
+    async def setup_log_table(
+        name: str,
+        source: str,
+        roles: dict[str, str | None] | None = None,
+        line_format: str | None = None,
+        timezone: str = "UTC",
+        build_filter_index: bool = False,
+        build_search_index: bool = False,
+    ) -> str:
+        """Set up a log table over a source, read in place, with confirmed field roles. Re-running with roles corrects the roles only."""
+        return await runner.run_tool(
+            setup_tools.setup_log_table,
+            name=name,
+            source=source,
+            roles=roles,
+            line_format=line_format,
+            timezone=timezone,
+            build_filter_index=build_filter_index,
+            build_search_index=build_search_index,
+        )
+
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    async def describe_logs(
+        log_table: str | None = None,
+        find_values: dict[str, str] | None = None,
+        start: str | None = None,
+        end: str | None = None,
+        timezone: str = "UTC",
+    ) -> str:
+        """Describe the log tables: source, field roles, time range, context scopes and top values; find_values={"role_or_column","like"} looks up values containing a word."""
+        return await runner.run_tool(
+            describe.describe_logs,
+            log_table=log_table,
+            find_values=find_values,
+            start=start,
+            end=end,
+            timezone=timezone,
+        )
 
 
 def build_server(ctx_factory: Callable[[], AppContext]) -> FastMCP:
