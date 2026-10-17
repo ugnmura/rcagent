@@ -28,9 +28,10 @@ def untimestamped_note(db: Database, lt: LogTable, tr: TimeRange) -> str | None:
     range, the table is not copied, or no entry lacks a timestamp."""
     if not tr.bounded or lt.mode != "copied" or lt.roles.timestamp is None:
         return None
-    _, decision = cost.check(db, lt, TimeRange(), role_columns(lt.roles.timestamp))
+    columns = role_columns(lt.roles.timestamp)
+    stats, decision = cost.check(db, lt, TimeRange(), columns)
     if decision.status != "run" or not decision.plan.exact:
-        return untimestamped_unknown(f"counting would need {cost.cost_text(decision.plan)}")
+        return untimestamped_unknown(f"counting would need {cost.cost_text(cost.exact_plan(stats, columns))}")
     timeout = cost.run_timeout(decision.plan, db.settings.default_timeout_s, db.settings.max_timeout_s)
     try:
         n = db.read(

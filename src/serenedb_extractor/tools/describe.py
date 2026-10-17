@@ -102,10 +102,10 @@ def _time_range_line(db: Database, lt: LogTable, cols: dict[str, str], tr: TimeR
 
 def _affordable(db: Database, lt: LogTable, tr: TimeRange, columns: list[str]) -> str | None:
     """None when an exact scan of `columns` fits the cost check, else why it was skipped."""
-    _, decision = cost.check(db, lt, tr, columns)
+    stats, decision = cost.check(db, lt, tr, columns)
     if decision.status == "run" and decision.plan.exact:
         return None
-    return f"counting would need {cost.cost_text(decision.plan)}; narrow the period, or build a filter index"
+    return f"counting would need {cost.cost_text(cost.exact_plan(stats, columns))}; narrow the period, or build a filter index"
 
 
 def _describe_one(ctx: AppContext, lt: LogTable, tr: TimeRange) -> list[str]:

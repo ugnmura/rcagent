@@ -101,6 +101,23 @@ def _group_bytes(groups: tuple[GroupStat, ...], columns: list[str]) -> float:
     return float(sum(g.bytes_by_column.get(c, 0) for g in groups for c in columns if c != WHOLE))
 
 
+def exact_plan(stats: ScopeStats, columns: list[str], indexed: Collection[str] = ()) -> Plan:
+    """The plan that reads every entry in scope: what an exact answer costs, whatever `decide` chose.
+    A "would need" text for a skipped exact scan quotes this, never a sample's cost."""
+    read = [c for c in columns if c not in indexed]
+    # Everything the query reads is served by an index (and nothing else is touched): it costs nothing.
+    nbytes = float(stats.bytes_for(read)) if read or not columns else 0.0
+    return Plan(
+        exact=True,
+        sampling=None,
+        sample_rows=None,
+        bytes=nbytes,
+        seconds=seconds_for(stats, nbytes),
+        population_rows=stats.rows_in_range,
+        rows_exact=stats.rows_exact,
+    )
+
+
 def decide(
     stats: ScopeStats,
     columns: list[str],
@@ -117,17 +134,7 @@ def decide(
     budget = BUDGET_SECONDS if budget_s is None else budget_s  # read now, so it can be tuned/patched
     speed = THROUGHPUT_BYTES_PER_S["remote" if stats.remote else "local"]
     read = [c for c in columns if c not in indexed]
-    # Everything the query reads is served by an index (and nothing else is touched): it costs nothing.
-    exact_bytes = float(stats.bytes_for(read)) if read or not columns else 0.0
-    exact = Plan(
-        exact=True,
-        sampling=None,
-        sample_rows=None,
-        bytes=exact_bytes,
-        seconds=exact_bytes / speed,
-        population_rows=stats.rows_in_range,
-        rows_exact=stats.rows_exact,
-    )
+    exact = exact_plan(stats, columns, indexed)
     too_long = max_s is not None and exact.seconds > max_s
     problem = ""
     if confirmed_cost:

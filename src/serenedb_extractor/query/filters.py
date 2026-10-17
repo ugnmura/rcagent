@@ -231,9 +231,10 @@ def data_range(db: Database, lt: LogTable, known_columns: dict[str, str]) -> Dat
     from serenedb_extractor.query import cost
     from serenedb_extractor.query.stats import role_columns
 
-    _, decision = cost.check(db, lt, TimeRange(), role_columns(expr))
+    ts_cols = role_columns(expr)
+    stats, decision = cost.check(db, lt, TimeRange(), ts_cols)
     if decision.status != "run" or not decision.plan.exact:
-        raise ScanTooExpensive("a scan of the timestamp column", cost.cost_text(decision.plan))
+        raise ScanTooExpensive("a scan of the timestamp column", cost.cost_text(cost.exact_plan(stats, ts_cols)))
     e = pct(expr)
     cast_e = f"e AT TIME ZONE {zone}" if naive else "e::timestamptz"
     row = db.read(f"SELECT min({cast_e})::timestamptz, max({cast_e})::timestamptz FROM (SELECT {e} AS e FROM {lt.relation})", {}).rows[0]

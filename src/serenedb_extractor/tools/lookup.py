@@ -347,12 +347,13 @@ def _attach_occurrences(
     narrowed = len(moments) == len(stamps)  # a missing or text timestamp can't bound the read
     hull = TimeRange(min(moments), max(moments) + timedelta(milliseconds=1)) if narrowed else TimeRange()
     columns = role_columns(lt.roles.timestamp) + role_columns(lt.roles.message) + _occurrence_columns(lt)
-    _, decision = cost.check(db, lt, hull, columns, confirmed_cost, index_hints=ctx.estimates.hints(lt))
+    stats, decision = cost.check(db, lt, hull, columns, confirmed_cost, index_hints=ctx.estimates.hints(lt))
     plan = decision.plan
     if decision.status == "ask" or not plan.exact:
+        full = cost.exact_plan(stats, columns)  # the lookup must be exact: quote and confirm its full cost
         return (
             f"occurrence IDs were not looked up: finding the listed entries in the source would need "
-            f"{cost.cost_text(plan)}; repeat the same call with confirmed_cost={plan.cost_token()} to include them"
+            f"{cost.cost_text(full)}; repeat the same call with confirmed_cost={full.cost_token()} to include them"
         )
     timeout = cost.run_timeout(plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
     found: dict[tuple[Any, str], list[dict[str, Any]]] = {}
