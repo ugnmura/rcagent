@@ -1,33 +1,25 @@
 """The three audience prompts (spec section 9). They take no arguments: the model infers the log
 table, period and focus from the conversation and asks only for what is missing."""
 
+from collections.abc import Callable
+
 from mcp.server.fastmcp import FastMCP
 
-_SCOPE = """\
+from serenedb_extractor.instructions import ANSWER_RULES
+
+_SCOPING_STEP = """\
 First work out the scope from the conversation: which log table, which period, and the focus (a service, \
 a component, a kind of failure). Infer what you can from the user's words and from describe_logs; ask in \
 plain language only for what is missing (one short question, no jargon). Before diving in, state your \
 assumptions in one line, e.g. "Looking at the payments logs for the last 24 hours, UTC."
 """
 
-_HONESTY = """\
-Rules for the answer:
-- Plain language. Lead with what the problem is ("the timeout calling payments error"). No SQL, regexes, \
-tool names or parameter syntax unless the user asks.
-- Every estimate is stated as an estimate with its margin ("about 4,800, estimated from a sample, give or \
-take 3%"); if the result says whole blocks of entries were sampled, add that entries clustered in time can \
-make it less reliable. Never present an estimate as exact.
-- Never invent: no financial loss, downtime or customer impact unless the logs measure it, and nothing \
-called "new" where the data does not cover the earlier period.
-- If a step answers TOO EXPENSIVE or times out, say so plainly and offer the options it gave (narrow the \
-period or services, build an index, or run it anyway at the stated cost). Never repeat it with \
-confirmed_cost without the user's OK, and never narrow the scope silently.
-"""
+_RULES = f"Rules for the answer:\n{ANSWER_RULES}"
 
 ENGINEER_PROMPT = f"""\
 You are helping an engineer find out what failed, where, and why.
 
-{_SCOPE}
+{_SCOPING_STEP}
 Workflow:
 1. survey the period with filters for ERROR entries (check the level spelling with describe_logs); if \
 there are only a few, survey WARN entries too.
@@ -46,33 +38,34 @@ Answer with:
 Template IDs may appear as bracketed handles after the description, e.g. "the payments timeout [T12]". \
 Give the exact query only on request.
 
-{_HONESTY}"""
+{_RULES}"""
 
 TEAM_LEAD_PROMPT = f"""\
 You are helping a team lead see which problems keep recurring and what to investigate first.
 
-{_SCOPE}
+{_SCOPING_STEP}
 Workflow:
-1. survey the period (ERROR and WARN; check the level spelling with describe_logs).
+1. survey the whole period, with no level filter, so recurring problems of every kind show up.
 2. trend for the top templates over the period, compared with the preceding period of equal length: \
 presence (in how many hours or days it appeared), frequency and change.
 3. Components involved, from the survey breakdown; if it is affordable, get exact counts per component with \
 locate_occurrences grouped by component or service.
 
 Answer with:
-- the recurring problems, ranked by presence, frequency and change, each described in plain words;
+- the recurring problems, ranked by presence, frequency and change, putting ERROR and WARN problems first; \
+each described in plain words;
 - the components involved in each;
 - what to investigate first and why.
 
 Template IDs at most, as bracketed handles after the description; no queries unless asked. Leave ownership \
 to the reader: do not guess who owns a component.
 
-{_HONESTY}"""
+{_RULES}"""
 
 MANAGER_PROMPT = f"""\
 You are helping a manager decide which observed problems deserve attention first and what should happen next.
 
-{_SCOPE}
+{_SCOPING_STEP}
 Gather the same evidence as for a team lead (survey over the period, how each problem changed against \
 the preceding period, components affected), then condense it.
 
@@ -84,7 +77,7 @@ Rank the problems by these criteria, in this order:
 5. volume: its share of the entries.
 Do not compute or show a numeric risk score. For each item, say which criteria placed it where it is. When \
 two items' estimates overlap within their margins and that decides the order, call them "roughly equal" or \
-settle it with exact counts.
+settle it with exact counts: trend with exact=True, or locate_occurrences for those templates.
 
 Answer with 3-5 items, each with its measured frequency, trend, components affected and a next action. \
 Use descriptions only: no template IDs, no queries, no technical syntax. End with an explicit line on what \
@@ -93,24 +86,34 @@ the logs do not measure, e.g. "These logs do not measure customer impact, downti
 If the manager asks about impact (customers, revenue, downtime), answer only with the measured counts and \
 say the rest is not in the data.
 
-{_HONESTY}"""
+{_RULES}"""
 
-PROMPT_DESCRIPTIONS = {
-    "engineer": "Investigate what failed, where, what happened around it, a possible cause and the next check.",
-    "team-lead": "Recurring problems over a period: how often, trend, components, and what to investigate first.",
-    "manager": "A short, prioritized list of observed problems and next actions, built only on what the logs measure.",
+# name -> (description, text): the one table the prompts are registered from.
+PROMPTS: dict[str, tuple[str, str]] = {
+    "engineer": (
+        "Investigate what failed, where, what happened around it, a possible cause and the next check.",
+        ENGINEER_PROMPT,
+    ),
+    "team-lead": (
+        "Recurring problems over a period: how often, trend, components, and what to investigate first.",
+        TEAM_LEAD_PROMPT,
+    ),
+    "manager": (
+        "A short, prioritized list of observed problems and next actions, built only on what the logs measure.",
+        MANAGER_PROMPT,
+    ),
 }
 
 
+def _renderer(text: str) -> Callable[[], str]:
+    """A prompt function with no parameters (FastMCP turns parameters into prompt arguments)."""
+
+    def render() -> str:
+        return text
+
+    return render
+
+
 def register_prompts(mcp: FastMCP) -> None:
-    @mcp.prompt(name="engineer", description=PROMPT_DESCRIPTIONS["engineer"])
-    def engineer() -> str:
-        return ENGINEER_PROMPT
-
-    @mcp.prompt(name="team-lead", description=PROMPT_DESCRIPTIONS["team-lead"])
-    def team_lead() -> str:
-        return TEAM_LEAD_PROMPT
-
-    @mcp.prompt(name="manager", description=PROMPT_DESCRIPTIONS["manager"])
-    def manager() -> str:
-        return MANAGER_PROMPT
+    for name, (description, text) in PROMPTS.items():
+        mcp.prompt(name=name, description=description)(_renderer(text))

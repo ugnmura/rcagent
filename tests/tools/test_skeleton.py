@@ -138,3 +138,73 @@ async def test_unexpected_error_is_generic_and_logged(caplog):
 async def test_user_facing_error_shown_verbatim():
     out = await call(_failing_client(UnknownLogTable("zzz")), "boom")
     assert "zzz" in out and "no log table" in out
+
+
+NO_GRANT_ROLE = "extractor_t19_nogrant"
+
+
+@pytest.fixture
+def no_grant_url(db_url):
+    """A login role with no grants on anything in the test database (dropped afterwards)."""
+    import psycopg
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+
+    with psycopg.connect(db_url, autocommit=True) as admin:
+        if not admin.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (NO_GRANT_ROLE,)).fetchone():
+            admin.execute(f"CREATE ROLE {NO_GRANT_ROLE} LOGIN")
+    info = conninfo_to_dict(db_url)
+    info["user"] = NO_GRANT_ROLE
+    info.pop("password", None)
+    try:
+        yield make_conninfo(**info)  # type: ignore[arg-type]
+    finally:
+        with psycopg.connect(db_url, autocommit=True) as admin:
+            admin.execute(f"DROP ROLE IF EXISTS {NO_GRANT_ROLE}")
+
+
+async def _client_with(reader: str, writer: str):
+    from serenedb_extractor.context import AppContext
+    from serenedb_extractor.server import build_server
+
+    settings = Settings.from_env({"SERENEDB_READER_URL": reader, "SERENEDB_WRITER_URL": writer})
+    made: list = []
+
+    def factory():
+        ctx = AppContext.from_settings(settings)
+        made.append(ctx)
+        return ctx
+
+    return Client(build_server(factory), made)
+
+
+def _assert_permission_message(out: str, setting: str) -> None:
+    assert setting in out and "permission denied" in out and "README" in out, out
+    assert "Something went wrong" not in out and "could not read" not in out, out
+    assert "\n" not in out.strip()
+
+
+@pytest.mark.db
+async def test_reader_without_grants_is_told_which_connection_and_where_to_grant(mcp, db_url, no_grant_url):
+    from tests.conftest import container_parquet
+    from tests.fixtures.data import FX
+
+    assert "Set up log table" in await call(mcp, "setup_log_table", name="fx", source=container_parquet(db_url, "t19_perm", FX))
+    client = await _client_with(no_grant_url, db_url)
+    try:
+        _assert_permission_message(await call(client, "describe_logs"), "SERENEDB_READER_URL")
+        _assert_permission_message(await call(client, "survey", log_table="fx"), "SERENEDB_READER_URL")
+    finally:
+        client.close()
+
+
+@pytest.mark.db
+async def test_writer_without_grants_is_told_which_connection(db_url, no_grant_url):
+    import psycopg
+
+    with psycopg.connect(db_url, autocommit=True) as admin:
+        admin.execute("DROP SCHEMA IF EXISTS extractor CASCADE")
+    client = await _client_with(db_url, no_grant_url)
+    try:
+        _assert_permission_message(await call(client, "describe_logs"), "SERENEDB_WRITER_URL")
+    finally:
+        client.close()

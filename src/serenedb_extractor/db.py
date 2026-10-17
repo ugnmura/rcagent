@@ -43,6 +43,24 @@ class DatabaseUnreachable(UserFacingError):
         super().__init__(f"Could not reach SereneDB using {setting}: {detail}")
 
 
+class PermissionRefused(UserFacingError):
+    """SereneDB refused a statement to the role of one connection (SQLSTATE 42501)."""
+
+    def __init__(self, setting: str, detail: str) -> None:
+        detail = re.sub(r"\s+", " ", detail).strip()[:300] or "permission denied"
+        if setting == "SERENEDB_WRITER_URL":
+            needs = "the writer needs CREATE on the database (to create schema extractor) and to own schema extractor"
+        else:
+            needs = (
+                "the reader needs USAGE on schema extractor and SELECT on its tables, "
+                "granted again after each new log table"
+            )
+        super().__init__(
+            f"SereneDB refused this to the role in {setting}: {detail}. Grant it access as in the README's "
+            f"\"Reader and writer roles\" section: {needs}."
+        )
+
+
 @dataclass(frozen=True)
 class Rows:
     columns: list[str]
@@ -118,6 +136,8 @@ class _Conn:
                 if cur.description is None:
                     return Rows([], [])
                 return Rows([d.name for d in cur.description], cur.fetchall())
+            except psycopg.errors.InsufficientPrivilege as exc:
+                raise PermissionRefused(self.setting, str(exc).splitlines()[0] if str(exc) else "") from exc
             except psycopg.errors.QueryCanceled:
                 if canceller.fired and timeout_s is not None:
                     raise QueryTimeout(timeout_s, what, how_to_narrow) from None

@@ -2,8 +2,8 @@
 
 import re
 
-from serenedb_extractor.instructions import SERVER_INSTRUCTIONS
-from serenedb_extractor.prompts import ENGINEER_PROMPT, MANAGER_PROMPT, TEAM_LEAD_PROMPT
+from serenedb_extractor.instructions import ANSWER_RULES, SERVER_INSTRUCTIONS
+from serenedb_extractor.prompts import ENGINEER_PROMPT, MANAGER_PROMPT, PROMPTS as REGISTERED, TEAM_LEAD_PROMPT
 from tests.conftest import Client
 
 PROMPTS = {"engineer": ENGINEER_PROMPT, "team-lead": TEAM_LEAD_PROMPT, "manager": MANAGER_PROMPT}
@@ -83,3 +83,34 @@ async def test_texts_only_name_real_tools_and_parameters(mcp_no_db: Client):
     for text in [SERVER_INSTRUCTIONS, *PROMPTS.values()]:
         named = set(re.findall(r"\b[a-z]+(?:_[a-z]+)+\b", text))
         assert named <= known, named - known
+
+
+async def test_prompts_registered_from_one_table(mcp_no_db: Client):
+    listed = {p.name: p.description for p in (await mcp_no_db.list_prompts()).prompts}
+    assert listed == {name: desc for name, (desc, _) in REGISTERED.items()}
+    assert {name: text for name, (_, text) in REGISTERED.items()} == PROMPTS
+
+
+def test_one_shared_set_of_answer_rules():
+    assert ANSWER_RULES in SERVER_INSTRUCTIONS and all(ANSWER_RULES in p for p in PROMPTS.values())
+
+
+def test_block_sample_caveat_matches_tool_wording():
+    from pathlib import Path
+
+    from serenedb_extractor.tools import investigate, lookup
+
+    tool_text = "".join(Path(m.__file__ or "").read_text() for m in (investigate, lookup))
+    assert "block sample" in tool_text
+    assert "block sample" in ANSWER_RULES.lower() and "clustered in time" in ANSWER_RULES.lower()
+
+
+def test_near_ties_say_how_to_get_exact_counts():
+    m = MANAGER_PROMPT
+    assert "exact=True" in m and "locate_occurrences" in m
+
+
+def test_team_lead_surveys_the_whole_period_and_prioritises_in_the_report():
+    t = TEAM_LEAD_PROMPT.lower()
+    assert "whole period" in t and "no level filter" in t
+    assert t.index("error and warn") > t.index("answer with")

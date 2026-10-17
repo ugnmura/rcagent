@@ -15,26 +15,44 @@ It is a **prototype**. SereneDB itself is not installed or run by this package: 
 ## Quick start
 
 1. Run SereneDB (see [Running SereneDB in Docker](#running-serenedb-in-docker)).
-2. Add the server to Claude Code:
+2. Create the reader and writer roles and a dedicated database for the extractor, as in
+   [Reader and writer roles](#reader-and-writer-roles). Note that the reader's grant has to be **re-run after each new
+   log table**. (For a quick local try with your own logs, you can skip this and use one URL; see
+   [single-role mode](#single-role-mode).)
+3. Put the passwords in a password file rather than in the URLs (see [Passwords](#passwords)), then add the server to
+   Claude Code. **The package is not published yet**, so run it from a checkout of this repository:
 
    ```sh
    claude mcp add serenedb-extractor \
-     -e SERENEDB_READER_URL=postgresql://extractor_reader:READER_PASSWORD@localhost:7890/postgres \
-     -e SERENEDB_WRITER_URL=postgresql://extractor_writer:WRITER_PASSWORD@localhost:7890/postgres \
+     -e SERENEDB_READER_URL=postgresql://extractor_reader@localhost:7890/logs_extractor \
+     -e SERENEDB_WRITER_URL=postgresql://extractor_writer@localhost:7890/logs_extractor \
      -e LOGS_HOST_DIR=$HOME/logs -e LOGS_CONTAINER_DIR=/logs \
-     -- uvx serenedb-extractor
+     -- uv run --directory /path/to/serenedb-extractor serenedb-extractor
    ```
 
-   The minimum is one URL: `claude mcp add serenedb-extractor -e SERENEDB_READER_URL=… -- uvx serenedb-extractor`
-   (see [single-role mode](#single-role-mode) for what that gives up).
-3. In Claude Code, `/mcp` should list `serenedb-extractor` with 12 tools and 3 prompts. Ask something like
+   Once the package is published, the last line becomes `-- uvx serenedb-extractor`. The minimum is one URL:
+   `claude mcp add serenedb-extractor -e SERENEDB_READER_URL=… -- uv run --directory /path/to/serenedb-extractor serenedb-extractor`.
+4. In Claude Code, `/mcp` should list `serenedb-extractor` with its tools and the three prompts. Ask something like
    "set up the logs in ~/logs/app/*.parquet and tell me what's failing", or start from a prompt:
    `/mcp__serenedb-extractor__engineer`, `/mcp__serenedb-extractor__team-lead` or `/mcp__serenedb-extractor__manager`.
 
-`uvx serenedb-extractor` runs the published package. From a checkout, use
-`-- uv run --directory /path/to/serenedb-test serenedb-extractor` instead.
-
 The server speaks MCP over stdio and is started by the client; there is nothing to keep running besides SereneDB.
+
+### Passwords
+
+Anything passed as `-e …URL=postgresql://user:password@…` ends up in your shell history and in Claude Code's MCP
+configuration in plain text. The extractor connects through libpq (via psycopg), so leave the password out of the URL
+and use libpq's own mechanisms instead:
+
+- a password file: `~/.pgpass` (or the file named by `PGPASSFILE`), mode `0600`, one line per role:
+
+  ```text
+  localhost:7890:logs_extractor:extractor_reader:the-reader-password
+  localhost:7890:logs_extractor:extractor_writer:the-writer-password
+  ```
+
+- or a connection service file (`~/.pg_service.conf`, or `PGSERVICEFILE`) with a section per role, and URLs like
+  `postgresql:///?service=extractor_reader`.
 
 ## What you get
 
@@ -73,8 +91,11 @@ docker run -d --name serenedb \
   --platform linux/amd64 \
   -p 127.0.0.1:7890:7890 \
   -v ~/logs:/logs:ro \
-  serenedb/serenedb
+  serenedb/serenedb@sha256:6d41ac6577e797289158786a2015ba8fbd6875feadb5c491518e166c011058c9
 ```
+
+- **Image:** the digest above is the `serenedb/serenedb:latest` of 2026-10-18 that the extractor was built and tested
+  against (the same one `scripts/test-db.sh` uses). Newer images may behave differently.
 
 - **Apple Silicon / arm64:** the image has no arm64 build. `--platform linux/amd64` runs it under emulation, which
   works but is noticeably slower (slow start, slower queries). Leave the flag out on an x86-64 host.
@@ -115,24 +136,32 @@ schema. Your own data is never modified.
 
 Use two roles so that SereneDB itself, not just the extractor, enforces what each connection may do:
 
-- **reader** — every query runs as this role. It may read the `extractor` schema and nothing else, and cannot write.
+- **reader** — every query runs as this role. It is granted only read access to the `extractor` schema and cannot
+  write (but see the note on container files below).
 - **writer** — setup, index builds and catalog writes run as this role. It owns the `extractor` schema and nothing else.
+
+Give the extractor a **database of its own** (below: `logs_extractor`) rather than `postgres`: the writer needs
+`CREATE` on its database, and a dedicated database keeps that privilege away from everything else. Log files are
+read through views in that database wherever the files are; only existing SereneDB tables you want to analyze have to
+live in the same database.
 
 As an admin (the `postgres` user of your container):
 
 ```sql
+CREATE DATABASE logs_extractor;
 CREATE ROLE extractor_writer LOGIN PASSWORD 'change-me-writer';
 CREATE ROLE extractor_reader LOGIN PASSWORD 'change-me-reader';
 
 -- the writer creates (and so owns) the extractor schema on first start
-GRANT CREATE ON DATABASE postgres TO extractor_writer;
+GRANT CREATE ON DATABASE logs_extractor TO extractor_writer;
 
 -- only if you analyze existing tables: the writer needs to read them (log tables are views over them)
 -- GRANT SELECT ON my_app_logs TO extractor_writer;
 ```
 
-Then connect the server once (any question will do; the first answer may be a permission error, because the reader
-cannot read the tables that were just created) and give the reader access, as `extractor_writer` or the admin:
+Then connect the server once (any question will do; the first answer may be a permission error naming
+`SERENEDB_READER_URL`, because the reader cannot read the tables that were just created) and give the reader
+access, as `extractor_writer` or the admin:
 
 ```sql
 GRANT USAGE ON SCHEMA extractor TO extractor_reader;
@@ -141,13 +170,14 @@ GRANT SELECT ON ALL TABLES IN SCHEMA extractor TO extractor_reader;
 
 **Re-run the `GRANT SELECT ON ALL TABLES IN SCHEMA` after setting up each new log table.** SereneDB accepts
 `ALTER DEFAULT PRIVILEGES` but does not yet apply it to new objects, so a new log table is not readable by the reader
-until granted (the symptom is "permission denied for view lt_<name>", reported as SereneDB not being able to read the
-source). The reader reads log files through the writer's views, so it needs no access to the files themselves. Do
-not make either role a superuser.
+until granted. Until then the answer names the connection that was refused and points back here, e.g.
+"SereneDB refused this to the role in SERENEDB_READER_URL: permission denied for view lt_web. Grant it access as in
+the README's "Reader and writer roles" section: …". The reader reads log files through the writer's views, so it
+needs no access to the files themselves. Do not make either role a superuser.
 
 `CREATE` on the database is needed because the extractor runs `CREATE SCHEMA IF NOT EXISTS extractor` at start-up,
-which SereneDB checks against the database even when the schema exists. It also lets the writer create other schemas;
-the extractor itself never creates anything outside `extractor`.
+which SereneDB checks against the database even when the schema exists. It also lets the writer create other schemas
+in that database (hence the dedicated database); the extractor itself never creates anything outside `extractor`.
 
 This sequence was checked against the pinned SereneDB image used by the tests: setup, survey, index build, text search
 and `run_sql` all work with the two roles once the grants are in place.
