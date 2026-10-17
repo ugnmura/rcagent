@@ -45,7 +45,8 @@ def block_estimate(blocks: list[tuple[int, int]], fraction: float) -> Measured:
     Ratio estimator R = sum(hits) / sum(entries); value = sum(hits) / fraction. Its 95% margin uses
     the between-block variance, var(R) = (1 - f) * s^2 / (m * mean_n^2), s^2 = sum((y - R n)^2) / (m - 1).
     With fewer than 5 blocks no margin can be estimated, and it says so. The margin is floored at the
-    binomial margin of the sampled entries (zero between-block variation is not certainty)."""
+    binomial margin of the sampled entries, with the same finite-population correction (zero
+    between-block variation is not certainty)."""
     m = len(blocks)
     n = sum(b[0] for b in blocks)
     hits = sum(b[1] for b in blocks)
@@ -60,6 +61,6 @@ def block_estimate(blocks: list[tuple[int, int]], fraction: float) -> Measured:
     margin = 1.96 * math.sqrt(var) / r
     # Blocks that happen to agree exactly give zero between-block variance; the margin is never below
     # the binomial margin of the sampled entries, so an estimate never claims more precision than that.
-    binomial = 1.96 * math.sqrt((1 - r) / (n * r))
+    binomial = 1.96 * math.sqrt((1 - min(fraction, 1.0)) * (1 - r) / (n * r))  # same finite-population correction
     margin = max(margin, binomial)
     return Measured(value, False, n, hits, margin if hits >= MIN_HITS else None)
