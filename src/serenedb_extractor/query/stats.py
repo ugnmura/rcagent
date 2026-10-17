@@ -3,10 +3,13 @@
 In-place Parquet: `parquet_metadata` gives per-row-group row counts, per-column compressed sizes
 and timestamp min/max, so a time range is priced by the row groups it overlaps (SereneDB prunes
 them when the literal is typed like the column; measured in #10, see the task report). In-place
-JSON has no metadata: any query parses the whole file. Copied tables and table sources: the row
-count the catalog recorded at setup (log_tables.row_count; never a count(*) per check, which is
-itself a full scan) and an average width per column from a few rows; a time range on them gives an
-upper bound (every entry), marked `rows_exact=False`.
+JSON has no metadata: any query parses the whole file. Copied tables: the row count the catalog
+recorded at setup (log_tables.row_count; our setup wrote them and they never change, so never a
+count(*) per check, which is itself a full scan). In-place table sources can grow after setup: their
+row count is the planner's live estimate (pg_class.reltuples, which SereneDB keeps current on insert;
+measured: it does not drop on delete, so it is an upper bound), with count(*) only when the table has
+no such estimate. Both take an average width per column from a few rows; a time range on them gives
+an upper bound (every entry), marked `rows_exact=False`.
 
 `collect` is remembered for the rest of a tool call inside `per_call()` (the server wraps every tool
 call in it), so the several cost checks of one call read the metadata once.
@@ -76,16 +79,18 @@ def role_columns(expr: str | None) -> list[str]:
 
 
 _MEMO: ContextVar[dict[tuple[object, ...], "ScopeStats"] | None] = ContextVar("scope_stats_memo", default=None)
+_LIVE_ROWS: ContextVar[dict[tuple[object, ...], int] | None] = ContextVar("live_row_count_memo", default=None)
 
 
 @contextmanager
 def per_call() -> Iterator[None]:
     """Remember collected scope statistics until the block ends (one tool call)."""
-    token = _MEMO.set({})
+    token, rows_token = _MEMO.set({}), _LIVE_ROWS.set({})
     try:
         yield
     finally:
         _MEMO.reset(token)
+        _LIVE_ROWS.reset(rows_token)
 
 
 def _memo_key(db: Database, lt: LogTable, tr: TimeRange) -> tuple[object, ...]:
@@ -196,10 +201,12 @@ def _parquet(db: Database, lt: LogTable, tr: TimeRange, has_f: bool, has_s: bool
 
 def _table(db: Database, lt: LogTable, tr: TimeRange, has_f: bool, has_s: bool) -> ScopeStats:
     cols = dict(relation_columns(db, lt.relation, lt.source))
-    if lt.row_count is not None:
+    if lt.mode == "in_place":
+        total = _live_rows(db, lt)
+    elif lt.row_count is not None:
         total = int(lt.row_count)
     else:  # an older catalog row without a count: count once (remembered for the tool call)
-        total = int(db.read(f"SELECT count(*) FROM {lt.relation}", {}, what=f"counting {lt.name}").scalar() or 0)
+        total = _count(db, lt)
     # A time range is not counted (that would scan the timestamp column on every check): every entry
     # is the upper bound, and the pricing reads whole columns anyway.
     ranged = tr.bounded and lt.roles.timestamp is not None
@@ -212,3 +219,27 @@ def _table(db: Database, lt: LogTable, tr: TimeRange, has_f: bool, has_s: bool) 
         ).rows[0]
         widths = {c: int(round(float(w or 0) * total)) for c, w in zip(names, row, strict=True)}
     return ScopeStats(total, total, widths, False, False, has_f, has_s, rows_exact=not ranged)
+
+
+def _count(db: Database, lt: LogTable) -> int:
+    return int(db.read(f"SELECT count(*) FROM {lt.relation}", {}, what=f"counting {lt.name}").scalar() or 0)
+
+
+def _live_rows(db: Database, lt: LogTable) -> int:
+    """An in-place table source's current row count, read once per tool call: the planner's estimate
+    (pg_class.reltuples), else a count(*) when the table has none (negative or missing)."""
+    memo = _LIVE_ROWS.get()
+    key = (id(db), lt.name, lt.source, lt.relation)
+    if memo is not None and key in memo:
+        return memo[key]
+    schema, _, table = lt.source.strip().rpartition(".")
+    est = db.read(
+        "SELECT max(c.reltuples) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+        "WHERE c.relname = %(t)s AND n.nspname = COALESCE(NULLIF(%(s)s, ''), current_schema()) AND c.relkind = 'r'",
+        {"t": table, "s": schema},
+        what=f"reading the row count of {lt.name}",
+    ).scalar()
+    total = int(round(float(est))) if est is not None and float(est) >= 0 else _count(db, lt)
+    if memo is not None:
+        memo[key] = total
+    return total
