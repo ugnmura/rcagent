@@ -97,6 +97,7 @@ async def test_expensive_plan_asks(mcp, fx_lt, monkeypatch):
     assert "TOO EXPENSIVE" in out
     assert "Nothing was run" in out
     assert "plan" in out.lower()
+    assert "reads up to ~" in out and "needs ~" not in out  # a full-scan bound, not a prediction of the read
     # confirming runs it
     again = await call(mcp, "run_sql", sql="SELECT count(*) FROM extractor.lt_fx", confirmed_cost=token_of(out))
     assert "5000" in again or "5,000" in again

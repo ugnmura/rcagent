@@ -150,7 +150,11 @@ def run_sql(
     plan_text = "\n".join(str(r[0]) for r in plan.rows)
     stats, how = _predict(ctx, checked, plan_text, timeout)
     s = ctx.settings
-    decision = cost.decide(stats, [PLAN_BYTES], True, s.sample_size, confirmed_cost, max_s=s.max_timeout_s)
+    # The prediction is a full-scan bound (WHERE clauses are not credited), so only fewer columns lower it.
+    decision = cost.decide(
+        stats, [PLAN_BYTES], True, s.sample_size, confirmed_cost, max_s=s.max_timeout_s, upper_bound=True,
+        ask_options=["name fewer columns: the bound counts every column the query names (all of them for *)"],
+    )
     if decision.status == "ask":
         return fmt.PREFIX + f"cost {how}; nothing was run.\n" + decision.message
     run_for = cost.run_timeout(decision.plan, timeout, s.max_timeout_s) if decision.plan.confirmed else timeout
