@@ -19,6 +19,10 @@ from drain3.template_miner_config import TemplateMinerConfig  # type: ignore[imp
 logging.getLogger("drain3").setLevel(logging.WARNING)
 
 
+# role name (service, component, ...) -> value -> count
+Breakdown = dict[str, dict[str, int]]
+
+
 @dataclass(frozen=True)
 class MaskedGroup:
     """Identical masked messages, with their count and context."""
@@ -28,18 +32,19 @@ class MaskedGroup:
     example: str
     first_seen: datetime | None = None
     last_seen: datetime | None = None
-    # role name (service, component, ...) -> value -> count
-    breakdown: dict[str, dict[str, int]] = field(default_factory=dict)
+    breakdown: Breakdown = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
 class MergedTemplate:
+    """A Drain template; `members` is the number of masked groups merged."""
+
     template: str
     count: int
     example: str  # taken from the largest member group
     first_seen: datetime | None
     last_seen: datetime | None
-    breakdown: dict[str, dict[str, int]]
+    breakdown: Breakdown
     members: int  # number of masked groups merged into this template
 
 
@@ -52,16 +57,6 @@ def _miner(sim_th: float, depth: int) -> TemplateMiner:
     return TemplateMiner(persistence_handler=None, config=config)
 
 
-def _min(values: Iterable[datetime | None]) -> datetime | None:
-    present = [v for v in values if v is not None]
-    return min(present) if present else None
-
-
-def _max(values: Iterable[datetime | None]) -> datetime | None:
-    present = [v for v in values if v is not None]
-    return max(present) if present else None
-
-
 def merge_groups(
     groups: Iterable[MaskedGroup], sim_th: float = 0.5, depth: int = 4
 ) -> list[MergedTemplate]:
@@ -70,26 +65,28 @@ def merge_groups(
     # result is identical for identical input regardless of input order.
     ordered = sorted(groups, key=lambda g: (-g.count, g.masked))
     miner = _miner(sim_th, depth)
-    members: dict[int, list[MaskedGroup]] = {}
+    by_cluster: dict[int, list[MaskedGroup]] = {}
     for group in ordered:
         cluster_id = miner.add_log_message(group.masked)["cluster_id"]
-        members.setdefault(cluster_id, []).append(group)
+        by_cluster.setdefault(cluster_id, []).append(group)
 
     merged = []
-    for cluster_id, items in members.items():
+    for cluster_id, items in by_cluster.items():
         breakdown: dict[str, Counter[str]] = {}
         for item in items:
             for role, values in item.breakdown.items():
                 breakdown.setdefault(role, Counter()).update(values)
         # Templates generalise as groups arrive, so read the final one.
         template = miner.drain.id_to_cluster[cluster_id].get_template()
+        seen_first = [i.first_seen for i in items if i.first_seen is not None]
+        seen_last = [i.last_seen for i in items if i.last_seen is not None]
         merged.append(
             MergedTemplate(
                 template=template,
                 count=sum(i.count for i in items),
                 example=items[0].example,  # ordered by count desc
-                first_seen=_min(i.first_seen for i in items),
-                last_seen=_max(i.last_seen for i in items),
+                first_seen=min(seen_first, default=None),
+                last_seen=max(seen_last, default=None),
                 breakdown={r: dict(c) for r, c in breakdown.items()},
                 members=len(items),
             )

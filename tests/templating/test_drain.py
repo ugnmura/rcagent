@@ -1,5 +1,7 @@
+import re
 from datetime import datetime
 
+from serenedb_extractor.templating.regex import compile_template
 from serenedb_extractor.templating.drain import MaskedGroup, merge_groups
 
 
@@ -73,3 +75,16 @@ def test_sorted_by_count_then_template_and_deterministic():
 
 def test_empty_input():
     assert merge_groups([]) == []
+
+
+def test_differing_placeholders_become_wildcard_others_kept():
+    (m,) = merge_groups(
+        [g("failed at <PATH> after <NUM>ms", 3), g("failed at <STR> after <NUM>ms", 2)]
+    )
+    assert m.template == "failed at <*> after <NUM>ms"
+
+
+def test_merged_template_round_trips_through_compiler():
+    example = "disk  full on\t/dev/sda1"
+    (m,) = merge_groups([g("disk  full on\t<PATH>", 1, example)])
+    assert re.fullmatch(compile_template(m.template).regex, example)
