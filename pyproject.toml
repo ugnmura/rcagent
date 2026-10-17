@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "MCP server for log analysis over SereneDB"
 requires-python = ">=3.12"
 dependencies = [
-    "mcp",
+    "mcp>=1.9,<2",
     "psycopg[binary]",
     "drain3",
     "sqlglot",
