@@ -259,3 +259,30 @@ def test_function_rejection_names_it(name):
 async def test_allowed_functions_run(mcp):
     out = await call(mcp, "run_sql", sql="SELECT upper('ab') AS u, regexp_extract('a12', '[0-9]+') AS d, coalesce(NULL, 3) AS c")
     assert "u | d | c\n--- | --- | ---\nAB | 12 | 3" in out, out
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "SELECT 'pg_authid'::regclass",
+        "SELECT CAST('pg_authid' AS regclass)",
+        "SELECT 'pg_authid'::pg_catalog.regclass",
+        "SELECT 'pg_authid'::\"regclass\"",
+        "SELECT 'pg_authid'::REGCLASS::oid",
+        "SELECT 'upper'::regproc",
+        "SELECT CAST('upper' AS regprocedure)",
+        "SELECT 'text'::regtype",
+        "SELECT 'public'::regnamespace",
+        "SELECT 'postgres'::regrole",
+        "SELECT '+'::regoper",
+        "SELECT regclass 'pg_authid'",
+        "SELECT 'simple'::regconfig",
+    ],
+)
+def test_reg_casts_rejected(bad):
+    with pytest.raises(SqlRejected, match="reg"):
+        check_read_only(bad)
+
+
+def test_reg_prefix_names_that_are_not_types_still_work():
+    check_read_only("SELECT regexp_extract(name, 'a') AS region FROM extractor.log_tables")
