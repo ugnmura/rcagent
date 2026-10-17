@@ -7,6 +7,7 @@ All timings are measured under amd64 emulation on an arm64 host (not representat
 """
 from __future__ import annotations
 
+import datetime
 import os
 import sys
 import threading
@@ -28,6 +29,15 @@ def connect() -> psycopg.Connection:
     return psycopg.connect(URL, autocommit=True, cursor_factory=psycopg.ClientCursor)
 
 
+def _guard() -> None:
+    """The script runs DROP SCHEMA ... CASCADE; refuse anything but the local test container."""
+    host_port = URL.split("@")[-1].split("/")[0]
+    if host_port not in ("localhost:17890", "127.0.0.1:17890") and os.environ.get("VERIFY_ALLOW_DESTRUCTIVE") != "1":
+        sys.exit(f"refusing to run destructive checks against {host_port}; "
+                 "use the sdb-test container (localhost:17890) or set VERIFY_ALLOW_DESTRUCTIVE=1")
+
+
+_guard()
 CONN = connect()
 
 
@@ -43,6 +53,15 @@ def q(sql: str, params=None, timeout: float = LONG, conn=None):
     finally:
         timer.cancel()
     return rows, time.perf_counter() - t
+
+
+def drop_quietly(*statements: str) -> None:
+    """Best-effort teardown: run each DROP ... IF EXISTS statement, ignoring errors."""
+    for sql in statements:
+        try:
+            q(sql)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def show(label: str, value) -> None:
@@ -62,7 +81,7 @@ def attempt(label: str, sql: str, params=None, timeout: float = LONG):
 
 
 def setup_schema() -> None:
-    q("DROP SCHEMA IF EXISTS extractor CASCADE")
+    drop_quietly("DROP SCHEMA IF EXISTS extractor CASCADE")
     q("CREATE SCHEMA extractor")
 
 
@@ -99,7 +118,7 @@ def c02_cancel():
 
 # 3 ---------------------------------------------------------------------
 def c03_ddl_dml():
-    q("DROP SCHEMA IF EXISTS spike3 CASCADE")
+    drop_quietly("DROP SCHEMA IF EXISTS spike3 CASCADE")
     q("CREATE SCHEMA IF NOT EXISTS spike3")
     q("CREATE SCHEMA IF NOT EXISTS spike3")  # idempotent
     q("CREATE TABLE spike3.t (id BIGINT PRIMARY KEY, j JSON, s TEXT)")
@@ -123,20 +142,24 @@ def c03_ddl_dml():
 
 # 4 ---------------------------------------------------------------------
 def c04_functions():
-    cases = {
-        "regexp_replace(...,'g')": "SELECT regexp_replace('a1b22c', '[0-9]+', '<NUM>', 'g')",
-        "regexp_full_match": "SELECT regexp_full_match('GET /x?id=7', 'GET /x\\?id=\\d+'), regexp_full_match('abc', 'b')",
-        "regexp_extract(s,p,['a','b'])": "SELECT regexp_extract('ab12', '([a-z]+)([0-9]+)', ['a','b'])",
-        "any_value": "SELECT any_value(x) FROM range(5) t(x)",
-        "quantile_cont": "SELECT quantile_cont(x, 0.5) FROM range(10) t(x)",
-        "date_trunc": "SELECT date_trunc('hour', timestamp '2026-03-01 10:34:00')",
-        "count FILTER": "SELECT count(*) FILTER (WHERE x > 3) FROM range(10) t(x)",
-        "AT TIME ZONE": "SELECT timestamp '2026-03-01 10:00:00' AT TIME ZONE 'Asia/Tokyo'",
-        "AT TIME ZONE (timestamptz -> local)": "SELECT timestamptz '2026-03-01 10:00:00+00' AT TIME ZONE 'Asia/Tokyo'",
+    cases = {  # label -> (sql, expected first row)
+        "regexp_replace(...,'g')": ("SELECT regexp_replace('a1b22c', '[0-9]+', '<NUM>', 'g')", ("a<NUM>b<NUM>c",)),
+        "regexp_full_match": ("SELECT regexp_full_match('GET /x?id=7', 'GET /x\\?id=\\d+'), regexp_full_match('abc', 'b')", (True, False)),
+        "regexp_extract(s,p,['a','b'])": ("SELECT regexp_extract('ab12', '([a-z]+)([0-9]+)', ['a','b'])", (("ab", "12"),)),
+        "any_value": ("SELECT any_value(x) FROM range(5) t(x)", None),  # nondeterministic: must just return a value in range
+        "quantile_cont": ("SELECT quantile_cont(x, 0.5) FROM range(10) t(x)", (4.5,)),
+        "date_trunc": ("SELECT date_trunc('hour', timestamp '2026-03-01 10:34:00')", (datetime.datetime(2026, 3, 1, 10, 0),)),
+        "count FILTER": ("SELECT count(*) FILTER (WHERE x > 3) FROM range(10) t(x)", (6,)),
+        "AT TIME ZONE (timestamp -> instant)": ("SELECT timestamp '2026-03-01 10:00:00' AT TIME ZONE 'Asia/Tokyo'", None),
+        "AT TIME ZONE (timestamptz -> local)": ("SELECT timestamptz '2026-03-01 10:00:00+00' AT TIME ZONE 'Asia/Tokyo'", (datetime.datetime(2026, 3, 1, 19, 0),)),
     }
     ok = True
-    for label, sql in cases.items():
-        r, _, _ = attempt(label, sql)
+    for label, (sql, expected) in cases.items():
+        r, rows, _ = attempt(label, sql)
+        if r and expected is not None:
+            r = rows[0] == expected
+            if not r:
+                show(f"{label} UNEXPECTED", f"{rows[0]} != {expected}")
         ok &= r
     return ok
 
@@ -174,19 +197,28 @@ def c05_remote_parquet():
 # 6 ---------------------------------------------------------------------
 def c06_explain():
     q("CREATE OR REPLACE VIEW extractor.tb AS SELECT * FROM " + SRC)
-    for label, where in [
+    cols = [d.name for d in CONN.execute("EXPLAIN SELECT 1").description]
+    show("EXPLAIN result columns", cols)
+    ok = cols == ["QUERY PLAN"]
+    expect_pushed = {0: False, 1: True, 2: True}
+    for i, (label, where) in enumerate([
         ("filter on Timestamp (TIMESTAMPTZ_NS) with timestamptz literal", "\"Timestamp\" >= timestamptz '2025-09-23 00:00:00+00' AND \"Timestamp\" < timestamptz '2025-09-23 00:00:02+00'"),
         ("filter on Timestamp with ::timestamptz_ns literal", WIN),
         ("filter on TimestampTime (timestamptz)", "\"TimestampTime\" >= timestamptz '2025-09-23 00:00:00+00' AND \"TimestampTime\" < timestamptz '2025-09-23 00:00:02+00'"),
-    ]:
+    ]):
         rows, s = q(f"EXPLAIN SELECT \"SeverityText\" FROM extractor.tb WHERE {where} LIMIT 5")
         plan = "\n".join(r[0] for r in rows)
         pushed = "Column Filter" in plan
-        show(f"{label} -> filter pushed into READ_PARQUET", pushed)
+        shape = len(rows[0]) == 1 and "READ_PARQUET" in plan and "~" in plan
+        show(f"{label} -> filter pushed into READ_PARQUET (expected {expect_pushed[i]})", pushed)
+        ok &= shape and pushed == expect_pushed[i]
         compact = " | ".join(l.strip("│╭╮╰╯─┬┴ ").strip() for l in plan.splitlines() if l.strip("│╭╮╰╯─┬┴ ").strip())
         show("  plan", compact)
-    show("reports rows?", "yes: '~N rows' estimates per node (1e9 for the scan, ~2e8 after filter); NO bytes, NO row-group counts")
-    return True
+    plan = "\n".join(r[0] for r in q("EXPLAIN SELECT \"SeverityText\" FROM extractor.tb LIMIT 5")[0])
+    has_rows = "rows" in plan
+    has_bytes = any(w in plan.lower() for w in ("bytes", "row group", "row_group", "cost"))
+    show("plan reports row estimates / reports bytes, row groups or cost", f"{has_rows} / {has_bytes}")
+    return ok and has_rows and not has_bytes
 
 
 # 7 ---------------------------------------------------------------------
@@ -228,13 +260,10 @@ def c08_filter_first():
 
 # 9 ---------------------------------------------------------------------
 def c09_inverted_index():
-    q("DROP INDEX IF EXISTS extractor.tb_idx")
+    drop_quietly("DROP INDEX IF EXISTS extractor.tb_idx")
     q("CREATE OR REPLACE VIEW extractor.tb1m AS SELECT \"Timestamp\"::timestamptz AS ts, \"SeverityText\" AS sev, \"Body\" AS body FROM "
       + f"read_parquet('{PQ}', filename=true, file_row_number=true) LIMIT 1000000")
-    try:
-        q("DROP TEXT SEARCH DICTIONARY IF EXISTS extractor.log_dict")
-    except Exception:  # noqa: BLE001
-        pass
+    drop_quietly("DROP TEXT SEARCH DICTIONARY IF EXISTS extractor.log_dict")
     q("CREATE TEXT SEARCH DICTIONARY extractor.log_dict AS split_text(case := 'lower') | normalize_tokens('en_US.UTF-8', accent := false) WITH (frequency, position)")
     ok, _, s = attempt("CREATE INDEX over view ... LIMIT 1000000", "CREATE INDEX tb_idx ON extractor.tb1m USING inverted(body extractor.log_dict, sev)", timeout=900)
     if not ok:
@@ -261,15 +290,12 @@ def c09_inverted_index():
 # 10 --------------------------------------------------------------------
 def c10_dictionary():
     ok = True
-    try:
-        q("DROP TEXT SEARCH DICTIONARY IF EXISTS extractor.log_dict")
-    except Exception:  # noqa: BLE001
-        pass
+    drop_quietly("DROP TEXT SEARCH DICTIONARY IF EXISTS extractor.log_dict")
     r, _, _ = attempt("CREATE TEXT SEARCH DICTIONARY",
                       "CREATE TEXT SEARCH DICTIONARY extractor.log_dict AS split_text(case := 'lower') | normalize_tokens('en_US.UTF-8', accent := false) WITH (frequency, position)")
     ok &= r
     attempt("ts_lexize", "SELECT ts_lexize('extractor.log_dict', 'Connection REFUSED to 10.0.7.21:5432 café')")
-    q("DROP TABLE IF EXISTS extractor.d")
+    drop_quietly("DROP TABLE IF EXISTS extractor.d")
     q("CREATE TABLE extractor.d (id BIGINT PRIMARY KEY, body TEXT)")
     q("INSERT INTO extractor.d SELECT i, CASE i % 3 WHEN 0 THEN 'Connection refused to 10.0.7.21' WHEN 1 THEN 'timeout after 30ms calling payments' ELSE 'user login failed' END FROM range(300) t(i)")
     q("CREATE INDEX d_idx ON extractor.d USING inverted(body extractor.log_dict)")
@@ -301,7 +327,7 @@ def c11_copy_to_parquet():
 
 # 12 --------------------------------------------------------------------
 def c12_copy_from_stdin():
-    q("DROP TABLE IF EXISTS extractor.cp")
+    drop_quietly("DROP TABLE IF EXISTS extractor.cp")
     q("CREATE TABLE extractor.cp (entry_id BIGINT PRIMARY KEY, ts TIMESTAMPTZ, level TEXT, message TEXT, attrs JSON)")
     n = 20000
     t = time.perf_counter()
@@ -332,6 +358,10 @@ CHECKS: list[tuple[int, str, Callable[[], bool]]] = [
 ]
 
 
+# Checks whose verdict only means "ran without error"; the numbers/plans are observed, not asserted.
+OBSERVED_ONLY = {7: "timings and sample sizes observed, not asserted", 9: "build time, size and term counts observed; only success of each statement asserted"}
+
+
 def main() -> int:
     wanted = {int(a) for a in sys.argv[1:]}
     setup_schema()
@@ -346,10 +376,14 @@ def main() -> int:
         except Exception as e:  # noqa: BLE001
             print(f"    EXCEPTION {type(e).__name__}: {str(e).strip().splitlines()[0] if str(e).strip() else ''}")
             ok = False
-        results[n] = ok
-        print(f"{'PASS' if ok else 'FAIL'} {n}. {title} ({time.perf_counter() - t:.1f}s)", flush=True)
-    print("\nSUMMARY:", ", ".join(f"{n}={'PASS' if v else 'FAIL'}" for n, v in results.items()))
-    print(f"{sum(results.values())}/{len(results)} passed")
+        word = ("RAN-OK" if n in OBSERVED_ONLY else "PASS") if ok else "FAIL"
+        results[n] = word
+        print(f"{word} {n}. {title} ({time.perf_counter() - t:.1f}s)", flush=True)
+    print("\nSUMMARY:", ", ".join(f"{n}={v}" for n, v in results.items()))
+    asserted = sum(v == "PASS" for v in results.values())
+    ran = sum(v == "RAN-OK" for v in results.values())
+    print(f"{asserted} asserted-pass, {ran} ran-ok (observed only: {', '.join(map(str, sorted(OBSERVED_ONLY)))}), "
+          f"{sum(v == 'FAIL' for v in results.values())} failed, of {len(results)} checks")
     return 0
 
 
