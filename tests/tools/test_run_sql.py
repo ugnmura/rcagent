@@ -188,3 +188,74 @@ async def test_single_role_allowed_by_env(db_url):
     async for c in _client(lambda: AppContext.from_settings(Settings.from_env(env))):
         out = await call(c, "run_sql", sql="SELECT 5 AS five")
         assert out.startswith("How this was measured: ") and "five\n---\n5" in out
+
+
+# Fix round 2: scope-aware relations, a function allowlist, TABLE in any form, parser limits (R56, R61).
+BYPASSES = [
+    "SELECT * FROM (WITH pg_authid AS (SELECT 1) SELECT 1) a, pg_authid",
+    "WITH x AS (WITH pg_tables AS (SELECT 1) SELECT 1) SELECT * FROM pg_tables",
+    "SELECT * FROM extractor.log_tables WHERE EXISTS (WITH pg_settings AS (SELECT 1) SELECT 1) OR 1 IN (SELECT 1 FROM pg_settings)",
+    "SELECT coalesce(NULL, (TABLE pg_database))",
+    "SELECT array_length([(TABLE pg_authid)])",
+    "SELECT 'x' IN (TABLE pg_namespace)",
+    "SELECT * FROM (TABLE pg_tables) t",
+    "SELECT 1 WHERE 'x' = (TABLE pg_authid)",
+    "SELECT 1 AS a UNION ALL (TABLE pg_namespace)",
+    "SELECT generate_series(1, 3)",
+    "SELECT range(3)",
+    "SELECT current_setting('search_path')",
+    "SELECT getenv('HOME')",
+    "SELECT csv_scan('/etc/hostname')",
+    "SELECT \"Read_Text\"('/etc/passwd')",
+    "SELECT main.read_text('/etc/passwd')",
+    "SELECT U&\"\\0072ead_text\"('/etc/hostname')",
+    "SELECT * FROM U&\"\\0072ead_text\"('/etc/hostname')",
+    "SELECT CASE WHEN 1=1 THEN read_text('/etc/passwd') END",
+    "SELECT row_number() OVER (ORDER BY read_blob('/etc/passwd'))",
+    "SELECT " + "(" * 2000 + "1" + ")" * 2000,
+    "SELECT 1 FROM " + "(SELECT 1 FROM " * 600 + "extractor.log_tables" + ") a" * 600,
+]
+
+
+@pytest.mark.parametrize("bad", BYPASSES)
+def test_guard_blocks_bypass(bad):
+    with pytest.raises(SqlRejected):
+        check_read_only(bad)
+
+
+@pytest.mark.parametrize("bad", BYPASSES[:6] + BYPASSES[9:12])
+async def test_bypass_not_executed(mcp, bad):
+    out = await call(mcp, "run_sql", sql=bad)
+    assert "only read" in out.lower(), out
+
+
+@pytest.mark.parametrize(
+    "ok",
+    [
+        "WITH a AS (SELECT 1 AS v), b AS (SELECT v FROM a) SELECT * FROM b",
+        "SELECT * FROM (WITH c AS (SELECT 1 AS v) SELECT v FROM c) s",
+        "WITH RECURSIVE r AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT n FROM r",
+        "SELECT lower(name), upper(name), length(name), substr(name, 1, 2), replace(name, 'a', 'b'), trim(name), concat(name, 'x') FROM extractor.log_tables",
+        "SELECT regexp_full_match(name, 'a.*'), regexp_extract(name, '(a)', 1), regexp_replace(name, 'a', 'b') FROM extractor.log_tables",
+        "SELECT date_trunc('hour', created_at), extract(epoch FROM created_at), strftime(created_at, '%Y'), CAST(created_at AS date) FROM extractor.log_tables",
+        "SELECT count(*), count(DISTINCT name), sum(row_count), avg(row_count), min(name), max(name), quantile_cont(row_count, 0.5), approx_count_distinct(name), any_value(name), string_agg(name, ',') FROM extractor.log_tables",
+        "SELECT name, row_number() OVER (ORDER BY name), lag(name) OVER (ORDER BY name), rank() OVER (ORDER BY name) FROM extractor.log_tables",
+        "SELECT coalesce(name, 'x'), nullif(name, ''), greatest(1, 2), least(1, 2), abs(-1), round(1.5), floor(1.5), ceil(1.5) FROM extractor.log_tables",
+        "SELECT json_extract_string('{\"a\": 1}', '$.a'), '{\"a\": 1}'::json ->> 'a'",
+        "SELECT name FROM extractor.log_tables WHERE name LIKE '50%' AND row_count IN (1, 2) AND NOT (name IS NULL) ORDER BY name LIMIT 5",
+        "SELECT CAST(1 AS varchar(10)), 1::numeric(10, 2)",
+    ],
+)
+def test_allowlisted_queries_pass(ok):
+    check_read_only(ok)
+
+
+@pytest.mark.parametrize("name", ["pg_read_file", "generate_series", "current_setting", "read_text", "getenv"])
+def test_function_rejection_names_it(name):
+    with pytest.raises(SqlRejected, match=f"function {name} isn't allowed in run_sql"):
+        check_read_only(f"SELECT {name}('x')")
+
+
+async def test_allowed_functions_run(mcp):
+    out = await call(mcp, "run_sql", sql="SELECT upper('ab') AS u, regexp_extract('a12', '[0-9]+') AS d, coalesce(NULL, 3) AS c")
+    assert "u | d | c\n--- | --- | ---\nAB | 12 | 3" in out, out

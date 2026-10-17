@@ -2,23 +2,55 @@
 statement that is a query (SELECT, a set operation of selects, VALUES) or an EXPLAIN of one.
 Anything that could modify data, change settings or kill sessions is rejected in plain language."""
 
+import re
 from dataclasses import dataclass
 
 import sqlglot
 from sqlglot import exp
+from sqlglot.dialects.dialect import Dialect
 from sqlglot.errors import SqlglotError
+from sqlglot.optimizer.scope import Scope, traverse_scope
+from sqlglot.tokens import TokenType
 
 from serenedb_extractor.errors import UserFacingError
 
-BLOCKED_FUNCTIONS = {"pg_cancel_backend", "pg_terminate_backend", "set_config"}
-# Deny-by-name rule for every function call (lower case, any schema qualifier ignored): an exact
-# name below, or a name starting/ending with one of the affixes. A function that sqlglot does not
-# know (Anonymous) is allowed unless it matches; known ones are matched by their SQL name.
-DENIED_NAMES = BLOCKED_FUNCTIONS | {"glob", "nextval", "setval", "currval"}
-DENIED_PREFIXES = (
-    "pg_", "lo_", "dblink", "read_", "parquet_", "sniff_", "copy", "query_to_", "txid_", "load", "install",
+# Function ALLOWLIST (R56). Every word that is directly followed by "(" in the query text, as the
+# SQL tokenizer sees it (so quoted names, schema qualifiers and different cases all count), must be
+# one of these (lower case) or a bare SQL keyword that takes a parenthesis (SYNTAX_WORDS). Anything
+# else is refused by name: functions that read files, sessions or settings, and every table function
+# (read_*, glob, range, generate_series, current_setting, pg_*, ...) are simply not on the list.
+ALLOWED_FUNCTIONS = frozenset(
+    """
+    lower upper length char_length character_length octet_length substr substring left right trim ltrim rtrim btrim
+    lpad rpad replace concat concat_ws position strpos contains starts_with ends_with prefix suffix reverse repeat
+    split_part string_split initcap ascii chr md5 hash format printf translate overlay
+    regexp_full_match regexp_matches regexp_extract regexp_extract_all regexp_replace regexp_split_to_array
+    regexp_like regexp_match
+    date_trunc date_part date_diff date_add date_sub datediff datepart extract epoch epoch_ms age now
+    current_timestamp current_date current_time make_timestamp make_date make_time to_timestamp to_char
+    strftime strptime time_bucket year month day hour minute second dayofweek dayofyear week quarter
+    abs ceil ceiling floor round trunc sign sqrt cbrt power pow exp ln log log2 log10 mod div random
+    greatest least coalesce nullif ifnull nvl if iif cast try_cast typeof
+    json_extract json_extract_string json_extract_path json_extract_path_text json_exists json_valid json_type
+    json_array_length json_keys json_object json_array to_json
+    count sum avg min max median mode stddev stddev_pop stddev_samp variance var_pop var_samp quantile quantile_cont
+    quantile_disc percentile_cont percentile_disc approx_count_distinct approx_quantile any_value arbitrary first last
+    list array_agg string_agg group_concat bool_and bool_or count_if sum_if arg_min arg_max min_by max_by histogram
+    row_number rank dense_rank percent_rank cume_dist ntile lag lead first_value last_value nth_value
+    array_length cardinality array_to_string list_aggr list_contains list_distinct list_sort len array row
+    varchar char text integer int bigint smallint tinyint double float real numeric decimal boolean
+    timestamp timestamptz time timetz date interval bit
+    """.split()
 )
-DENIED_SUFFIXES = ("_to_xml",)
+# Keywords that may be followed by "(" without being a function call.
+SYNTAX_WORDS = frozenset(
+    """
+    in not and or as on over from where select union intersect except all any some exists filter using by group
+    order partition within values when then else case end join lateral distinct between like ilike is having
+    limit offset with materialized similar escape rows window recursive
+    """.split()
+)
+MAX_PAREN_DEPTH = 100
 ALLOWED_SCHEMA = "extractor"
 REJECTED = "only read-only queries are allowed"
 
@@ -52,18 +84,58 @@ def _source_name(node: exp.Expr | None) -> str:
     return (_function_name(node) or str(node.name) or "a function").lower()
 
 
-def _denied(name: str) -> bool:
-    return name in DENIED_NAMES or name.startswith(DENIED_PREFIXES) or name.endswith(DENIED_SUFFIXES)
+COMPLEX = "the query is too complex or couldn't be read"
 
 
-def _check_relation(t: exp.Table, ctes: set[str]) -> None:
+def _check_tokens(text: str) -> None:
+    """Checks on the raw tokens, which see what the server will see: TABLE in any form, unicode-escaped
+    names, runaway nesting, and every function name against the allowlist."""
+    try:
+        tokens = Dialect.get_or_raise("postgres").tokenize(text)
+    except Exception:
+        raise SqlRejected(COMPLEX) from None
+    depth = 0
+    for i, tok in enumerate(tokens):
+        word = tok.text.lower() if "STRING" not in tok.token_type.name else ""
+        if tok.token_type == TokenType.TABLE:
+            raise SqlRejected("TABLE is not allowed in run_sql; use SELECT * FROM extractor.<table>")
+        if tok.token_type == TokenType.L_PAREN:
+            depth += 1
+            if depth > MAX_PAREN_DEPTH:
+                raise SqlRejected(COMPLEX)
+        elif tok.token_type == TokenType.R_PAREN:
+            depth -= 1
+        nxt = tokens[i + 1] if i + 1 < len(tokens) else None
+        if nxt is not None and nxt.token_type == TokenType.AMP and word == "u":
+            raise SqlRejected("unicode-escaped names (U&...) are not allowed in run_sql")
+        if nxt is None or nxt.token_type != TokenType.L_PAREN or not re.fullmatch(r"[a-z_][a-z0-9_$ ]*", word):
+            continue
+        quoted_or_plain = tok.token_type in (TokenType.VAR, TokenType.IDENTIFIER)
+        if word in ALLOWED_FUNCTIONS:
+            continue
+        if not quoted_or_plain and word.split()[0] in SYNTAX_WORDS:
+            continue
+        raise SqlRejected(f"function {word} isn't allowed in run_sql")
+
+
+def _cte_references(root: exp.Expr) -> set[int]:
+    """ids of unqualified Table nodes that resolve to a CTE visible in their own scope."""
+    ok: set[int] = set()
+    for scope in traverse_scope(root):
+        for t in scope.tables:
+            if t.args.get("db") is None and isinstance(scope.sources.get(t.name), Scope):
+                ok.add(id(t))
+    return ok
+
+
+def _check_relation(t: exp.Table, cte_refs: set[int]) -> None:
     if not isinstance(t.this, exp.Identifier):  # read_text('..'), generate_series(..), ROWS FROM ...
         what = t.this.name if t.this is not None and t.this.name else (t.this.sql_name() if isinstance(t.this, exp.Func) else "a table function")
         raise SqlRejected(f"{what.lower()}() is a table function; only tables in the {ALLOWED_SCHEMA} schema can be read")
     name = t.name
     schema = t.args.get("db")
     if schema is None:
-        if name.lower() in ctes:
+        if id(t) in cte_refs:
             return
         raise SqlRejected(f"table {name} is not in the {ALLOWED_SCHEMA} schema; write {ALLOWED_SCHEMA}.{name}")
     sname = str(schema.name)
@@ -74,6 +146,8 @@ def _check_relation(t: exp.Table, ctes: set[str]) -> None:
 def _parse(sql: str) -> exp.Expr:
     try:
         statements = [s for s in sqlglot.parse(sql, read="postgres") if s is not None]
+    except RecursionError:
+        raise SqlRejected(COMPLEX) from None
     except SqlglotError:
         raise SqlRejected("it could not be read as a single SQL query") from None
     if not statements:
@@ -96,7 +170,15 @@ def _split_explain(root: exp.Expr) -> str | None:
 
 
 def check_read_only(sql: str) -> Checked:
+    try:
+        return _check(sql)
+    except RecursionError:
+        raise SqlRejected(COMPLEX) from None
+
+
+def _check(sql: str) -> Checked:
     text = sql.strip().rstrip(";").strip()
+    _check_tokens(text)
     root = _parse(text)
     inner = _split_explain(root)
     explain = inner is not None
@@ -107,10 +189,15 @@ def check_read_only(sql: str) -> Checked:
         raise SqlRejected("only SELECT queries, set operations and EXPLAIN of them can run")
     if isinstance(root, exp.Subquery) and not isinstance(root.unnest(), _QUERY_ROOTS):
         raise SqlRejected("only SELECT queries, set operations and EXPLAIN of them can run")
-    ctes = {c.alias_or_name.lower() for c in root.find_all(exp.CTE)}
+    try:
+        cte_refs = _cte_references(root)
+    except Exception:
+        raise SqlRejected(COMPLEX) from None
     for node in root.walk():
         if isinstance(node, exp.Table):
-            _check_relation(node, ctes)
+            _check_relation(node, cte_refs)
+        if isinstance(node, exp.Column) and node.name.lower() == "table":
+            raise SqlRejected("TABLE is not allowed in run_sql; use SELECT * FROM extractor.<table>")
         # A function used as a row source (FROM f(), JOIN f(), LATERAL f(), unnest(..)) is refused whatever
         # its name. A LATERAL subquery is allowed: its tables are checked like any other.
         if isinstance(node, exp.Lateral) and not isinstance(node.this, (exp.Subquery, exp.Select)):
@@ -123,7 +210,4 @@ def check_read_only(sql: str) -> Checked:
             raise SqlRejected("it changes data, settings or the database")
         if isinstance(node, exp.Select) and (node.args.get("locks") or node.args.get("into")):
             raise SqlRejected("it locks or writes rows")
-        name = _function_name(node)
-        if name and _denied(name):
-            raise SqlRejected(f"{name}() is not allowed")
     return Checked(text, explain, root)
