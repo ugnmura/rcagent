@@ -101,12 +101,20 @@ class _Conn:
         timeout_s: float | None = None,
         what: str = "",
         how_to_narrow: str = DEFAULT_NARROW,
+        prepared: bool = False,
     ) -> Rows:
-        """Run one statement; past `timeout_s` it is cancelled in SereneDB and QueryTimeout is raised."""
+        """Run one statement; past `timeout_s` it is cancelled in SereneDB and QueryTimeout is raised.
+        `prepared`: use the extended protocol (server-side parsing), so the server itself refuses a
+        string holding several statements; for untrusted SQL (run_sql)."""
         with self.lock:
             canceller = _Canceller(self, timeout_s)
             try:
-                cur = self.get(timeout_s).execute(sql, params)  # type: ignore[call-overload]
+                pg = self.get(timeout_s)
+                if prepared:
+                    cur = psycopg.Cursor(pg)
+                    cur.execute(sql, params, prepare=True)  # type: ignore[call-overload]
+                else:
+                    cur = pg.execute(sql, params)  # type: ignore[call-overload]
                 if cur.description is None:
                     return Rows([], [])
                 return Rows([d.name for d in cur.description], cur.fetchall())
@@ -187,8 +195,11 @@ class Database:
         timeout_s: float | None = None,
         what: str = "",
         how_to_narrow: str = DEFAULT_NARROW,
+        prepared: bool = False,
     ) -> Rows:
-        return self._execute(self._reader, sql, params, timeout_s, what, how_to_narrow, self.settings.default_timeout_s)
+        return self._execute(
+            self._reader, sql, params, timeout_s, what, how_to_narrow, self.settings.default_timeout_s, prepared
+        )
 
     def write(
         self,
@@ -209,12 +220,13 @@ class Database:
         what: str,
         how_to_narrow: str,
         default_s: float,
+        prepared: bool = False,
     ) -> Rows:
         """Every statement runs under a timeout. Reads default to the query timeout (60 s); writes
         (DDL, catalog updates, copy batches) default to the maximum (600 s), because setup and index
         builds are long but approved work. Either can be set per call, capped at the maximum."""
         timeout = default_s if timeout_s is None or timeout_s <= 0 else timeout_s
-        return conn.run(sql, params, min(timeout, self.settings.max_timeout_s), what, how_to_narrow)
+        return conn.run(sql, params, min(timeout, self.settings.max_timeout_s), what, how_to_narrow, prepared)
 
     def copy_rows(self, table: str, columns: list[str], rows: list[tuple[Any, ...]], batch: int = 500) -> int:
         """Insert rows in batches through the writer; `table` may be schema-qualified."""

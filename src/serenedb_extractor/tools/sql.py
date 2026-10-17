@@ -10,7 +10,7 @@ from sqlglot import exp
 from serenedb_extractor import format as fmt
 from serenedb_extractor.catalog.models import LogTable
 from serenedb_extractor.context import AppContext
-from serenedb_extractor.db import Rows
+from serenedb_extractor.db import Database, Rows
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.query import cost
 from serenedb_extractor.query.filters import TimeRange
@@ -21,6 +21,7 @@ DEFAULT_LIMIT = 50
 MAX_LIMIT = 500
 CELL_CHARS = 200
 UNKNOWN_SCAN_BYTES_PER_ROW = 100  # a Parquet scan that is not a log table: rows from the plan x this
+PLAN_BYTES = "plan"  # the one pseudo-column of the plan-based ScopeStats: the whole predicted read
 NARROW = "add a LIMIT, a narrower filter or fewer columns, then try again."
 _ROWS = re.compile(r"~\s*([0-9][0-9,]*)\s+rows")
 
@@ -30,11 +31,18 @@ class SqlFailed(UserFacingError):
         super().__init__(f"SereneDB could not run this query: {re.sub(r'\s+', ' ', detail).strip()}")
 
 
-def _read(ctx: AppContext, sql: str, timeout: float | None, what: str) -> Rows:
+def execute_user_sql(db: Database, sql: str, timeout: float | None, what: str) -> Rows:
+    """Run user SQL on the reader. `params` is None on purpose: the text is never %-parsed (a `%` in
+    a LIKE pattern is literal). `prepared=True` sends it over the extended protocol, so SereneDB
+    itself refuses a string holding several statements even if the guard missed one."""
     try:
-        return ctx.db.read(sql, None, timeout, what, NARROW)
+        return db.read(sql, None, timeout, what, NARROW, prepared=True)
     except psycopg.Error as exc:
         raise SqlFailed(str(exc).splitlines()[0] if str(exc) else "unknown error") from exc
+
+
+def _read(ctx: AppContext, sql: str, timeout: float | None, what: str) -> Rows:
+    return execute_user_sql(ctx.db, sql, timeout, what)
 
 
 def _key(name: str) -> str:
@@ -91,7 +99,15 @@ def _predict(ctx: AppContext, checked: Checked, plan_text: str, timeout: float |
         total += guess * UNKNOWN_SCAN_BYTES_PER_ROW
         rows += guess
         how += f" and the plan's row estimate x {UNKNOWN_SCAN_BYTES_PER_ROW} bytes per row for the Parquet scan"
-    stats = ScopeStats(rows, rows, {"plan": int(total)}, False, remote, False, False)
+    stats = ScopeStats(
+        total_rows=rows,
+        rows_in_range=rows,
+        bytes_by_column={PLAN_BYTES: int(total)},
+        time_skippable=False,
+        remote=remote,
+        has_filter_index=False,
+        has_search_index=False,
+    )
     return stats, how
 
 
@@ -108,6 +124,13 @@ def _table(columns: list[str], rows: list[tuple[object, ...]]) -> str:
     return "\n".join(lines)
 
 
+SINGLE_ROLE_REFUSAL = (
+    "run_sql is switched off: only a reader URL is configured, so SereneDB is not enforcing read-only "
+    "access and a query could slip past the checks. Set SERENEDB_WRITER_URL (and make the reader a "
+    "SELECT-only role), or set SERENEDB_ALLOW_SQL=1 to allow it anyway."
+)
+
+
 def run_sql(
     ctx: AppContext,
     sql: str,
@@ -115,30 +138,34 @@ def run_sql(
     timeout_s: float | None = None,
     confirmed_cost: str | None = None,
 ) -> str:
+    if ctx.settings.single_role and not ctx.settings.allow_sql:
+        raise UserFacingError(SINGLE_ROLE_REFUSAL)
     checked = check_read_only(sql)
     timeout = ctx.db.effective_timeout(timeout_s)
     if checked.explain:
         rows = _read(ctx, f"EXPLAIN {checked.sql}", timeout, "explaining the query")
-        return "\n".join(str(r[0]) for r in rows.rows) + "\n" + fmt.PREFIX + "EXPLAIN only; nothing was run."
+        return fmt.PREFIX + "EXPLAIN only; the query was not run.\n" + "\n".join(str(r[0]) for r in rows.rows)
     shown = fmt.clamp_limit(limit, DEFAULT_LIMIT, MAX_LIMIT)
     plan = _read(ctx, f"EXPLAIN {checked.sql}", timeout, "planning the query")
     plan_text = "\n".join(str(r[0]) for r in plan.rows)
     stats, how = _predict(ctx, checked, plan_text, timeout)
     s = ctx.settings
-    decision = cost.decide(stats, ["plan"], True, s.sample_size, confirmed_cost, max_s=s.max_timeout_s)
+    decision = cost.decide(stats, [PLAN_BYTES], True, s.sample_size, confirmed_cost, max_s=s.max_timeout_s)
     if decision.status == "ask":
-        return decision.message + f"\n({how}; no log entries were read.)"
+        return fmt.PREFIX + f"cost {how}; nothing was run.\n" + decision.message
     run_for = cost.run_timeout(decision.plan, timeout, s.max_timeout_s) if decision.plan.confirmed else timeout
     wrapped = f"SELECT * FROM (\n{checked.sql}\n) q LIMIT {shown + 1}"
     result = _read(ctx, wrapped, run_for, "running the query")
     rows_out = result.rows[:shown]
-    out = [_table(result.columns, rows_out)] if result.columns else ["(no result columns)"]
+    note = " ".join(decision.plan.notes)
+    out = [fmt.PREFIX + f"your SQL ran as a read-only query, cut to {shown} rows; cost {how}; {note or 'within the budget'}."]
+    out.append(_table(result.columns, rows_out) if result.columns else "(no result columns)")
     if len(result.rows) > shown:
+        # One extra row is fetched to know there is more; the total is not counted (that would
+        # run the query again), so the note says "more than", never a number it doesn't have.
         out.append(f"showing {shown} of more than {shown} rows; add a LIMIT, filters or aggregation to see the rest")
     elif not rows_out:
         out.append("no rows")
     else:
         out.append(f"{len(rows_out)} row{'s' if len(rows_out) != 1 else ''}")
-    note = " ".join(decision.plan.notes)
-    out.append(fmt.PREFIX + f"your SQL ran as a read-only query, cut to {shown} rows; cost {how}; {note or 'within the budget'}.")
     return "\n".join(out)

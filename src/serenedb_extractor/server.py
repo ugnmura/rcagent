@@ -201,8 +201,6 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
             new_name=new_name,
         )
 
-
-def register_sql_tool(mcp: FastMCP, runner: ToolRunner) -> None:
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
     async def run_sql(
         sql: str, limit: int | None = None, timeout_s: float | None = None, confirmed_cost: str | None = None
@@ -217,7 +215,6 @@ def build_server(ctx_factory: Callable[[], AppContext]) -> FastMCP:
     mcp = FastMCP("serenedb-extractor")
     runner = ToolRunner(ctx_factory)
     register_tools(mcp, runner)
-    register_sql_tool(mcp, runner)
     return mcp
 
 

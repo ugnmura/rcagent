@@ -21,6 +21,7 @@ class Settings:
     max_timeout_s: float = 600.0
     sample_size: int = 100_000
     limit_cap: int = 10
+    allow_sql: bool = False  # SERENEDB_ALLOW_SQL=1: run_sql may run on a single (unrestricted) role
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> "Settings":
@@ -47,6 +48,7 @@ class Settings:
             reader_url=reader,
             writer_url=writer or reader,
             single_role=not writer,
+            allow_sql=env.get("SERENEDB_ALLOW_SQL", "").strip() == "1",
             logs_host_dir=host_dir,
             logs_container_dir=container_dir,
         )
