@@ -277,3 +277,17 @@ async def test_estimates_are_forgotten_when_setup_reruns(mcp, fx_lt, monkeypatch
     await call(mcp, "setup_log_table", name="fx", source=fx_lt)
     out = await call(mcp, "search_logs", log_table="fx", text="disk full")
     assert "TOO EXPENSIVE" in out and "search index (≈" not in out
+
+
+async def test_failed_build_at_setup_is_one_short_line(mcp, fx_path, monkeypatch):
+    import psycopg
+
+    from serenedb_extractor.setup import indexes
+
+    def fail(ctx, lt, kind):
+        raise psycopg.Error("index build failed\nDETAIL:  out of memory\nHINT:  try a smaller table")
+
+    monkeypatch.setattr(indexes, "build_measured", fail)
+    out = await call(mcp, "setup_log_table", name="fx", source=fx_path, build_filter_index=True)
+    line = next(ln for ln in out.splitlines() if ln.startswith("The filter index could not be built"))
+    assert "out of memory" in line and "HINT: try a smaller table" in line, out

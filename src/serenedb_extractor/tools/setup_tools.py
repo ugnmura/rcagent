@@ -438,7 +438,7 @@ def _index_section(ctx: AppContext, lt: LogTable, build_filter: bool, build_sear
             built = indexes.build_measured(ctx, lt, kind)
             out.append(_built_line(kind, built))
         except (psycopg.Error, UserFacingError) as exc:
-            out.append(f"The {kind} index could not be built ({exc}); the log table is set up without it.")
+            out.append(f"The {kind} index could not be built ({indexes.short_detail(exc)}); the log table is set up without it.")
     return out, True
 
 

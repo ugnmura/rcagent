@@ -143,10 +143,11 @@ def ensure_dictionary(ctx: AppContext) -> None:
     except psycopg.Error as exc:
         if "already exists" in str(exc):
             return  # another process created it between our check and our create
-        raise UserFacingError(f"SereneDB could not create the text search dictionary: {_detail(exc)}") from exc
+        raise UserFacingError(f"SereneDB could not create the text search dictionary: {short_detail(exc)}") from exc
 
 
-def _detail(exc: BaseException) -> str:
+def short_detail(exc: BaseException) -> str:
+    """An error as one short line (whitespace runs collapsed, at most 300 characters)."""
     return re.sub(r"\s+", " ", str(exc)).strip()[:300]
 
 
@@ -158,7 +159,7 @@ def _drop(ctx: AppContext, sql: str) -> None:
     try:
         ctx.db.write(sql, {}, timeout_s=ctx.settings.max_timeout_s)
     except (psycopg.Error, UserFacingError) as exc:
-        log.warning("could not run %s: %s", sql, _detail(exc))  # a trial object may be left behind; swept later
+        log.warning("could not run %s: %s", sql, short_detail(exc))  # a trial object may be left behind; swept later
 
 
 def _drop_trial(ctx: AppContext, tag: str) -> None:
@@ -178,7 +179,7 @@ def sweep_trials(ctx: AppContext) -> None:
             ).rows
         ]
     except (psycopg.Error, UserFacingError) as exc:
-        log.warning("could not look for leftover trial objects: %s", _detail(exc))
+        log.warning("could not look for leftover trial objects: %s", short_detail(exc))
         return
     now = time.time()
     for name in names:
@@ -271,7 +272,7 @@ def build_measured(ctx: AppContext, lt: LogTable, kind: str) -> BuiltIndex:
                 "drop it in SereneDB first, then build again."
             ) from exc
         _drop(ctx, f"DROP INDEX IF EXISTS {qualified}")
-        raise UserFacingError(f"SereneDB could not build the {k} index: {_detail(exc)}") from exc
+        raise UserFacingError(f"SereneDB could not build the {k} index: {short_detail(exc)}") from exc
     except BaseException:
         _drop(ctx, f"DROP INDEX IF EXISTS {qualified}")  # e.g. a timeout: don't leave half an index behind
         raise
@@ -310,7 +311,7 @@ def offer_lines(
         try:
             est = estimate_relation(ctx, relation_sql, roles, kind, total_rows)
         except (psycopg.Error, UserFacingError) as exc:
-            out.append(f"{kind} index: no estimate ({_detail(exc)})")
+            out.append(f"{kind} index: no estimate ({short_detail(exc)})")
             continue
         if source is not None:
             ctx.estimates.put(source, roles, kind, est)
