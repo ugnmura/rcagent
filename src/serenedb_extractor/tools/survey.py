@@ -37,7 +37,7 @@ from serenedb_extractor.setup.sniff import human_bytes, readable
 from serenedb_extractor.templating.drain import Breakdown, MaskedGroup, MergedTemplate, merge_groups
 from serenedb_extractor.templating.masking import mask_sql
 from serenedb_extractor.templating.regex import compile_template
-from serenedb_extractor.tools.describe import known_columns
+from serenedb_extractor.tools.describe import known_columns, untimestamped_note
 
 DEFAULT_LIMIT = 30
 SAMPLE_SEED = 3  # fixed so that repeating a survey over unchanged data samples the same entries
@@ -270,6 +270,8 @@ def survey(
         timeout = cost.run_timeout(plan, s.default_timeout_s, s.max_timeout_s)
         # The How-measured line already says the survey is sampled; keep only notes that add to it.
         notes = [*exclusion_notes, *(fmt.sentence(n) for n in plan.notes if not plan.confirmed and n != SAMPLED_NOTE)]
+        if (missing := untimestamped_note(db, lt, tr)) is not None:
+            notes.append(missing)
         if confirmed_cost and not plan.confirmed:
             notes.append(f"confirmed_cost={confirmed_cost} was not needed: this survey fits the time budget, so it ran as usual.")
         if plan.sampling == "blocks":

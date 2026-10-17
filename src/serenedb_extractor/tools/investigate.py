@@ -26,7 +26,7 @@ from serenedb_extractor.setup.paths import sql_literal
 from serenedb_extractor.setup.roles import is_temporal, resolve_column, role_column
 from serenedb_extractor.setup.sniff import readable
 from serenedb_extractor.templating.regex import compile_template
-from serenedb_extractor.tools.describe import known_columns, like_pattern
+from serenedb_extractor.tools.describe import known_columns, like_pattern, untimestamped_note
 from serenedb_extractor.timezones import get_zone
 
 DEFAULT_GROUPS = 20
@@ -266,6 +266,8 @@ def locate_occurrences(
         if decision.status == "ask":
             return _ask(sc, decision.message)
         plan = decision.plan
+        if (missing := untimestamped_note(db, lt, tr)) is not None:
+            notes.append(missing)
         scope_sql = _scope_sql(sc, plan)
         what = f"locating occurrences in log table {lt.name}"
         timeout = cost.run_timeout(plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)

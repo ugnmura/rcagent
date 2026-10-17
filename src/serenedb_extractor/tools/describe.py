@@ -19,7 +19,8 @@ from serenedb_extractor.query.filters import (
 )
 from serenedb_extractor.query import cost, sampling
 from serenedb_extractor.query.stats import role_columns
-from serenedb_extractor.setup.roles import resolve_column, role_lines
+from serenedb_extractor.setup import indexes
+from serenedb_extractor.setup.roles import resolve_column, role_column, role_lines
 from serenedb_extractor.setup.sniff import readable, relation_columns
 
 SAMPLE_ROWS = 10_000
@@ -53,6 +54,34 @@ def _top_values(db: Database, lt: LogTable, role: str, where: str, params: dict[
     return shown + more
 
 
+def _top_values_indexed(
+    db: Database, lt: LogTable, role: str, tr: TimeRange, cols: dict[str, str]
+) -> tuple[str, str] | None:
+    """(text, index name): the role's top values, exact, read from a filter or search index that covers
+    it (and the timestamp when the period is bounded); None when no index serves it."""
+    expr = getattr(lt.roles, role)
+    col = role_column(expr) if expr else None
+    if col is None:
+        return None
+    need = [col] + (role_columns(lt.roles.timestamp) if tr.bounded else [])
+    via = indexes.covering(db, lt, need)
+    if via is None:
+        return None
+    index = via[1]
+    time_sql, params = time_clause(lt, tr, cols)
+    ref = role_sql(lt, role)
+    rows = db.read(
+        f"SELECT t, c, count(*) OVER () AS n FROM (SELECT unnest(ts_dict_agg({ref})) AS t, "
+        f"unnest(ts_dict_count({ref})) AS c FROM {index} WHERE {time_sql}) ORDER BY c DESC, t LIMIT {TOP_N}",
+        params,
+    ).rows
+    if not rows:
+        return "no values", index
+    shown = ", ".join(f"{r[0]} ({int(r[1]):,})" for r in rows)
+    more = f", … ({rows[0][2]} distinct)" if rows[0][2] > len(rows) else ""
+    return shown + more, index
+
+
 def _time_range_line(db: Database, lt: LogTable, cols: dict[str, str], tr: TimeRange) -> str:
     if lt.roles.timestamp is None:
         return "time range: unknown (no timestamp field)"
@@ -75,6 +104,26 @@ def _affordable(db: Database, lt: LogTable, tr: TimeRange, columns: list[str]) -
     if decision.status == "run" and decision.plan.exact:
         return None
     return f"counting would need {cost.cost_text(decision.plan)}; narrow the period, or build a filter index"
+
+
+def untimestamped_note(db: Database, lt: LogTable, tr: TimeRange) -> str | None:
+    """With a time range on a copied table: how many entries have no timestamp and so fall outside it.
+
+    The count goes through the cost check; None when there is no range, nothing is missing, or the
+    count would be too expensive.
+    """
+    if not tr.bounded or lt.mode != "copied" or lt.roles.timestamp is None:
+        return None
+    if _affordable(db, lt, TimeRange(), role_columns(lt.roles.timestamp)):
+        return None
+    n = db.read(f"SELECT count(*) FROM {lt.relation} WHERE ({role_sql(lt, 'timestamp')}) IS NULL", {}).scalar()
+    if not n:
+        return None
+    return (
+        f"{n:,} entries in this log table have no timestamp and are outside any time range."
+        if n != 1
+        else "1 entry in this log table has no timestamp and is outside any time range."
+    )
 
 
 def _describe_one(ctx: AppContext, lt: LogTable, tr: TimeRange) -> list[str]:
@@ -117,15 +166,29 @@ def _describe_one(ctx: AppContext, lt: LogTable, tr: TimeRange) -> list[str]:
         if n == 0:
             out += [f"  {line}" for line in diagnose_empty(db, lt, tr, Filters(), cols)]
             return out
-    label = "sampled — rare values may be missing"
-    scope = f"the first {SAMPLE_ROWS:,} entries" + (f" in {tr.describe()}" if tr.bounded else "")
-    out.append(f"  top values ({label}; from {scope}):")
+    lines: list[str] = []
+    used: set[str] = set()
+    sampled = False
     for role in _TOP_ROLES:
         if getattr(lt.roles, role) is None:
-            out.append(f"    {role}: absent")
+            lines.append(f"    {role}: absent")
+            continue
+        via = _top_values_indexed(db, lt, role, tr, cols)
+        if via is not None:
+            used.add(via[1])
+            lines.append(f"    {role}: {via[0]}" + ("" if via[0] == "no values" else "  [exact, from the index]"))
         else:
-            out.append(f"    {role}: {_top_values(db, lt, role, where, params)}")
-    return out
+            sampled = True
+            lines.append(f"    {role}: {_top_values(db, lt, role, where, params)}")
+    period = f" in {tr.describe()}" if tr.bounded else ""
+    if sampled:
+        label = "sampled — rare values may be missing"
+        scope = f"the first {SAMPLE_ROWS:,} entries" + period
+        out.append(f"  top values ({label}; from {scope}){' — values marked [exact] come from an index' if used else ''}:")
+    else:
+        out.append(f"  top values (exact, read from the index {', '.join(sorted(used))}; all entries{period}):")
+        lines = [ln.replace("  [exact, from the index]", "") for ln in lines]
+    return out + lines
 
 
 def _resolve_field(lt: LogTable, name: str, cols: dict[str, str]) -> tuple[str, str]:
@@ -165,14 +228,26 @@ def _find_values(
     label, expr = _resolve_field(lt, field, cols)
     time_sql, time_params = time_clause(lt, tr, cols)
     read = role_columns(expr) + (role_columns(lt.roles.timestamp) if tr.bounded else [])
-    _, decision = cost.check(db, lt, tr, read, confirmed_cost)
+    plain = role_column(expr)
+    via = indexes.covering(db, lt, read) if plain is not None and read else None
+    _, decision = cost.check(db, lt, tr, read, confirmed_cost, indexed=read if via else ())
     if decision.status == "ask":
         return cost.ASKED_HOW, None, [decision.message]
     plan = decision.plan
     params = {**time_params, "like": like_pattern(str(like))}
     timeout = cost.run_timeout(plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
     what = f"looking up values like '{like}' in {label} of log table {lt.name}"
-    if plan.exact:
+    if plan.exact and via:  # the index lists every distinct term with its count; no entry is scanned
+        found = db.read(
+            f"SELECT v, c FROM (SELECT unnest(ts_dict_agg({expr}))::varchar AS v, unnest(ts_dict_count({expr})) AS c "
+            f"FROM {via[1]} WHERE {time_sql}) WHERE v ILIKE %(like)s ESCAPE '\\' ORDER BY c DESC, v LIMIT {_VALUES_CAP}",
+            params,
+            timeout_s=timeout,
+            what=what,
+            how_to_narrow=_LOOKUP_NARROW,
+        ).rows
+        rows: list[tuple[str, str]] = [(str(v), f"{int(c):,}") for v, c in found]
+    elif plan.exact:
         found = db.read(
             f"SELECT v, count(*) AS c FROM (SELECT ({expr})::varchar AS v FROM {lt.relation} WHERE {time_sql}) "
             f"WHERE v ILIKE %(like)s ESCAPE '\\' GROUP BY v ORDER BY c DESC, v LIMIT {_VALUES_CAP}",
@@ -181,12 +256,14 @@ def _find_values(
             what=what,
             how_to_narrow=_LOOKUP_NARROW,
         ).rows
-        rows: list[tuple[str, str]] = [(str(v), f"{c:,}") for v, c in found]
+        rows = [(str(v), f"{c:,}") for v, c in found]
     else:
         rows = _sampled_values(db, lt, plan, expr, time_sql, params, timeout, what)
     where_txt = f" between {tr.describe()}" if tr.bounded else ""
     if plan.exact:
         kind, sample = _EXACT_LOOKUP + (" (run as you confirmed)" if plan.confirmed else ""), None
+        if via:
+            kind = f"{_EXACT_LOOKUP} read from the {via[0]} index {via[1]} (no entry was scanned)"
     else:
         kind = "estimated distinct-value lookup in one field: whole blocks of entries were read, so rare values may be missing"
         upto = "" if plan.rows_exact else "up to "
