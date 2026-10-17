@@ -33,34 +33,34 @@ def _sample_groups(
         f"FROM {lt.relation} WHERE {where}"
     )
     sql = (
-        f"SELECT {mask_sql('msg')} AS m, svc, comp, count(*) AS c, any_value(msg) AS example, min(ts), max(ts) "
-        f"FROM (SELECT * FROM ({inner}) USING SAMPLE reservoir({int(sample_size)} ROWS) REPEATABLE ({SAMPLE_SEED})) "
+        f"SELECT {mask_sql('msg')} AS m, svc, comp, count(*) AS c, any_value(msg) AS example, min(ts) AS first_ts, max(ts) AS last_ts "
+        "FROM (SELECT * FROM (" + inner + ") USING SAMPLE reservoir(%(sample_rows)s ROWS) REPEATABLE (%(sample_seed)s)) "
         "GROUP BY 1, 2, 3"
     )
-    rows = ctx.db.read(sql, params).rows
-    by_mask: dict[str, list[tuple[Any, ...]]] = {}
+    rows = ctx.db.read(sql, {**params, "sample_rows": int(sample_size), "sample_seed": SAMPLE_SEED}).dicts()
+    by_mask: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
-        by_mask.setdefault(row[0], []).append(row)
+        by_mask.setdefault(row["m"], []).append(row)
     groups: list[MaskedGroup] = []
     sampled = 0
     for masked, items in by_mask.items():
         breakdown: Breakdown = {}
-        for role, idx in (("service", 1), ("component", 2)):
+        for role, col in (("service", "svc"), ("component", "comp")):
             if getattr(lt.roles, role) is None:
                 continue
             counts = breakdown.setdefault(role, {})
             for r in items:
-                label = NONE_LABEL if r[idx] is None else str(r[idx])
-                counts[label] = counts.get(label, 0) + int(r[3])
-        total = sum(int(r[3]) for r in items)
+                label = NONE_LABEL if r[col] is None else str(r[col])
+                counts[label] = counts.get(label, 0) + int(r["c"])
+        total = sum(int(r["c"]) for r in items)
         sampled += total
-        seen_first = [r[5] for r in items if r[5] is not None]
-        seen_last = [r[6] for r in items if r[6] is not None]
+        seen_first = [r["first_ts"] for r in items if r["first_ts"] is not None]
+        seen_last = [r["last_ts"] for r in items if r["last_ts"] is not None]
         groups.append(
             MaskedGroup(
                 masked=masked,
                 count=total,
-                example=max(items, key=lambda r: int(r[3]))[4],
+                example=max(items, key=lambda r: int(r["c"]))["example"],
                 first_seen=min(seen_first, default=None),
                 last_seen=max(seen_last, default=None),
                 breakdown=breakdown,
@@ -79,17 +79,25 @@ def _filters_text(f: Filters) -> str | None:
     return ", ".join(parts) or None
 
 
-def _share(part: int, whole: int) -> str:
+def _share(part: int, whole: int, exact: bool = False) -> str:
     pct = 100 * part / whole if whole else 0.0
-    return "≈<1%" if 0 < pct < 1 else f"≈{pct:.0f}%"
+    mark = "" if exact else "≈"
+    return f"{mark}<1%" if 0 < pct < 1 else f"{mark}{pct:.0f}%"
 
 
-def _breakdown_line(role: str, counts: dict[str, int], hits: int) -> str | None:
+def _breakdown_line(role: str, counts: dict[str, int], hits: int, exact: bool) -> str | None:
     if not counts:
         return None
     top = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:TOP_BREAKDOWN]
     label = {"service": "services", "component": "components"}[role]
-    return f"    {label}: " + ", ".join(f"{name} {_share(n, hits)}" for name, n in top)
+    return f"    {label}: " + ", ".join(f"{name} {_share(n, hits, exact)}" for name, n in top)
+
+
+def _measure(count: int, sampled: int, population: int) -> fmt.Measured:
+    """Every matching entry was read -> exact; otherwise scaled from the sample."""
+    if sampled >= population:
+        return fmt.Measured(float(count), True, sampled, count)
+    return fmt.estimate(count, sampled, population)
 
 
 def _candidate(m: MergedTemplate, measured: fmt.Measured) -> CandidateTemplate:
@@ -105,6 +113,15 @@ def _candidate(m: MergedTemplate, measured: fmt.Measured) -> CandidateTemplate:
     )
 
 
+def _unavailable_notes(exclude: list[str] | None, confirmed_cost: str | None) -> list[str]:
+    notes = []
+    if exclude:
+        notes.append("Excluding templates isn't available yet — nothing was excluded.")
+    if confirmed_cost:
+        notes.append("The cost confirmation isn't available yet — it was ignored; this survey ran as usual.")
+    return notes
+
+
 def survey(
     ctx: AppContext,
     log_table: str,
@@ -117,7 +134,7 @@ def survey(
     timezone: str = "UTC",
     confirmed_cost: str | None = None,
 ) -> str:
-    # `exclude` (#11) and `confirmed_cost` (#12) are part of the signature but not acted on yet.
+    # `exclude` (#11) and `confirmed_cost` (#12) are not acted on yet; the output says so.
     lt = ctx.store.get_log_table(log_table)
     tr: TimeRange = parse_time_range(start, end, timezone)
     f = Filters.from_dict(filters)
@@ -134,25 +151,37 @@ def survey(
             head = fmt.how_measured(
                 "exact count of the entries that match", tr.describe() if tr.bounded else None, _filters_text(f), tz=timezone
             )
-            return head + "\n" + "\n".join(lines)
+            return head + "\n" + "\n".join([*_unavailable_notes(exclude, confirmed_cost), *lines])
     merged = merge_groups(groups)
-    candidates = [_candidate(m, fmt.estimate(m.count, sampled, population)) for m in merged]
+    exact = sampled >= population
+    measures = {m.template: _measure(m.count, sampled, population) for m in merged}
+    candidates = [_candidate(m, measures[m.template]) for m in merged]
     result = ctx.store.upsert_survey_templates(lt.name, candidates, datetime.now(UTC))
     saved: dict[str, tuple[Template, str]] = {t.template: (t, status) for t, status in result.items}
 
-    whole = "every matching entry" if sampled >= population else f"a random sample of {sampled:,} of them"
+    if exact:
+        kind = (
+            f"survey, exact: every matching entry ({population:,}) was read, masked, grouped and merged into "
+            "templates inside SereneDB; all counts and shares are exact"
+        )
+    else:
+        kind = (
+            f"survey: the matching entries were counted exactly ({population:,}), then a random sample of "
+            f"{sampled:,} of them was masked, grouped and merged into templates inside SereneDB; "
+            "counts per template are estimates scaled from the sample"
+        )
     head = fmt.how_measured(
-        f"survey: the matching entries were counted exactly ({population:,}), then {whole} was masked, grouped and "
-        "merged into templates inside SereneDB; counts per template are estimates scaled from the sample",
+        kind,
         tr.describe() if tr.bounded else None,
         _filters_text(f),
-        f"filtered first, then sampled ({sampled:,} entries, repeatable)",
+        "all matching entries read, no sampling" if exact else f"filtered first, then sampled ({sampled:,} entries, repeatable)",
         tz=timezone,
     )
     shown, note = fmt.cut(merged, shown_limit, "templates")
     covered = sum(m.count for m in shown)
     out = [
         head,
+        *_unavailable_notes(exclude, confirmed_cost),
         f"Log table {lt.name}: {population:,} entries match; {len(merged)} templates found in the sample.",
         f"These {len(shown)} cover {100 * covered / sampled:.0f}% of the sample.",
     ]
@@ -160,13 +189,13 @@ def survey(
         out.append(note)
     for m in shown:
         template, status = saved[m.template]
-        measured = fmt.estimate(m.count, sampled, population)
+        measured = measures[m.template]
         flag = "  NEW" if status == "new" else ""
         out.append("")
         out.append(f"{template.template_id}  {m.template}{flag}")
-        out.append(f"    {fmt.render(measured)}, {_share(m.count, sampled)} of matching entries")
+        out.append(f"    {fmt.render(measured)}, {_share(m.count, sampled, exact)} of matching entries")
         for role in ("service", "component"):
-            line = _breakdown_line(role, m.breakdown.get(role, {}), m.count)
+            line = _breakdown_line(role, m.breakdown.get(role, {}), m.count, exact)
             if line:
                 out.append(line)
         out.append(f"    example: {fmt.shorten(m.example)}")

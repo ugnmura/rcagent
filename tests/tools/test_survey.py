@@ -1,5 +1,10 @@
+import re
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 
+from serenedb_extractor.catalog.models import CandidateTemplate
 from serenedb_extractor.catalog.store import CatalogStore
 from tests.conftest import call, container_parquet, id_of, ids_in
 from tests.fixtures.data import FX
@@ -15,21 +20,29 @@ async def fx_lt(mcp, db_url):
 
 
 async def test_finds_planted_templates(mcp, fx_lt):
-    out = await call(mcp, "survey", log_table="fx")
+    out = await call(mcp, "survey", log_table="fx", sample_size=1000)
     assert out.startswith("How this was measured: ")
     assert "timeout after <NUM>ms calling payments" in out and "login failed for user <*>" in out
     assert "disk full on <PATH>" in out
     assert "≈" in out and "estimated from" in out and "NEW" in out and "cover" in out
 
 
-async def test_estimates_are_near_planted_counts(mcp, fx_lt):
+async def test_whole_population_sampled_is_exact(mcp, fx_lt):  # R26
     out = await call(mcp, "survey", log_table="fx")
-    line = next(ln for ln in out.splitlines() if "≈3,000 (estimated from a 5k sample" in ln)
-    assert "60%" in line
+    assert "≈" not in out
+    assert "3,000 (exact)" in out and "1,500 (exact)" in out and "30 (exact)" in out
+    assert "too rare" not in out and "estimated from" not in out
+    assert "exact" in out.splitlines()[0] and "every matching entry" in out.splitlines()[0]
+
+
+async def test_estimates_are_near_planted_counts(mcp, fx_lt):
+    out = await call(mcp, "survey", log_table="fx", sample_size=1000)
+    m = re.search(r"≈([\d,]+) \(estimated from a 1k sample, ±\d+%\)", out)
+    assert m and 2_500 <= int(m.group(1).replace(",", "")) <= 3_500
 
 
 async def test_breakdown(mcp, fx_lt):
-    out = await call(mcp, "survey", log_table="fx")
+    out = await call(mcp, "survey", log_table="fx", sample_size=1000)
     assert "payments ≈" in out and "gateway ≈" in out
 
 
@@ -48,8 +61,8 @@ async def test_ids_come_from_the_counter_and_are_not_reused(mcp, fx_lt, database
     assert database.read("SELECT next_template_no FROM extractor.log_tables WHERE name = 'fx'").scalar() == n + 1
 
 
-async def test_rare_marked(mcp, fx_lt):
-    out = await call(mcp, "survey", log_table="fx", sample_size=200)
+async def test_rare_marked(mcp, fx_lt):  # R29: with 9 sampled entries no template can reach 10 hits, for any seed
+    out = await call(mcp, "survey", log_table="fx", sample_size=9)
     assert "too rare to estimate reliably" in out and "sampled hits" in out
 
 
@@ -74,9 +87,45 @@ async def test_time_range_and_zone_are_stated(mcp, fx_lt):
     assert "Europe/Paris" in out and "timeout after" in out
 
 
-async def test_exclude_and_confirmed_cost_are_accepted(mcp, fx_lt):
-    out = await call(mcp, "survey", log_table="fx", exclude=["T1"], confirmed_cost="x")
-    assert out.startswith("How this was measured: ")
+async def test_exclude_is_never_silently_ignored(mcp, fx_lt):  # R27
+    out = await call(mcp, "survey", log_table="fx", exclude=["T1"])
+    assert out.startswith("How this was measured: ") and "Excluding templates isn't available yet" in out
+    assert "nothing was excluded" in out
+
+
+async def test_confirmed_cost_is_never_silently_ignored(mcp, fx_lt):  # R27
+    out = await call(mcp, "survey", log_table="fx", confirmed_cost="x")
+    assert "cost" in out and "isn't available yet" in out
+    assert "isn't available yet" not in await call(mcp, "survey", log_table="fx")
+
+
+async def test_quotes_in_filter_values_are_escaped(mcp, fx_lt):
+    out = await call(mcp, "survey", log_table="fx", filters={"service": "o'brien"})
+    assert "service='o''brien' matched nothing" in out
+
+
+def _candidate(text):
+    return CandidateTemplate(text, "^x$", [], "x", None, None, 1)
+
+
+async def test_consecutive_upserts_get_consecutive_ids(mcp, fx_lt, database):  # R28
+    store = CatalogStore(database)
+    a = store.upsert_survey_templates("fx", [_candidate("alpha <*>")], datetime(2026, 1, 1))
+    b = store.upsert_survey_templates("fx", [_candidate("beta <*>"), _candidate("gamma <*>")], datetime(2026, 1, 1))
+    assert [t.template_id for t, _ in a.items] == ["T1"]
+    assert [t.template_id for t, _ in b.items] == ["T2", "T3"]
+
+
+async def test_concurrent_upserts_get_distinct_ids(mcp, fx_lt, database):  # R28
+    store = CatalogStore(database)
+
+    def go(i):
+        return store.upsert_survey_templates("fx", [_candidate(f"word{i} <*>")], datetime(2026, 1, 1)).items[0][0].template_id
+
+    with ThreadPoolExecutor(6) as pool:
+        ids = list(pool.map(go, range(6)))
+    assert sorted(ids) == sorted(f"T{i}" for i in range(1, 7))
+    assert re.fullmatch(r"T\d+", ids[0])
 
 
 async def test_unknown_log_table(mcp):

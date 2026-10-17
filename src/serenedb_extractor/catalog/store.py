@@ -140,15 +140,13 @@ class CatalogStore:
         fresh = [c for c in dict.fromkeys(c.template for c in found) if c not in by_text]
         first_no = 0
         if fresh:
-            first_no = int(
-                self.db.read(
-                    "SELECT next_template_no FROM extractor.log_tables WHERE name = %(n)s", {"n": log_table}
-                ).scalar()
-            )
-            self.db.write(
-                "UPDATE extractor.log_tables SET next_template_no = %(next)s WHERE name = %(n)s",
-                {"next": first_no + len(fresh), "n": log_table},
-            )
+            # One statement reserves the whole block of numbers, so concurrent upserts never collide.
+            reserved = self.db.write(
+                "UPDATE extractor.log_tables SET next_template_no = next_template_no + %(k)s WHERE name = %(n)s "
+                "RETURNING next_template_no",
+                {"k": len(fresh), "n": log_table},
+            ).scalar()
+            first_no = int(reserved) - len(fresh)
         numbers = {text: first_no + i for i, text in enumerate(fresh)}
         now = _naive_utc(observed_at)
         items: list[tuple[Template, Any]] = []
