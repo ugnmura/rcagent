@@ -102,8 +102,8 @@ def _check_tokens(text: str) -> None:
     depth = 0
     for i, tok in enumerate(tokens):
         word = tok.text.lower() if "STRING" not in tok.token_type.name else ""
-        if word in REG_TYPES:
-            raise SqlRejected(f"casts to {word} look up catalog objects and are not allowed in run_sql")
+        if word.lstrip("_") in REG_TYPES:  # _regclass is the array type of regclass
+            raise SqlRejected(f"casts to {word.lstrip('_')} look up catalog objects and are not allowed in run_sql")
         if tok.token_type == TokenType.TABLE:
             raise SqlRejected("TABLE is not allowed in run_sql; use SELECT * FROM extractor.<table>")
         if tok.token_type == TokenType.L_PAREN:

@@ -277,6 +277,11 @@ async def test_allowed_functions_run(mcp):
         "SELECT '+'::regoper",
         "SELECT regclass 'pg_authid'",
         "SELECT 'simple'::regconfig",
+        "SELECT '{pg_authid}'::_regclass",
+        "SELECT '{pg_authid}'::pg_catalog._regclass",
+        "SELECT '{text}'::\"_regtype\"",
+        "SELECT '{pg_authid}'::__REGCLASS",
+        "SELECT '{pg_authid}'::regclass[]",
     ],
 )
 def test_reg_casts_rejected(bad):
