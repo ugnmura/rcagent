@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "serenedb-extractor"
+version = "0.1.0"
+description = "MCP server for log analysis over SereneDB"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp",
+    "psycopg[binary]",
+    "drain3",
+    "sqlglot",
+]
+
+[project.scripts]
+serenedb-extractor = "serenedb_extractor.server:main"
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "mypy",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/serenedb_extractor"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "db: needs a SereneDB at SERENEDB_TEST_URL",
+]
+
+[tool.mypy]
+check_untyped_defs = true
+python_version = "3.12"
