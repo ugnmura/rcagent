@@ -37,7 +37,8 @@ from serenedb_extractor.setup.sniff import human_bytes, readable
 from serenedb_extractor.templating.drain import Breakdown, MaskedGroup, MergedTemplate, merge_groups
 from serenedb_extractor.templating.masking import mask_sql
 from serenedb_extractor.templating.regex import compile_template
-from serenedb_extractor.tools.describe import known_columns, untimestamped_note
+from serenedb_extractor.query.coverage import untimestamped_note
+from serenedb_extractor.tools.describe import known_columns
 
 DEFAULT_LIMIT = 30
 SAMPLE_SEED = 3  # fixed so that repeating a survey over unchanged data samples the same entries

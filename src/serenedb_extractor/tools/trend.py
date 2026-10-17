@@ -31,7 +31,8 @@ from serenedb_extractor.setup.roles import is_temporal, resolve_column, role_col
 from serenedb_extractor.setup.sniff import readable
 from serenedb_extractor.templating.regex import compile_template
 from serenedb_extractor.timezones import get_zone
-from serenedb_extractor.tools.describe import known_columns, like_pattern, untimestamped_note
+from serenedb_extractor.query.coverage import untimestamped_note
+from serenedb_extractor.tools.describe import known_columns, like_pattern
 
 Bucket = Literal["hour", "day"]
 Status = Literal["full", "partial", "none", "unknown"]
