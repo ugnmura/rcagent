@@ -3,7 +3,7 @@
 from serenedb_extractor import format as fmt
 from serenedb_extractor.catalog.models import ROLE_FIELDS, FieldRoles, LogTable
 from serenedb_extractor.context import AppContext
-from serenedb_extractor.db import Database, quote_ident
+from serenedb_extractor.db import Database, QueryTimeout, quote_ident
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.query.filters import (
     FILTER_ROLES,
@@ -16,6 +16,8 @@ from serenedb_extractor.query.filters import (
     role_sql,
     time_clause,
 )
+from serenedb_extractor.query import cost, sampling
+from serenedb_extractor.query.stats import collect, role_columns
 from serenedb_extractor.setup.roles import resolve_column, role_lines
 from serenedb_extractor.setup.sniff import readable, relation_columns
 
@@ -118,11 +120,20 @@ def _resolve_field(lt: LogTable, name: str, cols: dict[str, str]) -> tuple[str, 
     )
 
 
-def _like_pattern(text: str) -> str:
+def like_pattern(text: str) -> str:
+    """An ILIKE pattern (ESCAPE '\\') matching `text` anywhere, with its own % and _ taken literally."""
     return "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
-def _find_values(ctx: AppContext, lt: LogTable, find: dict[str, str], tr: TimeRange) -> list[str]:
+_EXACT_LOOKUP = "exact distinct-value lookup in one field"
+_ASKED = "cost predicted from the source's metadata only; no log entries were read"
+_LOOKUP_NARROW = "narrow it: a shorter period (start/end), or build a filter index (create_index with dry_run)."
+
+
+def _find_values(
+    ctx: AppContext, lt: LogTable, find: dict[str, str], tr: TimeRange, confirmed_cost: str | None = None
+) -> tuple[str, str | None, list[str]]:
+    """(how it was measured, sample label, lines). Cost-checked first; an ask returns the refusal."""
     field = find.get("role_or_column")
     like = find.get("like")
     if not field or like is None or str(like) == "":
@@ -131,26 +142,50 @@ def _find_values(ctx: AppContext, lt: LogTable, find: dict[str, str], tr: TimeRa
     cols = known_columns(db, lt)
     label, expr = _resolve_field(lt, field, cols)
     time_sql, time_params = time_clause(lt, tr, cols)
+    read = role_columns(expr) + (role_columns(lt.roles.timestamp) if tr.bounded else [])
+    stats = collect(db, lt, tr)
+    decision = cost.decide(stats, read, True, ctx.settings.sample_size, confirmed_cost)
+    if decision.status == "ask":
+        return _ASKED, None, [decision.message]
+    plan = decision.plan
+    block = f" AND {sampling.clause(plan)}" if plan.sampling else ""
     cap = 1000
-    rows = db.read(
-        f"SELECT v, count(*) AS c FROM (SELECT ({expr})::varchar AS v FROM {lt.relation} WHERE {time_sql}) "
-        f"WHERE v ILIKE %(like)s ESCAPE '\\' GROUP BY v ORDER BY c DESC, v LIMIT {cap}",
-        {**time_params, "like": _like_pattern(str(like))},
-    ).rows
+    what = f"looking up values like '{like}' in {label} of log table {lt.name}"
+    try:
+        rows = db.read(
+            f"SELECT v, count(*) AS c FROM (SELECT ({expr})::varchar AS v FROM {lt.relation} WHERE {time_sql}{block}) "
+            f"WHERE v ILIKE %(like)s ESCAPE '\\' GROUP BY v ORDER BY c DESC, v LIMIT {cap}",
+            {**time_params, "like": like_pattern(str(like))},
+            timeout_s=cost.run_timeout(plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s),
+            what=what,
+        ).rows
+    except QueryTimeout as exc:
+        raise QueryTimeout(exc.seconds, what, _LOOKUP_NARROW) from None
     where_txt = f" between {tr.describe()}" if tr.bounded else ""
+    notes = [n[0].upper() + n[1:] + ("" if n.endswith(".") else ".") for n in plan.notes]
+    if plan.exact:
+        kind, sample = _EXACT_LOOKUP + (" (run as you confirmed)" if plan.confirmed else ""), None
+    else:
+        kind = "estimated distinct-value lookup in one field: a block sample was read, so rare values may be missing"
+        sample = f"block sample of about {plan.sample_rows or 0:,} of {stats.rows_in_range:,} entries"
+    out = [f"log table {lt.name}", *("  " + n for n in notes)]
     if not rows:
-        out = [f"no values like '{like}' in {label}{where_txt}."]
-        if tr.bounded:
-            out += diagnose_empty(db, lt, tr, Filters(), cols)
-        return out
+        out.append(f"  no values like '{like}' in {label}{where_txt}" + ("" if plan.exact else " in the sample") + ".")
+        if tr.bounded and plan.exact:
+            out += ["  " + line for line in diagnose_empty(db, lt, tr, Filters(), cols)]
+        return kind, sample, out
     shown, note = fmt.cut(rows, 50, "values")
     if len(rows) >= cap:
         note = f"showing {len(shown)} of at least {cap} values"
-    out = [f"values like '{like}' in {label}{where_txt} (exact counts):"]
-    out += [f"  {v} ({c:,})" for v, c in shown]
+    if plan.exact:
+        out.append(f"  values like '{like}' in {label}{where_txt} (exact counts):")
+        out += [f"    {v} ({c:,})" for v, c in shown]
+    else:
+        out.append(f"  values like '{like}' in {label}{where_txt} found in the sample (estimated counts):")
+        out += [f"    {v} ({fmt.render(fmt.estimate(int(c), plan.sample_rows or 0, stats.rows_in_range))})" for v, c in shown]
     if note:
-        out.append(note)
-    return out
+        out.append("  " + note)
+    return kind, sample, out
 
 
 def describe_logs(
@@ -160,6 +195,7 @@ def describe_logs(
     start: str | None = None,
     end: str | None = None,
     timezone: str = "UTC",
+    confirmed_cost: str | None = None,
 ) -> str:
     tr = parse_time_range(start, end, timezone)
     if log_table is None:
@@ -173,20 +209,20 @@ def describe_logs(
             raise UserFacingError(f"Say which log table to look in. Known log tables: {', '.join(t.name for t in tables)}.")
     else:
         tables = [ctx.store.get_log_table(log_table)]
+    period = tr.describe() if tr.bounded else None
+    if find_values:
+        lt = tables[0]
+        with readable(f"the source of log table '{lt.name}'"):
+            kind, sample, lines = _find_values(ctx, lt, find_values, tr, confirmed_cost)
+        return fmt.how_measured(kind, period=period, sample=sample, tz=timezone) + "\n" + "\n".join(lines)
     header = fmt.how_measured(
-        "catalog and metadata, a time range from Parquet statistics or a column scan, and a block sample; top values are sampled, counts of values found are exact"
-        if not find_values
-        else "exact distinct-value lookup in one field",
-        period=tr.describe() if tr.bounded else None,
-        sample=None if find_values else f"top values from a block of {SAMPLE_ROWS:,} entries",
+        "catalog and metadata, a time range from Parquet statistics or a column scan, and a block sample; top values are sampled, counts of values found are exact",
+        period=period,
+        sample=f"top values from a block of {SAMPLE_ROWS:,} entries",
         tz=timezone,
     )
     body: list[str] = []
     for lt in tables:
         with readable(f"the source of log table '{lt.name}'"):
-            if find_values:
-                body.append(f"log table {lt.name}")
-                body += ["  " + line for line in _find_values(ctx, lt, find_values, tr)]
-            else:
-                body += _describe_one(ctx, lt, tr)
+            body += _describe_one(ctx, lt, tr)
     return header + "\n" + "\n".join(body)

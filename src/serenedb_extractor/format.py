@@ -108,3 +108,30 @@ def render(m: Measured) -> str:
     if m.margin_rel is None:
         return f"too rare to estimate reliably: {m.hits or 0} sampled hits"
     return f"≈{_sig3(m.value):,} (estimated from a {_sample_label(m.sample_size or 0)} sample, ±{_margin_label(m.margin_rel)}%)"
+
+
+def seconds_label(seconds: float) -> str:
+    """Whole seconds render as integers (60, not 60.0)."""
+    return str(int(seconds)) if float(seconds).is_integer() else f"{seconds:.1f}"
+
+
+def duration(seconds: float) -> str:
+    """A rough human duration: ~43 s, ~20 min, ~2.5 h (under a second below 1 s)."""
+    if seconds < 1:
+        return "under a second"
+    if seconds < 90:
+        return f"~{seconds:.0f} s"
+    if seconds < 5400:
+        return f"~{seconds / 60:.0f} min"
+    return f"~{seconds / 3600:.1f} h"
+
+
+def refusal(reason: str, options: list[str]) -> str:
+    """The ask when no cheaper strategy fits: what it would cost, that nothing ran, and the choices."""
+    lines = [f"TOO EXPENSIVE: {reason.rstrip('.')}.", "Nothing was run. Options:"]
+    lines += [f"- {o}" for o in options]
+    return "\n".join(lines)
+
+
+def timeout_message(seconds: float, what: str, how_to_narrow: str) -> str:
+    return f"TIMEOUT after {seconds_label(seconds)}s: {what} — {how_to_narrow}"

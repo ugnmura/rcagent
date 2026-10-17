@@ -14,7 +14,7 @@ from mcp.types import ToolAnnotations
 from serenedb_extractor import format as fmt
 from serenedb_extractor.config import ConfigError, Settings
 from serenedb_extractor.context import AppContext
-from serenedb_extractor.tools import catalog_tools, describe, setup_tools
+from serenedb_extractor.tools import catalog_tools, describe, lookup, setup_tools
 from serenedb_extractor.tools import survey as survey_tool
 
 SINGLE_ROLE_NOTE = (
@@ -95,8 +95,9 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         start: str | None = None,
         end: str | None = None,
         timezone: str = "UTC",
+        confirmed_cost: str | None = None,
     ) -> str:
-        """Describe the log tables: source, field roles, time range, context scopes and top values; find_values={"role_or_column","like"} looks up values containing a word."""
+        """Describe the log tables: source, field roles, time range, context scopes and top values; find_values={"role_or_column","like"} looks up values containing a word. If a lookup answers TOO EXPENSIVE and the user agrees, repeat it with the confirmed_cost it gives."""
         return await runner.run_tool(
             describe.describe_logs,
             log_table=log_table,
@@ -104,6 +105,35 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
             start=start,
             end=end,
             timezone=timezone,
+            confirmed_cost=confirmed_cost,
+        )
+
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    async def search_logs(
+        log_table: str,
+        start: str | None = None,
+        end: str | None = None,
+        filters: dict[str, Any] | None = None,
+        text: str | None = None,
+        fuzzy: bool = False,
+        order: str = "newest",
+        limit: int | None = None,
+        timezone: str = "UTC",
+        confirmed_cost: str | None = None,
+    ) -> str:
+        """Find log entries by filters (e.g. {"level": "ERROR", "service": "payments"}) and/or text the message contains (any case), newest or oldest first. Each entry shows its time, fields, message and an occurrence ID. The cost is checked first: a too-expensive search may be estimated from a sample (said so), or answer TOO EXPENSIVE with a confirmed_cost to repeat it with once the user agrees. fuzzy needs a search index."""
+        return await runner.run_tool(
+            lookup.search_logs,
+            log_table=log_table,
+            start=start,
+            end=end,
+            filters=filters,
+            text=text,
+            fuzzy=fuzzy,
+            order=order,
+            limit=limit,
+            timezone=timezone,
+            confirmed_cost=confirmed_cost,
         )
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))
