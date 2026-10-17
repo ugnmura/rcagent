@@ -107,3 +107,12 @@ async def test_too_expensive_is_said(mcp, tmp_path, monkeypatch):
     note = untimestamped_note(ctx.db, lt, tr)
     assert note is not None and "Couldn't count entries without a timestamp" in note
     assert untimestamped_note(ctx.db, lt, parse_time_range(None, None, "UTC")) is None
+
+
+async def test_note_on_extract_params_and_search_logs(mcp, app_lt):
+    s = await call(mcp, "survey", log_table="app")
+    tid = id_of(s, "charge accepted order=<NUM>")
+    kw = dict(start="2026-03-01", end="2026-03-02")
+    assert untimestamped_text(1)[:-1] in await call(mcp, "extract_params", log_table="app", template=tid, **kw)
+    assert untimestamped_text(1)[:-1] in await call(mcp, "search_logs", log_table="app", text="refund", **kw)
+    assert "no timestamp and" not in await call(mcp, "search_logs", log_table="app", text="refund")

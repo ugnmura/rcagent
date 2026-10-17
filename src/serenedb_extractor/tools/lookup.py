@@ -9,6 +9,7 @@ from serenedb_extractor.catalog.models import LogTable
 from serenedb_extractor.context import AppContext
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.query import cost, occurrence, sampling
+from serenedb_extractor.query.coverage import untimestamped_note
 from serenedb_extractor.query.filters import (
     FILTER_ROLES,
     Filters,
@@ -165,6 +166,8 @@ def search_logs(
         if decision.status == "ask":
             return _ask(lt, tr, f, text, timezone, decision.message)
         plan = decision.plan
+        if (missing := untimestamped_note(db, lt, tr)) is not None:
+            extra_notes.append(missing)
         scope_sql = time_sql + (" AND " + sampling.clause(plan) if plan.sampling else "")
         what = f"searching log table {lt.name}" + (f" for '{text}'" if text else "")
         timeout = cost.run_timeout(plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
@@ -288,6 +291,7 @@ def _search_via_index(
         head = fmt.how_measured(cost.ASKED_HOW, tr.describe() if tr.bounded else None, _scope_text(f, text, how), tz=tz)
         return head + "\n" + decision.message
     plan = decision.plan
+    missing = untimestamped_note(db, lt, tr)
     what = f"searching log table {lt.name} through its search index for '{text}'"
     timeout = cost.run_timeout(plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
     total = int(
@@ -319,7 +323,7 @@ def _search_via_index(
     empty_why = diagnose_empty(db, lt, tr, f, cols) if total == 0 else []
     out = _render(
         lt, tr, f, text, tz, plan, fmt.Measured(float(total), True), rows, tags, total, order, empty_why,
-        via=(ix.name, how), notes=[lookup_note] if lookup_note else [],
+        via=(ix.name, how), notes=[n for n in (missing, lookup_note) if n],
     )
     return out
 

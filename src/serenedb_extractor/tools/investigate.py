@@ -481,6 +481,8 @@ def extract_params(
         if decision.status == "ask":
             return _ask(sc, decision.message)
         plan = decision.plan
+        if (missing := untimestamped_note(db, lt, tr)) is not None:
+            notes.append(missing)
         run = _ParamRun(sc, plan, t, by_expr, shown_limit, ctx)
         result = run.go()
     return _render_params(sc, plan, t, by_items[0][0] if by_items else None, result, shown_limit, notes)
