@@ -180,3 +180,12 @@ def test_refusal_wording():
     out = refusal("needs ~2.0 TB read, ~6 h", ["run it anyway: confirmed_cost=2.0TB", "narrow it"])
     assert out.startswith("TOO EXPENSIVE: needs ~2.0 TB read, ~6 h.")
     assert "- run it anyway: confirmed_cost=2.0TB" in out and "- narrow it" in out
+
+
+def test_block_estimate_with_no_between_block_variation_keeps_the_binomial_margin():
+    """Identical blocks give zero between-block variance; the margin is floored at the binomial
+    margin of the sampled entries, never "±<0.1%"."""
+    m = block_estimate([(1000, 100)] * 5, 0.5)
+    binomial = 1.96 * ((1 - 0.1) / (5000 * 0.1)) ** 0.5
+    assert m.margin_rel is not None and abs(m.margin_rel - binomial) < 1e-9
+    assert "<0.1" not in render(m)
