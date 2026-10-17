@@ -23,6 +23,7 @@ from serenedb_extractor.query.filters import (
 from serenedb_extractor.query.stats import role_columns
 from serenedb_extractor.query.tags import tag_entries, tag_text
 from serenedb_extractor.setup import indexes
+from serenedb_extractor.query import indexcover
 from serenedb_extractor.setup.paths import pct, sql_literal
 from serenedb_extractor.setup.roles import HELPER_COLUMNS, is_temporal, resolve_column, role_column
 from serenedb_extractor.setup.sniff import readable
@@ -39,10 +40,7 @@ FUZZY_NEEDS_INDEX = (
     "fuzzy search needs a search index (see create_index with dry_run for its size and build time); "
     "without one, search for an exact word or phrase (fuzzy=false)."
 )
-WHOLE_WORDS_NOTE = (
-    "\nThe search index matches whole words, so a fragment of a word can't be found through it; "
-    "scanning for a fragment would need {cost}, so it was not run."
-)
+WHOLE_WORDS = "whole words only — fragments like 'disk' inside 'diskfull' aren't matched"
 NARROW = (
     "narrow it: a shorter period (start/end), filters such as level or service, or a longer, rarer phrase; "
     "or build a search index (create_index with dry_run)."
@@ -103,7 +101,7 @@ def _line(lt: LogTable, row: dict[str, Any], tr: TimeRange, tag: str = "") -> st
     try:
         occ = occurrence.encode_occurrence(lt, row)
     except KeyError:  # an entry found through the index that could not be placed in the source again
-        occ = "(occurrence ID not found)"
+        occ = "(occurrence ID not available)"
     parts = [_show_ts(row["occ_ts"], tr), occ, roles, tag, fmt.shorten(str(row["occ_msg"] or ""))]
     return "  " + "  ".join(p for p in parts if p)
 
@@ -142,14 +140,8 @@ def search_logs(
     with readable(f"the source of log table '{lt.name}'"):
         cols = known_columns(db, lt)
         ix = _index_path(ctx, lt, f, text, fuzzy, cols)
-        index_answer: str | None = None
-        if ix is not None:
-            index_answer, found = _search_via_index(
-                ctx, lt, tr, f, text, ix, order, shown_limit, timezone, confirmed_cost, cols
-            )
-            if found or ix.fuzzy or index_answer.startswith(fmt.PREFIX + cost.ASKED_HOW):
-                return index_answer
-            # Nothing has these whole words: the text may be part of a word, which only a scan finds.
+        if ix is not None and ix.fuzzy:
+            return _search_via_index(ctx, lt, tr, f, text, ix, order, shown_limit, timezone, confirmed_cost, cols)
         time_sql, time_params = time_clause(lt, tr, cols)
         match_sql, params = build_where(lt, TimeRange(), f, cols)  # the filters alone
         params.update(time_params)
@@ -157,9 +149,19 @@ def search_logs(
             match_sql += f" AND ({role_sql(lt, 'message')})::varchar ILIKE %(text_pattern)s ESCAPE '\\'"
             params["text_pattern"] = like_pattern(text)
         match_sql += pct(SEARCH_SQL_SUFFIX)
-        stats, decision = cost.check(db, lt, tr, columns_read(lt, f, cols, text), confirmed_cost)
-        if index_answer is not None and (decision.status == "ask" or not decision.plan.exact):
-            return index_answer + WHOLE_WORDS_NOTE.format(cost=cost.cost_text(decision.plan))
+        stats, decision = cost.check(
+            db, lt, tr, columns_read(lt, f, cols, text), confirmed_cost, index_hints=ctx.estimates.hints(lt)
+        )
+        extra_notes: list[str] = []
+        if ix is not None:
+            if decision.status == "run" and decision.plan.exact:
+                # A scan matches any part of a word and fits the budget: it gives the better answer.
+                extra_notes.append(
+                    "the search index wasn't needed: a scan of this scope fits the cost budget, so the entries were "
+                    "searched directly (exact substring match)"
+                )
+            else:
+                return _search_via_index(ctx, lt, tr, f, text, ix, order, shown_limit, timezone, confirmed_cost, cols)
         if decision.status == "ask":
             return _ask(lt, tr, f, text, timezone, decision.message)
         plan = decision.plan
@@ -187,7 +189,7 @@ def search_logs(
             if templates:  # template tags once the catalog has templates
                 tags = [tag_text(t) for t in tag_entries(templates, [str(r["occ_msg"] or "") for r in rows])]
         empty_why = diagnose_empty(db, lt, tr, f, cols) if plan.exact and total == 0 else []
-    return _render(lt, tr, f, text, timezone, plan, measured, rows, tags, total, order, empty_why)
+    return _render(lt, tr, f, text, timezone, plan, measured, rows, tags, total, order, empty_why, notes=extra_notes)
 
 
 @dataclass(frozen=True)
@@ -210,7 +212,8 @@ def _index_path(
     """The search index to use for this search, or None (then the entries are scanned). A fuzzy search
     has no other way to run, so it explains what is missing instead of returning None."""
     name = lt.search_index_name
-    if not text or name is None:
+    covered = ctx.store.index_columns(lt.name).get("search")
+    if not text or name is None or covered is None:
         return None
     db = ctx.db
     words = db.read("SELECT ts_lexize(%(d)s, %(t)s)", {"d": indexes.LOG_DICT, "t": text}).scalar() or []
@@ -218,7 +221,6 @@ def _index_path(
         if fuzzy:
             raise UserFacingError(f"'{text}' has no searchable words (only punctuation or very common words); try other text.")
         return None  # e.g. "---": a substring scan can still find it
-    covered = indexes.indexed_columns(db, name)
     need: list[str] = []
     for role in ("message", "timestamp", *FILTER_ROLES):
         expr = getattr(lt.roles, role)
@@ -237,7 +239,7 @@ def _index_path(
                 "the index, or the log table has no timestamp); drop the column filters or search without fuzzy."
             )
         return None
-    return _IndexPath(name, frozenset(covered), tuple(str(w) for w in words), fuzzy)
+    return _IndexPath(name, covered, tuple(str(w) for w in words), fuzzy)
 
 
 def _text_predicate(lt: LogTable, ix: _IndexPath) -> tuple[str, dict[str, Any]]:
@@ -264,7 +266,7 @@ def _search_via_index(
     tz: str,
     confirmed_cost: str | None,
     cols: dict[str, str],
-) -> tuple[str, int]:
+) -> str:
     """Count and list the matches from the index relation (spike sections 9, 10), then look up the matches'
     occurrence IDs in the source: the index relation can't give the Parquet helper columns."""
     db = ctx.db
@@ -274,15 +276,17 @@ def _search_via_index(
     params.update(time_params)
     params.update(text_params)
     match_sql = f"{where} AND {pred}"
-    # The order role and the occurrence columns are read from the source for the listed entries only.
-    extra = set(HELPER_COLUMNS) | set(role_columns(lt.roles.order))
+    read: list[str] = []  # what the index relation is asked for: all of it is served by the index
+    for role in ("timestamp", "message", *FILTER_ROLES):
+        read += role_columns(getattr(lt.roles, role))
+    read += [c for key, _ in f.items() if key not in FILTER_ROLES and (c := resolve_column(key, cols))]
     _, decision = cost.check(
-        db, lt, tr, columns_read(lt, f, cols, text), confirmed_cost, indexed=set(ix.covered) | extra
+        db, lt, tr, read, confirmed_cost, indexed=ix.covered, index_hints=ctx.estimates.hints(lt)
     )
     how = "has the words" if not ix.fuzzy else "has words close to"
     if decision.status == "ask":
         head = fmt.how_measured(cost.ASKED_HOW, tr.describe() if tr.bounded else None, _scope_text(f, text, how), tz=tz)
-        return head + "\n" + decision.message, 0
+        return head + "\n" + decision.message
     plan = decision.plan
     what = f"searching log table {lt.name} through its search index for '{text}'"
     timeout = cost.run_timeout(plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
@@ -295,6 +299,7 @@ def _search_via_index(
     )
     rows: list[dict[str, Any]] = []
     tags: list[str] = []
+    lookup_note: str | None = None
     if total:
         role_sel = "".join(
             f", ({role_sql(lt, r)})::varchar AS occ_{r}" for r in FILTER_ROLES if getattr(lt.roles, r) is not None
@@ -307,29 +312,50 @@ def _search_via_index(
             {**params, "shown_limit": shown_limit},
             timeout_s=timeout, what=what, how_to_narrow=NARROW,
         ).dicts()
-        _attach_occurrences(ctx, lt, rows, cols, timeout, what)
+        lookup_note = _attach_occurrences(ctx, lt, rows, cols, confirmed_cost, what)
         templates = ctx.store.templates(lt.name)
         if templates:
             tags = [tag_text(t) for t in tag_entries(templates, [str(r["occ_msg"] or "") for r in rows])]
     empty_why = diagnose_empty(db, lt, tr, f, cols) if total == 0 else []
     out = _render(
         lt, tr, f, text, tz, plan, fmt.Measured(float(total), True), rows, tags, total, order, empty_why,
-        via=(ix.name, how),
+        via=(ix.name, how), notes=[lookup_note] if lookup_note else [],
     )
-    return out, total
+    return out
+
+
+def _occurrence_columns(lt: LogTable) -> list[str]:
+    """The source columns an occurrence ID is made of."""
+    k = occurrence.kind(lt)
+    if k == "file":
+        return list(HELPER_COLUMNS)
+    return ["entry_id"] if k == "entry" else role_columns(lt.roles.order)
 
 
 def _attach_occurrences(
-    ctx: AppContext, lt: LogTable, rows: list[dict[str, Any]], cols: dict[str, str], timeout: float, what: str
-) -> None:
+    ctx: AppContext, lt: LogTable, rows: list[dict[str, Any]], cols: dict[str, str], confirmed_cost: str | None, what: str
+) -> str | None:
     """Add the occurrence columns (`occ_file`, `occ_row`, ...) to rows found through the index, by finding
-    the same entries in the source. The timestamp bounds the read (row groups outside it are skipped);
-    entries that look identical get the IDs in turn, which is fine since they are indistinguishable."""
+    the same entries in the source. The read is narrowed to the listed entries' timestamps (row groups
+    outside them are skipped) and goes through the cost check; when it doesn't fit, the rows get no ID and
+    the returned note says what it would cost. Entries that look identical get the IDs in turn."""
     if occurrence.kind(lt) is None or not rows:
-        return
+        return None
     db = ctx.db
-    found: dict[tuple[Any, str], list[dict[str, Any]]] = {}
     stamps = list(dict.fromkeys(r["occ_ts"] for r in rows))
+    moments = [t for t in stamps if isinstance(t, datetime)]
+    narrowed = len(moments) == len(stamps)  # a missing or text timestamp can't bound the read
+    hull = TimeRange(min(moments), max(moments) + timedelta(milliseconds=1)) if narrowed else TimeRange()
+    columns = role_columns(lt.roles.timestamp) + role_columns(lt.roles.message) + _occurrence_columns(lt)
+    _, decision = cost.check(db, lt, hull, columns, confirmed_cost, index_hints=ctx.estimates.hints(lt))
+    plan = decision.plan
+    if decision.status == "ask" or not plan.exact:
+        return (
+            f"occurrence IDs were not looked up: finding the listed entries in the source would need "
+            f"{cost.cost_text(plan)}; repeat the same call with confirmed_cost={plan.cost_token()} to include them"
+        )
+    timeout = cost.run_timeout(plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
+    found: dict[tuple[Any, str], list[dict[str, Any]]] = {}
     for start in range(0, len(stamps), 100):
         conds: list[str] = []
         params: dict[str, Any] = {}
@@ -356,6 +382,7 @@ def _attach_occurrences(
         if candidates:
             source = candidates.pop(0)
             row.update({k: v for k, v in source.items() if k.startswith("occ_") and k not in row})
+    return None
 
 
 def _count(
@@ -392,6 +419,7 @@ def _render(
     order: str,
     empty_why: list[str],
     via: tuple[str, str] | None = None,
+    notes: list[str] | None = None,
 ) -> str:
     if via:
         kind = f"exact search through the search index {via[0]}: every entry whose message {via[1]} was found" + (
@@ -419,6 +447,9 @@ def _render(
         )
     ]
     out += [fmt.sentence(n) for n in plan.notes]
+    if via:
+        out.append(fmt.sentence(WHOLE_WORDS))
+    out += [fmt.sentence(n) for n in notes or []]
     if plan.exact:
         out.append(f"{total:,} matching {'entry' if total == 1 else 'entries'} (exact)")
         if total > len(rows):

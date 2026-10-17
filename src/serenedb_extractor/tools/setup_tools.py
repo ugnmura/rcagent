@@ -60,16 +60,12 @@ def inspect_source(
     info = sniff(ctx.db, rs, source)  # reports SereneDB errors in plain language
     columns = [(c, t) for c, t in info.columns if c not in HELPER_COLUMNS]
     roles, evidence = propose_roles(info.columns, sample_values(info))
-    offer = indexes.offer_lines(ctx, info.from_sql, roles, info.row_count)
-    trial = info.row_count is not None and info.row_count >= indexes.MIN_ROWS_FOR_OFFER
+    offer = indexes.inspect_lines(
+        ctx, source, info.resolved.db_path if info.resolved.kind == "parquet" else None, roles, info.row_count
+    )
     lines = [
         fmt.how_measured(
-            "read only metadata and 5 sample entries; nothing was created or changed"
-            if not trial
-            else "read metadata and 5 sample entries, plus trial index builds on a sample of "
-            f"{min(info.row_count or 0, indexes.TRIAL_ROWS):,} entries for the estimates (the trial indexes were dropped again); "
-            "nothing else was created or changed",
-            sample="5 sample entries",
+            "read only metadata and 5 sample entries; nothing was created or changed", sample="5 sample entries"
         ),
         f"source: {source} ({rs.kind})",
         f"how it will be used: {_where_read(rs)}",
@@ -115,6 +111,7 @@ def _existing(ctx: AppContext, name: str) -> LogTable | None:
 
 
 def _rerun(ctx: AppContext, lt: LogTable, source: str, roles: dict[str, Any] | None, timezone: str | None) -> str:
+    ctx.estimates.clear(lt.source)  # estimates were made for the old setup
     if source.strip() != lt.source:
         raise UserFacingError(
             f"Log table '{lt.name}' already exists for {lt.source}. Re-running setup only corrects field roles "
@@ -159,6 +156,7 @@ def setup_log_table(
     build_search_index: bool = False,
 ) -> str:
     validate_name(name)
+    ctx.estimates.clear(source)
     existing = _existing(ctx, name)
     if existing is not None:
         return _rerun(ctx, existing, source, roles, timezone)
@@ -192,8 +190,7 @@ def setup_log_table(
         try:
             ctx.store.create_log_table(lt)
         except Exception:
-            if rs.kind != "table":
-                ctx.db.write(f"DROP VIEW IF EXISTS {relation}", {})
+            ctx.db.write(f"DROP VIEW IF EXISTS {relation}", {})
             raise
     index_lines, read_data = _index_section(ctx, lt, build_filter_index, build_search_index)
     lines = [
@@ -202,7 +199,7 @@ def setup_log_table(
             + (index_lines_how(read_data) if read_data else "")
         ),
         f"Set up log table '{name}': {_where_read(rs)}."
-        + (f" View {relation} reads the source directly." if rs.kind != "table" else ""),
+        + f" View {relation} reads the source directly.",
         f"entries: {lt.row_count:,}" if lt.row_count is not None else "entries: not counted",
         f"time zone for naive timestamps: {zone}",
         "field roles:",
@@ -214,8 +211,8 @@ def setup_log_table(
 
 
 def _create_relation(ctx: AppContext, name: str, info: SourceInfo) -> str:
-    if info.resolved.kind == "table":
-        return info.from_sql
+    # Also for a table source: the view keeps everything this server creates (indexes included) in the
+    # extractor schema; nothing is ever created in the user's schema.
     relation = f"extractor.lt_{name}"
     ctx.db.write(f"CREATE OR REPLACE VIEW {relation} AS SELECT * FROM {info.from_sql}", {})
     return relation
@@ -432,7 +429,7 @@ def _index_section(ctx: AppContext, lt: LogTable, build_filter: bool, build_sear
     build runs now; otherwise estimates are shown for a big source. A failed build leaves the table set up."""
     wanted = [k for k, on in (("filter", build_filter), ("search", build_search)) if on]
     if not wanted:
-        out = indexes.offer_lines(ctx, lt.relation, lt.roles, lt.row_count, cache_for=lt.name)
+        out = indexes.offer_lines(ctx, lt.relation, lt.roles, lt.row_count, lt.source)
         big = lt.row_count is not None and lt.row_count >= indexes.MIN_ROWS_FOR_OFFER
         return out + ["No index was built."], big
     out = []

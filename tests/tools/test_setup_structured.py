@@ -149,6 +149,7 @@ async def test_json_source_and_json_path_role(mcp, db_url):
 
 
 async def test_existing_table_source(mcp, database):
+    database.write("DROP VIEW IF EXISTS extractor.lt_tbl")  # a table source is read through this view (#17)
     database.write("DROP TABLE IF EXISTS public.app_logs")
     database.write("CREATE TABLE public.app_logs (ts TIMESTAMPTZ, level VARCHAR, message VARCHAR)")
     database.write("INSERT INTO public.app_logs VALUES ('2026-03-01 00:00:00+00', 'WARN', 'disk almost full')")
@@ -156,6 +157,7 @@ async def test_existing_table_source(mcp, database):
     assert "existing table" in out
     desc = await call(mcp, "describe_logs", log_table="tbl")
     assert "WARN" in desc and "entries: 1" in desc
+    database.write("DROP VIEW extractor.lt_tbl")
     database.write("DROP TABLE public.app_logs")
 
 

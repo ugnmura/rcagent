@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING, Literal
 
 from serenedb_extractor import format as fmt
 from serenedb_extractor.query.stats import WHOLE, GroupStat, ScopeStats, collect
-from serenedb_extractor.setup import indexes
 from serenedb_extractor.setup.sniff import human_bytes
 
 if TYPE_CHECKING:
@@ -222,9 +221,11 @@ def check(
     confirmed_cost: str | None = None,
     want_exact: bool = True,
     indexed: Collection[str] = (),
+    index_hints: Mapping[str, str] | None = None,
 ) -> tuple[ScopeStats, Decision]:
     """Collect the scope's metadata and decide, with the server's sample size and maximum query time.
-    `indexed`: columns the caller really reads from an index relation, which cost nothing."""
+    `indexed`: columns the caller really reads from an index relation, which cost nothing.
+    `index_hints`: kind -> "≈X GB, ~N min to build" for the refusal's index option (from the estimate cache)."""
     stats = collect(db, lt, tr)
     s = db.settings
     return stats, decide(
@@ -235,5 +236,5 @@ def check(
         confirmed_cost,
         indexed=indexed,
         max_s=s.max_timeout_s,
-        index_hints=indexes.hints(db, lt),
+        index_hints=index_hints,
     )

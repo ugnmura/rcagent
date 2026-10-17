@@ -26,6 +26,12 @@ LOG_TABLES_DDL = f"""CREATE TABLE IF NOT EXISTS extractor.log_tables (
 DDL = [
     "CREATE SCHEMA IF NOT EXISTS extractor",
     LOG_TABLES_DDL,
+    """CREATE TABLE IF NOT EXISTS extractor.log_index_columns (
+        log_table          VARCHAR NOT NULL,
+        kind               VARCHAR NOT NULL,
+        columns            VARCHAR NOT NULL,
+        PRIMARY KEY (log_table, kind)
+    )""",
     """CREATE TABLE IF NOT EXISTS extractor.templates (
         log_table          VARCHAR NOT NULL,
         template_id        VARCHAR NOT NULL,

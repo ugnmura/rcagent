@@ -160,13 +160,27 @@ class CatalogStore:
             "UPDATE extractor.log_tables SET timezone = %(tz)s WHERE name = %(name)s", {"tz": timezone, "name": name}
         )
 
-    def set_index(self, name: str, kind: str, index_name: str | None) -> None:
-        """Record (or clear) the filter or search index built for a log table."""
+    def set_index(self, name: str, kind: str, index_name: str | None, columns: list[str] | None = None) -> None:
+        """Record (or clear) the filter or search index built for a log table, with the columns it covers."""
         column = {"filter": "filter_index_name", "search": "search_index_name"}[kind]
         self.db.write(
             f"UPDATE extractor.log_tables SET {column} = %(idx)s WHERE name = %(name)s",
             {"idx": index_name, "name": name},
         )
+        key = {"lt": name, "kind": kind}
+        self.db.write("DELETE FROM extractor.log_index_columns WHERE log_table = %(lt)s AND kind = %(kind)s", key)
+        if index_name is not None:
+            self.db.write(
+                "INSERT INTO extractor.log_index_columns (log_table, kind, columns) VALUES (%(lt)s, %(kind)s, %(cols)s)",
+                {**key, "cols": json.dumps(columns or [])},
+            )
+
+    def index_columns(self, name: str) -> dict[str, frozenset[str]]:
+        """Kind -> the columns the log table's built indexes cover."""
+        rows = self.db.read(
+            "SELECT kind, columns FROM extractor.log_index_columns WHERE log_table = %(lt)s", {"lt": name}
+        ).rows
+        return {str(k): frozenset(json.loads(c)) for k, c in rows}
 
     def template_count(self, name: str) -> int:
         return int(

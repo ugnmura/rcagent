@@ -6,7 +6,7 @@ import pytest
 
 from serenedb_extractor.query import cost
 from serenedb_extractor.setup import indexes
-from tests.conftest import call, container_parquet
+from tests.conftest import call, container_parquet, token_of
 from tests.fixtures.data import FX
 
 pytestmark = pytest.mark.db
@@ -59,14 +59,27 @@ async def test_offer_shows_estimates_for_big_sources(mcp, fx_path, database, mon
     assert _trial_objects(database) == []  # trial view and indexes are dropped again
 
 
-async def test_inspect_source_offers_estimates(mcp, fx_path, database, monkeypatch):
+async def test_inspect_source_is_read_only_and_gives_rough_sizes(mcp, fx_path, database, monkeypatch):
     monkeypatch.setattr(indexes, "MIN_ROWS_FOR_OFFER", 1000)
-    monkeypatch.setattr(indexes, "TRIAL_ROWS", 1000)
     out = await call(mcp, "inspect_source", source=fx_path)
-    assert "filter index: ≈" in out and "search index: ≈" in out
-    assert _trial_objects(database) == []
+    assert "rough, from column sizes" in out and "create_index with dry_run measures it" in out
+    assert "nothing was created or changed" in out.splitlines()[0]
+    assert database.read("SELECT table_name FROM information_schema.tables WHERE table_schema = 'extractor'", {}).rows == [] or all(
+        r[0] in ("log_tables", "templates", "template_redirects", "log_index_columns")
+        for r in database.read("SELECT table_name FROM information_schema.tables WHERE table_schema = 'extractor'", {}).rows
+    )
+    with pytest.raises(Exception, match="log_dict"):
+        database.read("SELECT ts_lexize('extractor.log_dict', 'x')", {})
     monkeypatch.undo()
     assert "small enough to search without an index" in await call(mcp, "inspect_source", source=fx_path)
+
+
+async def test_inspect_source_shows_a_cached_estimate(mcp, fx_path, monkeypatch):
+    monkeypatch.setattr(indexes, "MIN_ROWS_FOR_OFFER", 1000)
+    monkeypatch.setattr(indexes, "TRIAL_ROWS", 1000)
+    await call(mcp, "setup_log_table", name="fx", source=fx_path)
+    out = await call(mcp, "inspect_source", source=fx_path)
+    assert "from a trial build on 1,000 of 5,000 entries" in out and "rough, from column sizes" not in out
 
 
 async def test_dry_run_then_build(mcp, fx_lt):
@@ -105,7 +118,7 @@ async def test_search_index_enables_fuzzy(mcp, fx_lt):
     assert "disk full on" in await call(mcp, "search_logs", log_table="fx", text="dsik full", fuzzy=True)
 
 
-async def test_text_search_same_answer_with_and_without_index(mcp, fx_lt):
+async def test_text_search_same_answer_with_and_without_index(mcp, fx_lt, monkeypatch):
     queries: list[dict[str, Any]] = [
         {"text": "disk full"},
         {"text": "Disk FULL", "filters": {"level": "ERROR"}},
@@ -115,9 +128,16 @@ async def test_text_search_same_answer_with_and_without_index(mcp, fx_lt):
     ]
     before = [await call(mcp, "search_logs", log_table="fx", **q) for q in queries]
     await call(mcp, "create_index", log_table="fx", kind="search")
-    after = [await call(mcp, "search_logs", log_table="fx", **q) for q in queries]
+    _expensive(monkeypatch)  # the scan no longer fits the budget, so the index answers
+    after = []
+    for q in queries:
+        out = await call(mcp, "search_logs", log_table="fx", **q)
+        if "confirmed_cost=" in out:  # the occurrence-ID lookup is priced; approve it
+            out = await call(mcp, "search_logs", log_table="fx", confirmed_cost=token_of(out), **q)
+        after.append(out)
+    notes = ("Whole words only", "The search index wasn't needed")
     for q, b, a in zip(queries, before, after, strict=True):
-        assert _body(b) == _body(a), q
+        assert [ln for ln in _body(b) if not ln.startswith(notes)] == [ln for ln in _body(a) if not ln.startswith(notes)], q
     assert "search index" in after[0].splitlines()[0]
     assert "30 matching entries (exact)" in after[0] and "fx.parquet#" in after[0]
 
@@ -159,9 +179,99 @@ async def test_copied_table_gets_an_index(mcp, tmp_path):
     assert "refund failed" in fuzzy
 
 
-async def test_text_without_words_still_searches_by_substring(mcp, fx_lt):
+async def test_text_without_words_is_refused_for_fuzzy(mcp, fx_lt):
     await call(mcp, "create_index", log_table="fx", kind="search")
-    out = await call(mcp, "search_logs", log_table="fx", text="/dev/sd")
-    assert "30 matching entries (exact)" in out  # "/dev/sd" is a substring, not whole words: the scan answers it
-    odd = await call(mcp, "search_logs", log_table="fx", text="---", fuzzy=True)
-    assert "no searchable words" in odd
+    assert "no searchable words" in await call(mcp, "search_logs", log_table="fx", text="---", fuzzy=True)
+
+
+async def test_fragment_uses_the_scan_when_affordable(mcp, fx_lt):
+    await call(mcp, "create_index", log_table="fx", kind="search")
+    out = await call(mcp, "search_logs", log_table="fx", text="isk full")
+    assert "30 matching entries (exact)" in out and "no index used" in out.splitlines()[0]
+    assert "search index wasn't needed" in out
+
+
+async def test_fragment_through_the_index_carries_the_caveat(mcp, fx_lt, monkeypatch):
+    await call(mcp, "create_index", log_table="fx", kind="search")
+    _expensive(monkeypatch)
+    out = await call(mcp, "search_logs", log_table="fx", text="isk full")
+    assert "whole words only" in out.lower() and "'disk' inside 'diskfull'" in out and "search index" in out.splitlines()[0]
+    assert "0 matching entries" in out
+    words = await call(mcp, "search_logs", log_table="fx", text="disk full")
+    assert "30 matching entries" in words and "whole words only" in words.lower()
+
+
+async def test_occurrence_lookup_is_priced(mcp, fx_lt, monkeypatch):
+    await call(mcp, "create_index", log_table="fx", kind="search")
+    _expensive(monkeypatch)
+    out = await call(mcp, "search_logs", log_table="fx", text="disk full", limit=3)
+    assert "30 matching entries" in out and "disk full on" in out
+    assert "occurrence ids were not looked up" in out.lower() and "confirmed_cost=" in out and "fx.parquet#" not in out
+    again = await call(mcp, "search_logs", log_table="fx", text="disk full", limit=3, confirmed_cost=token_of(out))
+    assert "fx.parquet#" in again and "not looked up" not in again
+
+
+async def test_table_source_indexes_stay_in_the_extractor_schema(mcp, database):
+    database.write("DROP TABLE IF EXISTS public.t17_logs")
+    database.write("CREATE TABLE public.t17_logs (ts TIMESTAMPTZ, level VARCHAR, message VARCHAR)")
+    database.write("INSERT INTO public.t17_logs VALUES ('2026-03-01 00:00:00+00', 'WARN', 'disk almost full')")
+    try:
+        await call(mcp, "setup_log_table", name="tbl", source="public.t17_logs")
+        built = await call(mcp, "create_index", log_table="tbl", kind="filter")
+        assert "tbl_filter_idx" in built and "extractor" in built
+        assert database.read('SELECT count(*) FROM extractor."tbl_filter_idx"', {}).scalar() == 1
+        with pytest.raises(Exception, match="tbl_filter_idx"):
+            database.read('SELECT count(*) FROM public."tbl_filter_idx"', {})
+        assert "WARN (1)" in await call(mcp, "describe_logs", log_table="tbl")
+    finally:
+        database.write("DROP VIEW IF EXISTS extractor.lt_tbl")
+        database.write("DROP TABLE IF EXISTS public.t17_logs")
+
+
+async def test_build_refused_when_the_estimate_exceeds_the_limit(mcp, fx_lt, database, monkeypatch):
+    monkeypatch.setattr(indexes, "MIN_ROWS_FOR_OFFER", 1000)
+    monkeypatch.setattr(indexes, "_trial", lambda *a, **k: (1e9, 1e6))
+    out = await call(mcp, "create_index", log_table="fx", kind="filter")
+    assert "longer than" in out and "maximum" in out and "600 s" in out and "was not built" in out
+    assert "indexes: none" in await call(mcp, "describe_logs", log_table="fx")
+
+
+async def test_failed_record_drops_the_new_index(mcp, fx_lt, database, monkeypatch):
+    from serenedb_extractor.catalog.store import CatalogStore
+
+    def boom(*a, **k):
+        raise RuntimeError("catalog down")
+
+    monkeypatch.setattr(CatalogStore, "set_index", boom)
+    out = await call(mcp, "create_index", log_table="fx", kind="filter")
+    assert "Something went wrong" in out
+    with pytest.raises(Exception, match="fx_filter_idx"):
+        database.read('SELECT count(*) FROM extractor."fx_filter_idx"', {})
+
+
+async def test_leftover_trial_objects_are_swept(mcp, fx_lt, database, monkeypatch):
+    database.write("CREATE VIEW extractor.trial_1_deadbeef_v AS SELECT 1 AS x")
+    await call(mcp, "create_index", log_table="fx", kind="filter", dry_run=True)
+    assert _trial_objects(database) == []
+
+
+async def test_dictionary_creation_tolerates_a_race(db_url, monkeypatch):
+    from tests.conftest import _settings
+    from serenedb_extractor.context import AppContext
+
+    ctx = AppContext.from_settings(_settings(db_url))
+    try:
+        indexes.ensure_dictionary(ctx)
+        monkeypatch.setattr(indexes, "_dictionary_exists", lambda ctx: False)  # another process created it meanwhile
+        indexes.ensure_dictionary(ctx)
+    finally:
+        ctx.db.close()
+
+
+async def test_estimates_are_forgotten_when_setup_reruns(mcp, fx_lt, monkeypatch):
+    _expensive(monkeypatch)
+    await call(mcp, "create_index", log_table="fx", kind="search", dry_run=True)
+    assert "search index (≈" in await call(mcp, "search_logs", log_table="fx", text="disk full")
+    await call(mcp, "setup_log_table", name="fx", source=fx_lt)
+    out = await call(mcp, "search_logs", log_table="fx", text="disk full")
+    assert "TOO EXPENSIVE" in out and "search index (≈" not in out

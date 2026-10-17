@@ -19,7 +19,7 @@ from serenedb_extractor.query.filters import (
 )
 from serenedb_extractor.query import cost, sampling
 from serenedb_extractor.query.stats import role_columns
-from serenedb_extractor.setup import indexes
+from serenedb_extractor.query import indexcover
 from serenedb_extractor.setup.roles import resolve_column, role_column, role_lines
 from serenedb_extractor.setup.sniff import readable, relation_columns
 
@@ -55,7 +55,7 @@ def _top_values(db: Database, lt: LogTable, role: str, where: str, params: dict[
 
 
 def _top_values_indexed(
-    db: Database, lt: LogTable, role: str, tr: TimeRange, cols: dict[str, str]
+    ctx: AppContext, lt: LogTable, role: str, tr: TimeRange, cols: dict[str, str]
 ) -> tuple[str, str] | None:
     """(text, index name): the role's top values, exact, read from a filter or search index that covers
     it (and the timestamp when the period is bounded); None when no index serves it."""
@@ -64,7 +64,8 @@ def _top_values_indexed(
     if col is None:
         return None
     need = [col] + (role_columns(lt.roles.timestamp) if tr.bounded else [])
-    via = indexes.covering(db, lt, need)
+    db = ctx.db
+    via = indexcover.covering(ctx.store, lt, need)
     if via is None:
         return None
     index = via[1]
@@ -104,26 +105,6 @@ def _affordable(db: Database, lt: LogTable, tr: TimeRange, columns: list[str]) -
     if decision.status == "run" and decision.plan.exact:
         return None
     return f"counting would need {cost.cost_text(decision.plan)}; narrow the period, or build a filter index"
-
-
-def untimestamped_note(db: Database, lt: LogTable, tr: TimeRange) -> str | None:
-    """With a time range on a copied table: how many entries have no timestamp and so fall outside it.
-
-    The count goes through the cost check; None when there is no range, nothing is missing, or the
-    count would be too expensive.
-    """
-    if not tr.bounded or lt.mode != "copied" or lt.roles.timestamp is None:
-        return None
-    if _affordable(db, lt, TimeRange(), role_columns(lt.roles.timestamp)):
-        return None
-    n = db.read(f"SELECT count(*) FROM {lt.relation} WHERE ({role_sql(lt, 'timestamp')}) IS NULL", {}).scalar()
-    if not n:
-        return None
-    return (
-        f"{n:,} entries in this log table have no timestamp and are outside any time range."
-        if n != 1
-        else "1 entry in this log table has no timestamp and is outside any time range."
-    )
 
 
 def _describe_one(ctx: AppContext, lt: LogTable, tr: TimeRange) -> list[str]:
@@ -173,7 +154,7 @@ def _describe_one(ctx: AppContext, lt: LogTable, tr: TimeRange) -> list[str]:
         if getattr(lt.roles, role) is None:
             lines.append(f"    {role}: absent")
             continue
-        via = _top_values_indexed(db, lt, role, tr, cols)
+        via = _top_values_indexed(ctx, lt, role, tr, cols)
         if via is not None:
             used.add(via[1])
             lines.append(f"    {role}: {via[0]}" + ("" if via[0] == "no values" else "  [exact, from the index]"))
@@ -229,8 +210,10 @@ def _find_values(
     time_sql, time_params = time_clause(lt, tr, cols)
     read = role_columns(expr) + (role_columns(lt.roles.timestamp) if tr.bounded else [])
     plain = role_column(expr)
-    via = indexes.covering(db, lt, read) if plain is not None and read else None
-    _, decision = cost.check(db, lt, tr, read, confirmed_cost, indexed=read if via else ())
+    via = indexcover.covering(ctx.store, lt, read) if plain is not None and read else None
+    _, decision = cost.check(
+        db, lt, tr, read, confirmed_cost, indexed=read if via else (), index_hints=ctx.estimates.hints(lt)
+    )
     if decision.status == "ask":
         return cost.ASKED_HOW, None, [decision.message]
     plan = decision.plan
