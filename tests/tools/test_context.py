@@ -164,3 +164,38 @@ async def test_lookup_priced_at_its_row_group_and_window_asks_with_a_token(mcp, 
     token = m.group(1)
     ran = await call(mcp, "get_context", log_table="rg", occurrence=occ, scope="everything", confirmed_cost=token)
     assert "→" in ran and "request 10000 handled" in ran, ran
+
+
+# Final review: where the occurrence lookup itself reads every entry (several Parquet files, a
+# table's pk: IDs) and the window is over budget too, one confirmation covers both steps: the ask
+# quotes their total once, and repeating the call with that token shows the context.
+@pytest.fixture
+async def glob_lt(mcp, db_url):
+    import psycopg
+
+    with psycopg.connect(db_url, autocommit=True) as conn:
+        for part, lo in (("a", 0), ("b", 10240)):
+            sql = RG.replace("range(20480)", f"range({lo}, {lo + 10240})")
+            conn.execute(f"COPY ({sql}) TO '/tmp/c1_glob_{part}.parquet' (FORMAT PARQUET, ROW_GROUP_SIZE 2048)")  # type: ignore[call-overload]
+    out = await call(mcp, "setup_log_table", name="globctx", source="/tmp/c1_glob_*.parquet")
+    assert "Set up log table" in out, out
+
+
+async def test_lookup_and_window_both_over_budget_take_one_token(mcp, glob_lt, database, monkeypatch):
+    from serenedb_extractor.catalog.store import CatalogStore
+    from serenedb_extractor.query import cost
+    from serenedb_extractor.query.filters import TimeRange
+    from serenedb_extractor.query.stats import collect
+
+    lt = CatalogStore(database).get_log_table("globctx")
+    full = collect(database, lt, TimeRange()).bytes_for(["ts", "message", "service"])
+    monkeypatch.setitem(cost.THROUGHPUT_BYTES_PER_S, "local", full / 20.0)  # one full read: 20 s
+    monkeypatch.setattr(cost, "BUDGET_SECONDS", 10.0)
+    occ = "/tmp/c1_glob_b.parquet#100"
+    args = dict(log_table="globctx", occurrence=occ, window_minutes=100_000)
+    out = await call(mcp, "get_context", **args)
+    assert "TOO EXPENSIVE" in out and "both steps" in out, out
+    m = re.search(r"confirmed_cost=(\S+)", out)
+    assert m, out
+    ran = await call(mcp, "get_context", **args, confirmed_cost=m.group(1))
+    assert "→" in ran and "request 10340 handled" in ran and "TOO EXPENSIVE" not in ran, ran

@@ -126,18 +126,55 @@ def _select(lt: LogTable, cols: dict[str, str]) -> str:
     return f"{ts_select(lt, cols)}, ({role_sql(lt, 'message')})::varchar AS occ_msg{role_sel}{occ_mod.select_sql(lt)}"
 
 
+BOTH_STEPS = "finding the occurrence and showing its context (one confirmation covers both steps)"
+
+
+def _scope_roles_bound(lt: LogTable, scope: str | list[str] | None) -> list[str]:
+    """Every role the context scope may hold equal, before the occurrence is known: the default can
+    pick the trace or the service and host, an explicit scope names its own."""
+    if scope is None:
+        wanted = ["trace", "service", "host"]
+    else:
+        wanted = [scope] if isinstance(scope, str) else list(scope)
+    return [r for r in wanted if r in FILTER_ROLES and getattr(lt.roles, r) is not None]
+
+
+def _both_steps(ctx: AppContext, lt: LogTable, lookup: ScopeStats, shown_cols: list[str], scope_roles: list[str],
+                confirmed: str | None) -> cost.Decision:
+    """The lookup and the window priced as one cost, for when the lookup alone is over budget: the
+    window is bounded by every entry of the source (its time range is not known before the lookup),
+    so one confirmation covers both steps and asks never alternate between them."""
+    s = ctx.settings
+    whole = collect(ctx.db, lt, TimeRange())
+    wcols = shown_cols * 2 + [c for r in scope_roles for c in role_columns(getattr(lt.roles, r))]
+    parts = {"lookup": cost.exact_plan(lookup, shown_cols), "window": cost.exact_plan(whole, wcols)}
+    combined = ScopeStats(
+        whole.total_rows, whole.total_rows, {k: int(p.bytes) for k, p in parts.items()}, False, whole.remote,
+        whole.has_filter_index, whole.has_search_index,
+    )
+    # Each step runs as its own queries: only a step beyond the maximum query time can't be run.
+    max_s = s.max_timeout_s if max(p.seconds for p in parts.values()) > s.max_timeout_s else None
+    return cost.decide(combined, list(parts), True, s.sample_size, confirmed, max_s=max_s, ask_options=[], upper_bound=True)
+
+
 def _fetch_occurrence(
-    ctx: AppContext, lt: LogTable, occ: str, select: str, shown_cols: list[str], confirmed: str | None, tz: str
-) -> dict[str, Any] | str:
-    """The occurrence's row, or the reply text when the cost check stopped the lookup."""
+    ctx: AppContext, lt: LogTable, occ: str, select: str, shown_cols: list[str], scope_roles: list[str],
+    confirmed: str | None, tz: str,
+) -> tuple[dict[str, Any], cost.Decision | None] | str:
+    """The occurrence's row, with the confirmed decision covering the window too when the two steps
+    were priced as one; or the reply text when the cost check stopped the lookup."""
     where, params = occ_mod.decode_occurrence(lt, occ)
     what = f"finding the context of occurrence {occ} in log table {lt.name}"
     whole = TimeRange(tz=tz)
     keyed = occ_mod.kind(lt) == "entry" and entry_id_is_key(ctx.db, lt)
     stats, keep = _lookup_scope(lt, collect(ctx.db, lt, whole), params, keyed)
-    decision = _decide(ctx, stats, shown_cols, confirmed, [])
-    if (stop := _stopped(whole, decision, tz, "finding the occurrence's own entry")) is not None:
-        return stop
+    decision = _decide(ctx, stats, shown_cols, None, [])
+    covered: cost.Decision | None = None
+    if decision.status != "run":
+        covered = _both_steps(ctx, lt, stats, shown_cols, scope_roles, confirmed)
+        if (stop := _stopped(whole, covered, tz, BOTH_STEPS)) is not None:
+            return stop
+        decision = cost.Decision("run", replace(cost.exact_plan(_exact_only(stats), shown_cols), confirmed=True))
     timeout = cost.run_timeout(decision.plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
     rows = ctx.db.read(
         f"SELECT {select} FROM {lt.relation} WHERE {where}{keep} LIMIT 1", params,
@@ -145,7 +182,7 @@ def _fetch_occurrence(
     ).dicts()
     if not rows:
         raise UserFacingError(f"No entry has the occurrence ID '{occ}' in log table '{lt.name}'.")
-    return rows[0]
+    return rows[0], covered
 
 
 @dataclass
@@ -158,8 +195,10 @@ class _Window:
 def _fetch_window(
     ctx: AppContext, lt: LogTable, cols: dict[str, str], select: str, shown_cols: list[str], occ: str,
     occ_row: dict[str, Any], scope: _Scope, f: Filters, tr: TimeRange, before: int, after: int, confirmed: str | None,
+    covered: cost.Decision | None = None,
 ) -> _Window | str:
-    """The nearest entries either side of the occurrence, or the reply text when the cost check stopped it."""
+    """The nearest entries either side of the occurrence, or the reply text when the cost check stopped it.
+    `covered`: the confirmed price of lookup and window together, which already approves this read."""
     db, ts = ctx.db, occ_row["occ_ts"]
     wcols = shown_cols * 2 + [c for r in scope.roles for c in role_columns(getattr(lt.roles, r))]
     stats = collect(db, lt, tr)
@@ -169,7 +208,10 @@ def _fetch_window(
         if stats.time_skippable and (not stats.can_sample or len(stats.groups) > 1)
         else []
     )
-    decision = _decide(ctx, stats, wcols, confirmed, options)
+    if covered is not None:  # bounded by the whole source, which the confirmed total already priced
+        decision = cost.Decision("run", replace(cost.exact_plan(stats, wcols), confirmed=True, notes=covered.plan.notes))
+    else:
+        decision = _decide(ctx, stats, wcols, confirmed, options)
     if (stop := _stopped(tr, decision, tr.tz, "showing the context of the occurrence")) is not None:
         return stop
     timeout = cost.run_timeout(decision.plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
@@ -265,16 +307,19 @@ def get_context(
         shown_cols: list[str] = []
         for r in ("timestamp", "message", "order", *FILTER_ROLES):
             shown_cols += role_columns(getattr(lt.roles, r))
-        occ_row = _fetch_occurrence(ctx, lt, occurrence, select, shown_cols, confirmed_cost, timezone)
-        if isinstance(occ_row, str):
-            return occ_row
+        found = _fetch_occurrence(
+            ctx, lt, occurrence, select, shown_cols, _scope_roles_bound(lt, scope), confirmed_cost, timezone
+        )
+        if isinstance(found, str):
+            return found
+        occ_row, covered = found
         ts = occ_row["occ_ts"]
         if not isinstance(ts, datetime):
             raise UserFacingError("That entry has no readable timestamp, so there is no time window to show around it.")
         chosen = _choose_scope(lt, scope, occ_row)
         w = timedelta(minutes=window_minutes)
         tr = TimeRange(ts - w, ts + w + _TICK, timezone)
-        win = _fetch_window(ctx, lt, cols, select, shown_cols, occurrence, occ_row, chosen, f, tr, before, after, confirmed_cost)
+        win = _fetch_window(ctx, lt, cols, select, shown_cols, occurrence, occ_row, chosen, f, tr, before, after, confirmed_cost, covered)
         if isinstance(win, str):
             return win
     return _render(ctx, lt, tr, ts, window_minutes, chosen, occ_row, win, before, after)
