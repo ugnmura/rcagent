@@ -207,7 +207,8 @@ def _ask(
     ask_options: list[str] | None = None,
     upper_bound: bool = False,
 ) -> str:
-    reason = f"{'reads up to' if upper_bound else 'needs'} {cost_text(exact)} (the budget for one query is {fmt.duration(budget)})"
+    amount = f"reads up to ~{human_bytes(exact.bytes)}, {fmt.duration(exact.seconds)}" if upper_bound else f"needs {cost_text(exact)}"
+    reason = f"{amount} (the budget for one query is {fmt.duration(budget)})"
     if tried:
         cheapest = min(tried, key=lambda p: p.bytes)
         reason += f"; even an estimate from a sample would need {cost_text(cheapest)}"

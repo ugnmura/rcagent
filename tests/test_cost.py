@@ -189,3 +189,9 @@ def test_block_estimate_with_no_between_block_variation_keeps_the_binomial_margi
     binomial = 1.96 * ((1 - 0.5) * (1 - 0.1) / (5000 * 0.1)) ** 0.5
     assert m.margin_rel is not None and abs(m.margin_rel - binomial) < 1e-9
     assert "<0.1" not in render(m)
+
+
+def test_an_upper_bound_ask_reads_as_one_plain_phrase():
+    st = ScopeStats(10, 10, {"m": 10_000_000_000}, False, True, False, False)
+    d = decide(st, ["m"], True, 1000, None, ask_options=[], upper_bound=True)
+    assert d.status == "ask" and "reads up to ~10.0 GB, " in d.message and " read, " not in d.message, d.message
