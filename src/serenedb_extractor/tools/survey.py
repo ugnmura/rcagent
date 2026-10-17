@@ -115,10 +115,7 @@ def _candidate(m: MergedTemplate, measured: fmt.Measured) -> CandidateTemplate:
     )
 
 
-def _unavailable_notes(confirmed_cost: str | None) -> list[str]:
-    if confirmed_cost:
-        return ["The cost confirmation isn't available yet — it was ignored; this survey ran as usual."]
-    return []
+CONFIRMED_COST_NOTE = "The cost confirmation isn't available yet — it was ignored; this survey ran as usual."
 
 
 def resolve_exclusions(ctx: AppContext, log_table: str, exclude: list[str] | None) -> tuple[list[Template], list[str]]:
@@ -137,7 +134,7 @@ def _merge_notes(result: UpsertResult) -> list[str]:
     notes = []
     for t, status in result.items:
         if status == "generalized":
-            gone = sorted((o for o, n in result.merged.items() if n == t.template_id), key=lambda i: int(i[1:]))
+            gone = result.absorbed_into(t.template_id)
             tail = f"; {', '.join(gone)} {'was' if len(gone) == 1 else 'were'} merged into it" if gone else ""
             notes.append(f"{t.template_id} was generalized to \"{t.template}\" (same ID){tail}.")
     return notes
@@ -179,7 +176,7 @@ def survey(
             head = fmt.how_measured(
                 "exact count of the entries that match", tr.describe() if tr.bounded else None, _filters_text(f, hidden_ids), tz=timezone
             )
-            return head + "\n" + "\n".join([*exclusion_notes, *_unavailable_notes(confirmed_cost), *lines])
+            return head + "\n" + "\n".join([*exclusion_notes, *([CONFIRMED_COST_NOTE] if confirmed_cost else []), *lines])
     merged = merge_groups(groups)
     exact = sampled >= population
     measures = {m.template: _measure(m.count, sampled, population) for m in merged}
@@ -210,7 +207,7 @@ def survey(
     out = [
         head,
         *exclusion_notes,
-        *_unavailable_notes(confirmed_cost),
+        *([CONFIRMED_COST_NOTE] if confirmed_cost else []),
         *_merge_notes(result),
         f"Log table {lt.name}: {population:,} entries match; {len(merged)} templates found in the sample.",
         f"These {len(shown)} cover {100 * covered / sampled:.0f}% of the sample.",

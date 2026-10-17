@@ -79,6 +79,10 @@ class UpsertResult:
     items: list[tuple[Template, Literal["new", "generalized", "known"]]]
     merged: dict[str, str]
 
+    def absorbed_into(self, template_id: str) -> list[str]:
+        """IDs merged into `template_id` by this upsert, in numeric order."""
+        return sorted((o for o, n in self.merged.items() if n == template_id), key=lambda i: int(i[1:]))
+
 
 @dataclass(frozen=True)
 class Resolved:

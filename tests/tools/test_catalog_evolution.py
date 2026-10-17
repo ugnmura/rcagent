@@ -168,3 +168,91 @@ async def test_unknown_id_names_the_closest(mcp, fx_lt):
 async def test_rename_parameter_is_not_read_only(mcp):
     tool = next(t for t in (await mcp.list_tools()).tools if t.name == "rename_parameter")
     assert tool.annotations is not None and tool.annotations.readOnlyHint is False and tool.annotations.destructiveHint is False
+
+
+# --- R34: merges survive partial failure and concurrency -------------------------------------------------
+
+
+def _cand(text, example):
+    from serenedb_extractor.catalog.models import CandidateTemplate
+    from serenedb_extractor.templating.regex import compile_template
+
+    c = compile_template(text)
+    return CandidateTemplate(text, c.regex, list(c.params), example, None, None, 1)
+
+
+_WHEN = __import__("datetime").datetime(2026, 4, 1)
+
+
+def _seed(store):
+    """T_user (alice), T_bob, T_carol: carol is merged into bob, so a redirect already exists."""
+    user = store.upsert_survey_templates("fx", [_cand("login failed for user alice", "login failed for user alice")], _WHEN)
+    bob = store.upsert_survey_templates("fx", [_cand("login failed for admin bob", "login failed for admin bob")], _WHEN)
+    carol = store.upsert_survey_templates("fx", [_cand("login failed for admin carol", "login failed for admin carol")], _WHEN)
+    ids = [r.items[0][0].template_id for r in (user, bob, carol)]
+    store.upsert_survey_templates("fx", [_cand("login failed for admin <*>", "login failed for admin dave")], _WHEN)
+    return ids
+
+
+def _clear(database):
+    for table in ("templates", "template_redirects"):
+        database.write(f"DELETE FROM extractor.{table} WHERE log_table = 'fx'", {})
+
+
+BROAD = _cand("login failed for <*> <*>", "login failed for user zed")
+
+
+async def test_merge_converges_after_a_failure_at_every_write(mcp, fx_lt, database):  # R34
+    store = CatalogStore(database)
+    real_write = database.write
+    step = 1
+    while True:
+        _clear(database)
+        ids = _seed(store)
+        calls = {"n": 0}
+
+        def flaky(*a, **kw):
+            calls["n"] += 1
+            if calls["n"] == step:
+                raise RuntimeError("injected")
+            return real_write(*a, **kw)
+
+        database.write = flaky  # type: ignore[method-assign]
+        try:
+            store.upsert_survey_templates("fx", [BROAD], _WHEN)
+            failed = False
+        except RuntimeError:
+            failed = True
+        finally:
+            database.write = real_write  # type: ignore[method-assign]
+        for tid in ids:  # (a) every ID ever issued still resolves
+            store.resolve("fx", tid)
+        store.upsert_survey_templates("fx", [BROAD], _WHEN)  # (b) a retry converges to the clean state
+        live = [t.template_id for t in store.templates("fx")]
+        assert live == [ids[0]], (step, live)
+        for tid in ids:
+            assert store.resolve("fx", tid).template.template_id == ids[0]
+        hops = {r["old_id"]: r["new_id"] for r in database.read("SELECT old_id, new_id FROM extractor.template_redirects").dicts()}
+        assert hops == {ids[1]: ids[0], ids[2]: ids[0]}, (step, hops)
+        if not failed:
+            break
+        step += 1
+    assert step >= 4  # the merge really issues several writes
+
+
+async def test_concurrent_generalizations_lose_nothing(mcp, fx_lt, database):  # R34
+    from concurrent.futures import ThreadPoolExecutor
+
+    store = CatalogStore(database)
+    _clear(database)
+    ids = [
+        store.upsert_survey_templates("fx", [_cand(f"{w} failed here", f"{w} failed here")], _WHEN).items[0][0].template_id
+        for w in ("alpha", "beta", "gamma", "delta")
+    ]
+    wide = [_cand("<*> failed here", "omega failed here"), _cand("<*> failed <*>", "omega failed there")]
+    with ThreadPoolExecutor(2) as pool:
+        list(pool.map(lambda c: store.upsert_survey_templates("fx", [c], _WHEN), wide))
+    for tid in ids:
+        store.resolve("fx", tid)
+    live = [t.template_id for t in store.templates("fx")]
+    assert live == [ids[0]]
