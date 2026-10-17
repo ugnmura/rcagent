@@ -16,6 +16,7 @@ from serenedb_extractor.config import ConfigError, Settings
 from serenedb_extractor.context import AppContext
 from serenedb_extractor.instructions import SERVER_INSTRUCTIONS
 from serenedb_extractor.prompts import register_prompts
+from serenedb_extractor.query import stats
 from serenedb_extractor.tools import catalog_tools, describe, lookup, setup_tools
 from serenedb_extractor.tools import context as context_tool
 from serenedb_extractor.tools import investigate
@@ -27,6 +28,12 @@ SINGLE_ROLE_NOTE = (
     "Note: only a reader URL was configured, so SereneDB is not enforcing read-only limits "
     "on this connection. Set SERENEDB_WRITER_URL and use a SELECT-only role for the reader to enforce them."
 )
+
+
+def _per_call(fn: Callable[..., str], kw: dict[str, Any]) -> str:
+    """One tool call, with scope statistics remembered for its duration (query/stats.py)."""
+    with stats.per_call():
+        return fn(**kw)
 
 
 class ToolRunner:
@@ -50,7 +57,7 @@ class ToolRunner:
         The process's first result, success or error, also carries the single-role note.
         """
         try:
-            out = await anyio.to_thread.run_sync(lambda: fn(**kw))
+            out = await anyio.to_thread.run_sync(lambda: _per_call(fn, kw))
         except Exception as exc:
             out = fmt.plain_error(exc, name)
         with self._lock:
