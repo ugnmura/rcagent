@@ -21,6 +21,7 @@ CASES = [
     ("mail bob.smith+x@example.com bounced", "mail <EMAIL> bounced"),
     ("blob 113d3a99c3da401fbd62cc2caa5b96d2 stored", "blob <HEX> stored"),
     ("epoch 1117838570 took 0.25s", "epoch <NUM> took <NUM>s"),
+    ('"GET /v2/a/servers/detail HTTP/1.1" status: 200', '"GET <PATH> HTTP/<NUM>" status: <NUM>'),
     ("HTTP/1.1 ok", "HTTP/<NUM> ok"),
     ("user's thing and user's other", "user's thing and user's other"),
 ]
@@ -60,8 +61,9 @@ def test_every_placeholder_has_a_capture_regex() -> None:
 def test_rules_avoid_syntax_re2_lacks() -> None:
     for rule in MASK_RULES:
         for banned in ("(?=", "(?!", "(?<=", "(?<!", "*+", "++", "?+", "(?P="):
-            assert banned not in rule.pattern
-        assert "%" not in rule.pattern  # would collide with psycopg placeholders
+            assert banned not in rule.regex
+        assert "%" not in rule.regex  # would collide with psycopg placeholders
+        assert "\s" not in rule.regex  # RE2 and Python disagree on \v
 
 
 def test_masked_text_is_stable() -> None:
