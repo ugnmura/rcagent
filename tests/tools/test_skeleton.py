@@ -74,6 +74,40 @@ async def test_annotations_registered(mcp_no_db):
     assert tools["describe_logs"].annotations.readOnlyHint is True
 
 
+EXPECTED_ANNOTATIONS = {
+    **{
+        n: (True, None)
+        for n in (
+            "inspect_source",
+            "describe_logs",
+            "locate_occurrences",
+            "extract_params",
+            "trend",
+            "get_context",
+            "search_logs",
+            "run_sql",
+        )
+    },
+    "setup_log_table": (None, True),
+    "create_index": (None, True),
+    "survey": (False, False),
+    "rename_parameter": (False, False),
+}
+
+
+async def test_exactly_twelve_tools_with_expected_annotations(mcp_no_db):
+    listed = (await mcp_no_db.list_tools()).tools
+    assert sorted(t.name for t in listed) == sorted(EXPECTED_ANNOTATIONS)
+    assert len(listed) == 12
+    for t in listed:
+        assert t.annotations is not None
+        read_only, destructive = EXPECTED_ANNOTATIONS[t.name]
+        if read_only is not None:
+            assert t.annotations.readOnlyHint is read_only, t.name
+        if destructive is not None:
+            assert t.annotations.destructiveHint is destructive, t.name
+
+
 async def test_unreachable_database_is_plain(mcp_unreachable):
     out = await call(mcp_unreachable, "describe_logs")
     assert "Traceback" not in out and "\n" not in out.strip()
