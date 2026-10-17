@@ -252,6 +252,13 @@ This is a prototype:
   in the `extractor` schema, always schema-qualified (`extractor.lt_<name>`); only allowlisted functions (string, regex,
   date/time, math, aggregates, window functions, casts, JSON); no table functions; no column lists on CTEs or aliases
   (`WITH r(n) AS …` is refused; write `SELECT 1 AS n` inside instead); results cut at 50 rows by default.
+- **Sampling only for a single Parquet file.** Estimates from a block sample need one in-place Parquet file; for
+  globs of several files, JSON and copied tables every entry in scope is read and counted exactly, or, when that is
+  over the time budget, the tool asks before running it.
+- **Index builds are capped at the server's maximum query time** (600 s by default); a build predicted or running
+  longer is cancelled, so very large sources may need a shorter period or a copy instead.
+- **Catalog writes are single-process.** Survey results, merges and renames are serialized within one server
+  process; several server processes writing the same catalog at the same time are not supported.
 - **Timings under emulation are not representative.** Size and time estimates and test timings measured with the
   amd64 image on an arm64 machine are slower than on native hardware.
 - Ownership of services or components is not tracked; who owns what is left to the reader.
