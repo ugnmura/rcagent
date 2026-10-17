@@ -16,6 +16,7 @@ from serenedb_extractor.config import ConfigError, Settings
 from serenedb_extractor.context import AppContext
 from serenedb_extractor.tools import catalog_tools, describe, lookup, setup_tools
 from serenedb_extractor.tools import context as context_tool
+from serenedb_extractor.tools import sql as sql_tool
 from serenedb_extractor.tools import survey as survey_tool
 
 SINGLE_ROLE_NOTE = (
@@ -137,7 +138,6 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
             confirmed_cost=confirmed_cost,
         )
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
     async def get_context(
         log_table: str,
@@ -164,6 +164,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
             confirmed_cost=confirmed_cost,
         )
 
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))
     async def survey(
         log_table: str,
         start: str | None = None,
@@ -201,9 +202,22 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         )
 
 
+def register_sql_tool(mcp: FastMCP, runner: ToolRunner) -> None:
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    async def run_sql(
+        sql: str, limit: int | None = None, timeout_s: float | None = None, confirmed_cost: str | None = None
+    ) -> str:
+        """Escape hatch: run ONE read-only SQL statement (SELECT, WITH, set operations or EXPLAIN) when no other tool fits. Anything that could change data is refused. Results are cut to limit rows (default 50); the plan is cost-checked first and a too-expensive query answers TOO EXPENSIVE with a confirmed_cost to repeat it with once the user agrees. Log tables are views named like extractor.lt_<name>."""
+        return await runner.run_tool(
+            sql_tool.run_sql, sql=sql, limit=limit, timeout_s=timeout_s, confirmed_cost=confirmed_cost
+        )
+
+
 def build_server(ctx_factory: Callable[[], AppContext]) -> FastMCP:
     mcp = FastMCP("serenedb-extractor")
-    register_tools(mcp, ToolRunner(ctx_factory))
+    runner = ToolRunner(ctx_factory)
+    register_tools(mcp, runner)
+    register_sql_tool(mcp, runner)
     return mcp
 
 
