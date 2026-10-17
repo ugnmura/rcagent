@@ -1,7 +1,8 @@
 """trend: chosen templates (or the catalog's top ones) over a period against the preceding period of
 equal length, per hour or day. Estimated from a block sample by default, exact on request; both go
-through the cost check. A comparison is only made where the data covers both periods, and nothing is
-called new, or risen without limit, because data is missing."""
+through the cost check. A comparison is only made where the data covers both periods (R69: when the
+current period runs past the data's end, both are cut to the same whole buckets the data covers), and
+nothing is called new, or risen without limit, because data is missing."""
 
 from collections import defaultdict
 from dataclasses import dataclass
@@ -20,6 +21,7 @@ from serenedb_extractor.query.filters import (
     ScanTooExpensive,
     TimeRange,
     build_where,
+    covers_text,
     data_range,
     parse_time_range,
     role_sql,
@@ -307,6 +309,10 @@ def _change(cur: fmt.Measured, prev: fmt.Measured, cur_cover: Coverage, prev_cov
     return text if cur.exact and prev.exact else f"≈{text} (from the two estimates above)"
 
 
+def _amount(m: fmt.Measured) -> str:
+    return f"{round(m.value):,}" if m.exact else _show(m)
+
+
 def _filters_text(f: Filters) -> str | None:
     parts = []
     for key, wanted in f.items():
@@ -417,11 +423,31 @@ def trend(
         inside = period.start <= lo and hi <= period.end
         return inside and (rng is None or (rng.first <= lo and hi <= rng.last))
 
-    limited = [c.why for c in (prev_cover, cur_cover) if c.status != "full"]
+    # R69: a current period running past the data's last entry is compared over the whole buckets the
+    # data covers, against as many buckets ending where the current period starts.
+    truncated: tuple[list[datetime], list[datetime]] | None = None
+    if rng is not None and cur_cover.status == "partial" and rng.last < cur.end and rng.first <= cur.start:
+        cmp_cur = [b for b in cur_buckets if complete(b, cur)]
+        n_cmp = len(cmp_cur)
+        if n_cmp and cmp_cur == cur_buckets[:n_cmp] and n_cmp <= len(prev_buckets):
+            cmp_prev = prev_buckets[-n_cmp:]
+            if all(complete(b, prev) for b in cmp_prev):
+                truncated = (cmp_cur, cmp_prev)
+    over = ""
+    if truncated is not None:
+        n_cmp = len(truncated[0])
+        over = f"compared over the {n_cmp} {unit}{'' if n_cmp == 1 else 's'} the data covers in both periods"
+    limited = [] if truncated else [c.why for c in (prev_cover, cur_cover) if c.status != "full"]
     out = [_head(lt, cur, prev, f, plan, timezone, unit)]
     out += [n if n.startswith('showing') else fmt.sentence(n) for n in [*plan.notes, *notes]]
     if len(chosen) > 1:
         out.append("Templates that overlap: an entry that matches several is counted once, under the one with the lowest ID.")
+    if truncated is not None and rng is not None:
+        out.append(
+            f"{fmt.sentence(covers_text(rng, cur))} The data ends inside this period, so the change is {over}: "
+            f"the first {len(truncated[0])} {unit}{'' if len(truncated[0]) == 1 else 's'} of this period against the "
+            f"last {len(truncated[1])} of the preceding one."
+        )
     if limited:
         out.append("limited comparison: " + "; ".join(limited) + ". Counts are shown; no change is given where a period is not fully covered.")
     out.append(
@@ -449,7 +475,14 @@ def trend(
         present = sum(1 for b, m in zip(cur_buckets, per_now, strict=True) if b in whole_now and m.value > 0)
         out += ["", f"{t.template_id}  {t.template}"]
         out.append(f"    this period: {_show(now)}; preceding period: {_show(before)}")
-        out.append(f"    change: {_change(now, before, cur_cover, prev_cover)}")
+        if truncated is not None:
+            now_t, before_t = measure(i, 1, truncated[0]), measure(i, 0, truncated[1])
+            full = Coverage("full")
+            out.append(
+                f"    change: {over}, {_amount(now_t)} against {_amount(before_t)}: {_change(now_t, before_t, full, full)}"
+            )
+        else:
+            out.append(f"    change: {_change(now, before, cur_cover, prev_cover)}")
         late = ""
         if not plan.exact:
             blind = sum(1 for b, m in zip(cur_buckets, per_now, strict=True) if b in whole_now and _unsampled(m))

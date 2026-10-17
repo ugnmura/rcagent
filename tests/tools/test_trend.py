@@ -147,13 +147,36 @@ async def test_day_buckets_are_local_calendar_days_across_a_clock_change(mcp, ti
 
 
 async def test_partial_edge_buckets_are_not_counted_as_absent(mcp, trend_lt):
-    # The data ends 03-29 00:00: the day 03-29 is only partly there, so the period is limited and
-    # that day is excluded from "present in N of M".
+    # The data ends on 03-29: that day is only partly there, so it is excluded from "present in N of M"
+    # and (R69) the comparison runs over the 9 days the data covers in both periods.
     out = await call(mcp, "trend", log_table="tr", templates=[trend_lt["daily"]], start="2026-03-20", end="2026-03-30", exact=True)
-    assert "limited comparison" in out and "present in 9 of 9 days" in out and "partial" in out
+    assert "present in 9 of 9 days" in out and "partial" in out
+    assert "compared over the 9 days the data covers in both periods" in out and "no change" in out
+    assert "limited comparison" not in out
 
 
 async def test_coverage_needs_the_whole_period_in_the_data(mcp, trend_lt):
-    # 03-29 is only touched by a few entries after midnight: asking for 03-28..03-30 must not be called covered
+    # 03-29 is only partly in the data: asking for 03-28..03-30 is never called covered in full; the
+    # comparison is truncated to the 1 whole day the data covers in both periods (R69).
     out = await call(mcp, "trend", log_table="tr", templates=[trend_lt["daily"]], start="2026-03-28", end="2026-03-30", exact=True)
-    assert "limited comparison" in out
+    assert "compared over the 1 day the data covers in both periods" in out and "no change" in out
+
+
+async def test_period_past_the_data_end_is_compared_over_the_covered_days(mcp, trend_lt):  # R69
+    # Current 03-20..03-31 (the data ends on 03-29): 03-20..03-28 (9 days, 36,000) against the 9 days
+    # before 03-20, 03-11..03-19 (4 x 2,000 + 5 x 4,000 = 28,000): +29%.
+    out = await call(mcp, "trend", log_table="tr", templates=[trend_lt["rise"]], start="2026-03-20", end="2026-03-31", exact=True)
+    assert "compared over the 9 days the data covers in both periods" in out
+    assert "36,000 against 28,000" in out and "+29%" in out
+    assert "limited comparison" not in out
+
+
+async def test_new_after_truncation_needs_the_truncated_preceding_period_covered(mcp, trend_lt):  # R69
+    out = await call(mcp, "trend", log_table="tr", templates=[trend_lt["once"]], start="2026-03-20", end="2026-03-31", exact=True)
+    assert "compared over the 9 days" in out and re.search(r"\bnew\b", out.lower())
+
+
+async def test_no_truncation_when_the_data_starts_late(mcp, trend_lt):
+    # The preceding period of 03-01..03-08 lies before the data: no comparison, nothing called new.
+    out = await call(mcp, "trend", log_table="tr", templates=[trend_lt["daily"]], start="2026-03-01", end="2026-03-31", exact=True)
+    assert "limited comparison" in out and "compared over" not in out
