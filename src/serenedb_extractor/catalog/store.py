@@ -2,27 +2,18 @@
 
 from typing import Any
 
-from serenedb_extractor.catalog.models import FieldRoles, LogTable, UnknownLogTable
+from serenedb_extractor.catalog.models import ROLE_FIELDS, FieldRoles, LogTable, UnknownLogTable
 from serenedb_extractor.db import Database
 
 _COLUMNS = (
-    "name, source, source_format, mode, relation, role_timestamp, role_message, role_level, "
-    "role_service, role_host, role_component, role_trace, role_order, filter_index_name, "
-    "search_index_name, row_count, timezone, created_at, roles_updated_at"
+    "name, source, source_format, mode, relation, "
+    + ", ".join(f"role_{f}" for f in ROLE_FIELDS)
+    + ", filter_index_name, search_index_name, row_count, timezone, created_at, roles_updated_at"
 )
 
 
 def _log_table(r: dict[str, Any]) -> LogTable:
-    roles = FieldRoles(
-        message=r["role_message"],
-        timestamp=r["role_timestamp"],
-        level=r["role_level"],
-        service=r["role_service"],
-        host=r["role_host"],
-        component=r["role_component"],
-        trace=r["role_trace"],
-        order=r["role_order"],
-    )
+    roles = FieldRoles(**{f: r[f"role_{f}"] for f in ROLE_FIELDS})
     return LogTable(
         name=r["name"],
         source=r["source"],

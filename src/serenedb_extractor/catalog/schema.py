@@ -1,23 +1,19 @@
 """The `extractor` schema (spec section 5). Bootstrapping is idempotent."""
 
+from serenedb_extractor.catalog.models import ROLE_FIELDS
 from serenedb_extractor.db import Database
 
-DDL = [
-    "CREATE SCHEMA IF NOT EXISTS extractor",
-    """CREATE TABLE IF NOT EXISTS extractor.log_tables (
+_ROLE_COLUMNS = ",\n        ".join(
+    f"role_{f} VARCHAR NOT NULL" if f == "message" else f"role_{f} VARCHAR" for f in ROLE_FIELDS
+)
+
+LOG_TABLES_DDL = f"""CREATE TABLE IF NOT EXISTS extractor.log_tables (
         name               VARCHAR PRIMARY KEY,
         source             VARCHAR NOT NULL,
         source_format      VARCHAR NOT NULL,
         mode               VARCHAR NOT NULL,
         relation           VARCHAR NOT NULL,
-        role_timestamp     VARCHAR,
-        role_message       VARCHAR NOT NULL,
-        role_level         VARCHAR,
-        role_service       VARCHAR,
-        role_host          VARCHAR,
-        role_component     VARCHAR,
-        role_trace         VARCHAR,
-        role_order         VARCHAR,
+        {_ROLE_COLUMNS},
         filter_index_name  VARCHAR,
         search_index_name  VARCHAR,
         row_count          BIGINT,
@@ -25,7 +21,11 @@ DDL = [
         timezone           VARCHAR NOT NULL DEFAULT 'UTC',
         created_at         TIMESTAMP NOT NULL,
         roles_updated_at   TIMESTAMP NOT NULL
-    )""",
+    )"""
+
+DDL = [
+    "CREATE SCHEMA IF NOT EXISTS extractor",
+    LOG_TABLES_DDL,
     """CREATE TABLE IF NOT EXISTS extractor.templates (
         log_table          VARCHAR NOT NULL,
         template_id        VARCHAR NOT NULL,

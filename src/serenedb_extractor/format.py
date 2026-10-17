@@ -1,16 +1,12 @@
 """Result formatting shared by every tool."""
 
+import logging
 import re
 from typing import TypeVar
 
-import psycopg
-
-from serenedb_extractor.catalog.models import UnknownLogTable, UnknownTemplate
-from serenedb_extractor.config import ConfigError
-from serenedb_extractor.db import QueryTimeout
+from serenedb_extractor.errors import UserFacingError
 
 T = TypeVar("T")
-_OWN_ERRORS = (ConfigError, QueryTimeout, UnknownLogTable, UnknownTemplate, ValueError)
 PREFIX = "How this was measured: "
 
 
@@ -53,12 +49,13 @@ def _one_line(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def plain_error(exc: BaseException) -> str:
-    """One plain-language line for any failure; never a traceback."""
-    if isinstance(exc, psycopg.OperationalError):
-        return "Could not reach SereneDB: " + _one_line(str(exc) or "connection failed") + " Check SERENEDB_READER_URL."
-    if isinstance(exc, psycopg.Error):
-        return "SereneDB rejected the query: " + _one_line(str(exc))
-    if isinstance(exc, _OWN_ERRORS):
+def plain_error(exc: BaseException, tool: str = "the tool") -> str:
+    """One plain-language line for any failure; never a traceback.
+
+    Only UserFacingError messages are shown; anything else is logged to stderr and replaced
+    by a generic line without the exception type or text.
+    """
+    if isinstance(exc, UserFacingError):
         return _one_line(str(exc))
-    return "Something went wrong inside the extractor (" + type(exc).__name__ + "): " + _one_line(str(exc))
+    logging.getLogger("serenedb_extractor").error("unexpected failure in %s", tool, exc_info=exc)
+    return f"Something went wrong while running {tool}; details were logged."

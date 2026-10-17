@@ -3,8 +3,10 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from serenedb_extractor.errors import UserFacingError
 
-class ConfigError(Exception):
+
+class ConfigError(UserFacingError):
     """A setting is missing or inconsistent; the message names the setting."""
 
 

@@ -12,7 +12,7 @@ import pytest_asyncio
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult, ListToolsResult
 from mcp.shared.memory import create_connected_server_and_client_session
-from psycopg.conninfo import make_conninfo
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 from serenedb_extractor.config import Settings
 from serenedb_extractor.context import AppContext
@@ -40,6 +40,7 @@ def db_url() -> str:
 
 
 def _reset_schema(url: str) -> None:
+    assert conninfo_to_dict(url).get("dbname") == TEST_DB, "tests may only reset schema extractor in extractor_test"
     with psycopg.connect(url, autocommit=True) as conn:
         conn.execute("DROP SCHEMA IF EXISTS extractor CASCADE")
 

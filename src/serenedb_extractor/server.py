@@ -1,5 +1,6 @@
 """MCP server: tool registration, uniform error handling, stdio entry point."""
 
+import logging
 import os
 import sys
 import threading
@@ -21,44 +22,56 @@ SINGLE_ROLE_NOTE = (
 )
 
 
-async def call_tool(fn: Callable[..., str], **kw: Any) -> str:
-    """Run a blocking tool body off the event loop; any failure becomes one plain line."""
-    try:
-        return await anyio.to_thread.run_sync(lambda: fn(**kw))
-    except Exception as exc:
-        return fmt.plain_error(exc)
+class ToolRunner:
+    """Owns the lazily built AppContext and the one-time note; every tool goes through it."""
+
+    def __init__(self, ctx_factory: Callable[[], AppContext]) -> None:
+        self._factory = ctx_factory
+        self._lock = threading.Lock()
+        self._ctx: AppContext | None = None
+        self._noted = False
+
+    def ctx(self) -> AppContext:
+        with self._lock:
+            if self._ctx is None:
+                self._ctx = self._factory()
+            return self._ctx
+
+    async def call_tool(self, name: str, fn: Callable[..., str], **kw: Any) -> str:
+        """Run a blocking tool body off the event loop; any failure becomes one plain line.
+
+        The process's first result, success or error, also carries the single-role note.
+        """
+        try:
+            out = await anyio.to_thread.run_sync(lambda: fn(**kw))
+        except Exception as exc:
+            out = fmt.plain_error(exc, name)
+        with self._lock:
+            if self._ctx is not None and self._ctx.settings.single_role and not self._noted:
+                self._noted = True
+                out += "\n" + SINGLE_ROLE_NOTE
+        return out
+
+    async def run_tool(self, fn: Callable[..., str], **kw: Any) -> str:
+        """Register tools with this: it injects the AppContext (`fn(ctx, **kw)`) and routes through call_tool."""
+        return await self.call_tool(fn.__name__, lambda **k: fn(self.ctx(), **k), **kw)
+
+
+def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    async def describe_logs(log_table: str | None = None) -> str:
+        """Describe the log tables that are set up (or one of them): source, size and fields."""
+        return await runner.run_tool(describe.describe_logs, log_table=log_table)
 
 
 def build_server(ctx_factory: Callable[[], AppContext]) -> FastMCP:
     mcp = FastMCP("serenedb-extractor")
-    lock = threading.Lock()
-    state: dict[str, Any] = {"ctx": None, "noted": False}
-
-    def get_ctx() -> AppContext:
-        with lock:
-            if state["ctx"] is None:
-                state["ctx"] = ctx_factory()
-            return state["ctx"]  # type: ignore[no-any-return]
-
-    async def run(fn: Callable[..., str], **kw: Any) -> str:
-        """Call `fn(ctx, **kw)`; the first successful result also carries the single-role note."""
-        out = await call_tool(lambda **k: fn(get_ctx(), **k), **kw)
-        with lock:
-            ctx = state["ctx"]
-            if ctx is not None and ctx.settings.single_role and not state["noted"] and out.startswith(fmt.PREFIX):
-                state["noted"] = True
-                out += "\n" + SINGLE_ROLE_NOTE
-        return out
-
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-    async def describe_logs(log_table: str | None = None) -> str:
-        """Describe the log tables that are set up (or one of them): source, size and fields."""
-        return await run(describe.describe_logs, log_table=log_table)
-
+    register_tools(mcp, ToolRunner(ctx_factory))
     return mcp
 
 
 def main() -> None:
+    logging.basicConfig(stream=sys.stderr, level=logging.INFO)
     try:
         settings = Settings.from_env(os.environ)
     except ConfigError as exc:

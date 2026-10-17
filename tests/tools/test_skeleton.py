@@ -2,7 +2,11 @@ import pytest
 
 from serenedb_extractor.catalog import schema
 from serenedb_extractor.config import ConfigError, Settings
-from tests.conftest import call
+from mcp.server.fastmcp import FastMCP
+
+from serenedb_extractor.catalog.models import UnknownLogTable
+from serenedb_extractor.server import ToolRunner
+from tests.conftest import Client, call
 
 
 @pytest.mark.db
@@ -28,6 +32,14 @@ async def test_single_role_note_once(mcp_single_role):
 
 
 @pytest.mark.db
+async def test_single_role_note_rides_on_first_result_even_an_error(mcp_single_role):
+    first = await call(mcp_single_role, "describe_logs", log_table="nope")
+    second = await call(mcp_single_role, "describe_logs", log_table="nope")
+    assert "nope" in first and "not enforcing read-only limits" in first
+    assert "nope" in second and "not enforcing" not in second
+
+
+@pytest.mark.db
 async def test_two_roles_no_note(mcp):
     assert "not enforcing" not in await call(mcp, "describe_logs")
 
@@ -37,6 +49,7 @@ async def test_unknown_log_table_plain(mcp):
     out = await call(mcp, "describe_logs", log_table="nope")
     assert "nope" in out and "Traceback" not in out
     assert "\n" not in out.strip()
+    assert not out.startswith("How this was measured")
 
 
 def test_config_errors():
@@ -65,3 +78,29 @@ async def test_unreachable_database_is_plain(mcp_unreachable):
     out = await call(mcp_unreachable, "describe_logs")
     assert "Traceback" not in out and "\n" not in out.strip()
     assert "SereneDB" in out
+
+
+def _failing_client(exc: Exception) -> Client:
+    server = FastMCP("test")
+    runner = ToolRunner(lambda: None)  # type: ignore[arg-type, return-value]
+
+    @server.tool()
+    async def boom() -> str:
+        def boom(ctx: object) -> str:
+            raise exc
+
+        return await runner.run_tool(boom)
+
+    return Client(server, [])
+
+
+async def test_unexpected_error_is_generic_and_logged(caplog):
+    out = await call(_failing_client(ValueError("secret detail")), "boom")
+    assert out == "Something went wrong while running boom; details were logged."
+    assert "ValueError" not in out and "secret" not in out
+    assert any("secret detail" in str(r.exc_info) for r in caplog.records)
+
+
+async def test_user_facing_error_shown_verbatim():
+    out = await call(_failing_client(UnknownLogTable("zzz")), "boom")
+    assert "zzz" in out and "no log table" in out
