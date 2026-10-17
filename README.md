@@ -255,8 +255,8 @@ This is a prototype:
 - **Sampling only for a single Parquet file.** Estimates from a block sample need one in-place Parquet file; for
   globs of several files, JSON and copied tables every entry in scope is read and counted exactly, or, when that is
   over the time budget, the tool asks before running it.
-- **Index builds are capped at the server's maximum query time** (600 s by default); a build predicted or running
-  longer is cancelled, so very large sources may need a shorter period or a copy instead.
+- **Index builds are capped at the server's maximum query time** (600 s by default): a build that runs longer is
+  cancelled and no index is created; `create_index` with `dry_run` warns beforehand when its estimate is longer.
 - **Catalog writes are single-process.** Survey results, merges and renames are serialized within one server
   process; several server processes writing the same catalog at the same time are not supported.
 - **Timings under emulation are not representative.** Size and time estimates and test timings measured with the
