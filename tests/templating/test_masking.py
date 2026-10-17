@@ -63,7 +63,7 @@ def test_rules_avoid_syntax_re2_lacks() -> None:
         for banned in ("(?=", "(?!", "(?<=", "(?<!", "*+", "++", "?+", "(?P="):
             assert banned not in rule.regex
         assert "%" not in rule.regex  # would collide with psycopg placeholders
-        assert "\s" not in rule.regex  # RE2 and Python disagree on \v
+        assert r"\s" not in rule.regex  # RE2 and Python disagree on \v
 
 
 def test_masked_text_is_stable() -> None:
