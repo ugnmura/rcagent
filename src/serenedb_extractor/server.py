@@ -18,6 +18,7 @@ from serenedb_extractor.tools import catalog_tools, describe, lookup, setup_tool
 from serenedb_extractor.tools import context as context_tool
 from serenedb_extractor.tools import sql as sql_tool
 from serenedb_extractor.tools import survey as survey_tool
+from serenedb_extractor.tools import trend as trend_tool
 
 SINGLE_ROLE_NOTE = (
     "Note: only a reader URL was configured, so SereneDB is not enforcing read-only limits "
@@ -208,6 +209,34 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         """Escape hatch: run ONE read-only SQL statement (SELECT, WITH, set operations or EXPLAIN) when no other tool fits. Anything that could change data is refused. Results are cut to limit rows (default 50); the plan is cost-checked first and a too-expensive query answers TOO EXPENSIVE with a confirmed_cost to repeat it with once the user agrees. Log tables are views named like extractor.lt_<name>."""
         return await runner.run_tool(
             sql_tool.run_sql, sql=sql, limit=limit, timeout_s=timeout_s, confirmed_cost=confirmed_cost
+        )
+
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    async def trend(
+        log_table: str,
+        start: str | None = None,
+        end: str | None = None,
+        templates: list[str] | None = None,
+        bucket: str = "day",
+        exact: bool = False,
+        filters: dict[str, Any] | None = None,
+        top_n: int | None = None,
+        timezone: str = "UTC",
+        confirmed_cost: str | None = None,
+    ) -> str:
+        """Compare templates (T<n> IDs; default the catalog's top_n by size) over a period (start and end are required) with the preceding period of equal length: count per hour or day (bucket), change, on how many buckets each was present and which components were affected. Estimated by default (says so); exact=True counts every entry through the cost check, which may fall back to an estimate or answer TOO EXPENSIVE with a confirmed_cost to repeat it with. Where the data does not cover the preceding period the comparison is marked limited and nothing is called new."""
+        return await runner.run_tool(
+            trend_tool.trend,
+            log_table=log_table,
+            templates=templates,
+            start=start,
+            end=end,
+            bucket=bucket,
+            exact=exact,
+            filters=filters,
+            top_n=top_n,
+            timezone=timezone,
+            confirmed_cost=confirmed_cost,
         )
 
 

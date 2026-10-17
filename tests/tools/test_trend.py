@@ -134,4 +134,4 @@ async def test_too_expensive_asks_before_running(mcp, trend_lt, monkeypatch):
 
     monkeypatch.setattr(cost, "THROUGHPUT_BYTES_PER_S", {"remote": 1.0, "local": 1.0})
     out = await call(mcp, "trend", log_table="tr", templates=[trend_lt["rise"]], exact=True, **P)
-    assert "TOO EXPENSIVE" in out and "confirmed_cost=" in out and "this period:" not in out
+    assert "TOO EXPENSIVE" in out and "Nothing was run" in out and "this period:" not in out
