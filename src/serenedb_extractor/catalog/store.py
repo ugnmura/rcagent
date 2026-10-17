@@ -1,11 +1,14 @@
 """Reads and writes of the catalog tables, including generalization, merges, redirects and renames."""
 
 import json
+import logging
 import re
 import threading
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, Literal
+
+import re2  # type: ignore[import-untyped]
 
 from serenedb_extractor.catalog.models import (
     ROLE_FIELDS,
@@ -92,6 +95,19 @@ def _carry_names(old: list[Param], new: list[Param]) -> list[Param]:
         taken.add(name)
         out.append(Param(p.pos, name, p.kind))
     return out
+
+
+_log = logging.getLogger("serenedb_extractor")
+
+
+def full_match(regex: str, text: str) -> bool:
+    """Whether a template regex matches `text` in full, with RE2 (SereneDB's engine, as in query/tags.py).
+    A regex RE2 rejects matches nothing (and is logged)."""
+    try:
+        return re2.fullmatch(regex, text) is not None
+    except re2.error as exc:
+        _log.warning("a template regex does not compile with RE2 and matches nothing: %s", exc)
+        return False
 
 
 _UPSERT_LOCK = threading.Lock()
@@ -217,8 +233,7 @@ class CatalogStore:
             for c in found:
                 first, last = _naive_utc(c.first_seen), _naive_utc(c.last_seen)
                 same = next((t for t in state.values() if t.template == c.template), None)
-                rx = re.compile(c.regex)
-                group = [t for t in state.values() if t is same or rx.fullmatch(t.example)]
+                group = [t for t in state.values() if t is same or full_match(c.regex, t.example)]
                 if not group:
                     saved = self._insert(log_table, c, first, last, now)
                     state[saved.template_id] = saved
@@ -330,7 +345,7 @@ class CatalogStore:
                 return [canonical]
             target = self._redirect_target(log_table, canonical)
             return [target] if target else []
-        return [t.template_id for t in known if t.template == wanted or re.fullmatch(t.regex, wanted)][:3]
+        return [t.template_id for t in known if t.template == wanted or full_match(t.regex, wanted)][:3]
 
     def rename_parameter(self, log_table: str, template_id: str, old: str, new: str) -> Resolved:
         """Rename one parameter for good; later surveys keep the name. Follows a merge redirect."""
