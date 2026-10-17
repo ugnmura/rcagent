@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from serenedb_extractor import format as fmt
-from serenedb_extractor.catalog.models import CandidateTemplate, LogTable, Template
+from serenedb_extractor.catalog.models import CandidateTemplate, LogTable, Template, UpsertResult
 from serenedb_extractor.context import AppContext
 from serenedb_extractor.query.filters import Filters, TimeRange, build_where, diagnose_empty, parse_time_range, role_sql
 from serenedb_extractor.templating.drain import Breakdown, MaskedGroup, MergedTemplate, merge_groups
@@ -69,13 +69,15 @@ def _sample_groups(
     return groups, sampled
 
 
-def _filters_text(f: Filters) -> str | None:
+def _filters_text(f: Filters, excluded: list[str] | None = None) -> str | None:
     parts = []
     for key, wanted in f.items():
         if isinstance(wanted, list):
             parts.append(f"{key} in ({', '.join(repr(w) for w in wanted)})")
         else:
             parts.append(f"{key}={wanted!r}")
+    if excluded:
+        parts.append(f"excluding templates {', '.join(excluded)}")
     return ", ".join(parts) or None
 
 
@@ -113,12 +115,31 @@ def _candidate(m: MergedTemplate, measured: fmt.Measured) -> CandidateTemplate:
     )
 
 
-def _unavailable_notes(exclude: list[str] | None, confirmed_cost: str | None) -> list[str]:
-    notes = []
-    if exclude:
-        notes.append("Excluding templates isn't available yet — nothing was excluded.")
+def _unavailable_notes(confirmed_cost: str | None) -> list[str]:
     if confirmed_cost:
-        notes.append("The cost confirmation isn't available yet — it was ignored; this survey ran as usual.")
+        return ["The cost confirmation isn't available yet — it was ignored; this survey ran as usual."]
+    return []
+
+
+def resolve_exclusions(ctx: AppContext, log_table: str, exclude: list[str] | None) -> tuple[list[Template], list[str]]:
+    """The live templates to hide (an unknown ID raises) and one note per ID that was merged away."""
+    live: dict[str, Template] = {}
+    notes: list[str] = []
+    for given in exclude or []:
+        resolved = ctx.store.resolve(log_table, given)
+        live.setdefault(resolved.template.template_id, resolved.template)
+        if resolved.redirected_from:
+            notes.append(f"{resolved.redirected_from} was merged into {resolved.template.template_id}; excluded that one.")
+    return list(live.values()), notes
+
+
+def _merge_notes(result: UpsertResult) -> list[str]:
+    notes = []
+    for t, status in result.items:
+        if status == "generalized":
+            gone = sorted((o for o, n in result.merged.items() if n == t.template_id), key=lambda i: int(i[1:]))
+            tail = f"; {', '.join(gone)} {'was' if len(gone) == 1 else 'were'} merged into it" if gone else ""
+            notes.append(f"{t.template_id} was generalized to \"{t.template}\" (same ID){tail}.")
     return notes
 
 
@@ -134,24 +155,31 @@ def survey(
     timezone: str = "UTC",
     confirmed_cost: str | None = None,
 ) -> str:
-    # `exclude` (#11) and `confirmed_cost` (#12) are not acted on yet; the output says so.
+    # `confirmed_cost` (#12) is not acted on yet; the output says so.
     lt = ctx.store.get_log_table(log_table)
     tr: TimeRange = parse_time_range(start, end, timezone)
     f = Filters.from_dict(filters)
+    hidden, exclusion_notes = resolve_exclusions(ctx, lt.name, exclude)
+    hidden_ids = [t.template_id for t in hidden]
     cap = ctx.settings.limit_cap
     n_target = fmt.clamp_limit(sample_size, ctx.settings.sample_size, ctx.settings.sample_size * cap)
     shown_limit = fmt.clamp_limit(limit, DEFAULT_LIMIT, DEFAULT_LIMIT * cap)
     with readable(f"the source of log table '{lt.name}'"):
         cols = known_columns(ctx.db, lt)
         where, params = build_where(lt, tr, f, cols)
+        for i, t in enumerate(hidden):  # inside the filter subquery, so sampling sees only what is left
+            where += f" AND NOT regexp_full_match(coalesce(({role_sql(lt, 'message')})::varchar, ''), %(x_{i})s)"
+            params[f"x_{i}"] = t.regex
         population = int(ctx.db.read(f"SELECT count(*) FROM {lt.relation} WHERE {where}", params).scalar())
         groups, sampled = _sample_groups(ctx, lt, where, params, n_target) if population else ([], 0)
         if sampled == 0:
-            lines = diagnose_empty(ctx.db, lt, tr, f, cols) or ["No entries matched."]
+            lines = diagnose_empty(ctx.db, lt, tr, f, cols) or [
+                "No entries are left after excluding those templates." if hidden else "No entries matched."
+            ]
             head = fmt.how_measured(
-                "exact count of the entries that match", tr.describe() if tr.bounded else None, _filters_text(f), tz=timezone
+                "exact count of the entries that match", tr.describe() if tr.bounded else None, _filters_text(f, hidden_ids), tz=timezone
             )
-            return head + "\n" + "\n".join([*_unavailable_notes(exclude, confirmed_cost), *lines])
+            return head + "\n" + "\n".join([*exclusion_notes, *_unavailable_notes(confirmed_cost), *lines])
     merged = merge_groups(groups)
     exact = sampled >= population
     measures = {m.template: _measure(m.count, sampled, population) for m in merged}
@@ -173,7 +201,7 @@ def survey(
     head = fmt.how_measured(
         kind,
         tr.describe() if tr.bounded else None,
-        _filters_text(f),
+        _filters_text(f, hidden_ids),
         "all matching entries read, no sampling" if exact else f"filtered first, then sampled ({sampled:,} entries, repeatable)",
         tz=timezone,
     )
@@ -181,7 +209,9 @@ def survey(
     covered = sum(m.count for m in shown)
     out = [
         head,
-        *_unavailable_notes(exclude, confirmed_cost),
+        *exclusion_notes,
+        *_unavailable_notes(confirmed_cost),
+        *_merge_notes(result),
         f"Log table {lt.name}: {population:,} entries match; {len(merged)} templates found in the sample.",
         f"These {len(shown)} cover {100 * covered / sampled:.0f}% of the sample.",
     ]
@@ -190,7 +220,7 @@ def survey(
     for m in shown:
         template, status = saved[m.template]
         measured = measures[m.template]
-        flag = "  NEW" if status == "new" else ""
+        flag = {"new": "  NEW", "generalized": "  GENERALIZED"}.get(status, "")
         out.append("")
         out.append(f"{template.template_id}  {m.template}{flag}")
         out.append(f"    {fmt.render(measured)}, {_share(m.count, sampled, exact)} of matching entries")

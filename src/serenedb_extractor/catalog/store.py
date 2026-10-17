@@ -1,6 +1,8 @@
-"""Reads and writes of the catalog tables. Later tickets add generalize/merge/redirect/rename."""
+"""Reads and writes of the catalog tables, including generalization, merges, redirects and renames."""
 
 import json
+import re
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -10,11 +12,14 @@ from serenedb_extractor.catalog.models import (
     FieldRoles,
     LogTable,
     Param,
+    Resolved,
     Template,
     UnknownLogTable,
+    UnknownTemplate,
     UpsertResult,
 )
 from serenedb_extractor.db import Database
+from serenedb_extractor.errors import UserFacingError
 
 _COLUMNS = (
     "name, source, source_format, mode, relation, "
@@ -64,6 +69,28 @@ def _template(r: dict[str, Any]) -> Template:
         last_estimate=r["last_estimate"],
         last_estimate_at=r["last_estimate_at"],
     )
+
+
+PARAM_NAME = re.compile(r"[a-z][a-z0-9_]*")
+
+
+def _params_json(params: list[Param]) -> str:
+    return json.dumps([{"pos": p.pos, "name": p.name, "kind": p.kind} for p in params])
+
+
+def _carry_names(old: list[Param], new: list[Param]) -> list[Param]:
+    """A renamed parameter keeps its name through generalization when the position and kind still match."""
+    by_pos = {p.pos: p for p in old}
+    out: list[Param] = []
+    taken: set[str] = set()
+    for p in new:
+        before = by_pos.get(p.pos)
+        name = before.name if before is not None and before.kind == p.kind and before.name not in taken else p.name
+        while name in taken:
+            name += "_"
+        taken.add(name)
+        out.append(Param(p.pos, name, p.kind))
+    return out
 
 
 def _template_number(template_id: str) -> int:
@@ -134,53 +161,159 @@ class CatalogStore:
     def upsert_survey_templates(
         self, log_table: str, found: list[CandidateTemplate], observed_at: datetime
     ) -> UpsertResult:
-        """Save surveyed templates: identical template text is `known` (same ID, sightings refreshed),
-        anything else is `new` with the next T<n> from the log table's counter (never reused)."""
-        by_text = {t.template: t for t in self.templates(log_table)}
-        fresh = [c for c in dict.fromkeys(c.template for c in found) if c not in by_text]
-        first_no = 0
-        if fresh:
-            # One statement reserves the whole block of numbers, so concurrent upserts never collide.
-            reserved = self.db.write(
-                "UPDATE extractor.log_tables SET next_template_no = next_template_no + %(k)s WHERE name = %(n)s "
-                "RETURNING next_template_no",
-                {"k": len(fresh), "n": log_table},
-            ).scalar()
-            first_no = int(reserved) - len(fresh)
-        numbers = {text: first_no + i for i, text in enumerate(fresh)}
+        """Save surveyed templates.
+
+        Identical template text is `known` (same ID, sightings refreshed). A candidate whose regex
+        full-matches other templates' examples is `generalized`: the lowest-numbered match keeps its ID
+        and takes the candidate's template, the others are deleted and redirect to it (every redirect
+        stays one hop). Anything else is `new` with the next T<n> from the log table's counter (never reused).
+        """
+        current = {t.template_id: t for t in self.templates(log_table)}
         now = _naive_utc(observed_at)
+        merged: dict[str, str] = {}
+        state = dict(current)  # what the catalog holds as we apply each candidate
         items: list[tuple[Template, Any]] = []
         for c in found:
             first, last = _naive_utc(c.first_seen), _naive_utc(c.last_seen)
-            known = by_text.get(c.template)
-            if known is None:
-                tid = f"T{numbers[c.template]}"
+            same = next((t for t in state.values() if t.template == c.template), None)
+            if same is not None:
+                saved = self._refresh(log_table, same, first, last, c.estimate, now)
+                state[saved.template_id] = saved
+                items.append((saved, "known"))
+                continue
+            rx = re.compile(c.regex)
+            hits = sorted((t for t in state.values() if rx.fullmatch(t.example)), key=lambda t: _template_number(t.template_id))
+            if not hits:
+                # One atomic statement reserves the number, so concurrent upserts never collide.
+                reserved = self.db.write(
+                    "UPDATE extractor.log_tables SET next_template_no = next_template_no + 1 WHERE name = %(n)s "
+                    "RETURNING next_template_no",
+                    {"n": log_table},
+                ).scalar()
+                tid = f"T{int(reserved) - 1}"
                 self.db.write(
                     "INSERT INTO extractor.templates (log_table, template_id, template, regex, params, example, "
                     "first_seen, last_seen, last_estimate, last_estimate_at, updated_at) VALUES "
                     "(%(lt)s, %(id)s, %(t)s, %(re)s, %(p)s, %(ex)s, %(fs)s, %(ls)s, %(est)s, %(at)s, %(at)s)",
                     {
-                        "lt": log_table, "id": tid, "t": c.template, "re": c.regex,
-                        "p": json.dumps([{"pos": p.pos, "name": p.name, "kind": p.kind} for p in c.params]),
+                        "lt": log_table, "id": tid, "t": c.template, "re": c.regex, "p": _params_json(list(c.params)),
                         "ex": c.example, "fs": first, "ls": last, "est": c.estimate, "at": now,
                     },
                 )
                 saved = Template(log_table, tid, c.template, c.regex, list(c.params), c.example, first, last, c.estimate, now)
-                by_text[c.template] = saved
+                state[tid] = saved
                 items.append((saved, "new"))
                 continue
-            firsts = [d for d in (known.first_seen, first) if d is not None]
-            lasts = [d for d in (known.last_seen, last) if d is not None]
-            merged_first, merged_last = min(firsts, default=None), max(lasts, default=None)
+            survivor, absorbed = hits[0], hits[1:]
+            firsts = [d for d in (*(t.first_seen for t in hits), first) if d is not None]
+            lasts = [d for d in (*(t.last_seen for t in hits), last) if d is not None]
+            params = _carry_names(survivor.params, list(c.params))
             self.db.write(
-                "UPDATE extractor.templates SET first_seen = %(fs)s, last_seen = %(ls)s, last_estimate = %(est)s, "
-                "last_estimate_at = %(at)s, updated_at = %(at)s WHERE log_table = %(lt)s AND template_id = %(id)s",
-                {"fs": merged_first, "ls": merged_last, "est": c.estimate, "at": now, "lt": log_table, "id": known.template_id},
+                "UPDATE extractor.templates SET template = %(t)s, regex = %(re)s, params = %(p)s, example = %(ex)s, "
+                "first_seen = %(fs)s, last_seen = %(ls)s, last_estimate = %(est)s, last_estimate_at = %(at)s, "
+                "updated_at = %(at)s WHERE log_table = %(lt)s AND template_id = %(id)s",
+                {
+                    "t": c.template, "re": c.regex, "p": _params_json(params), "ex": c.example,
+                    "fs": min(firsts, default=None), "ls": max(lasts, default=None), "est": c.estimate, "at": now,
+                    "lt": log_table, "id": survivor.template_id,
+                },
             )
-            refreshed = Template(
-                log_table, known.template_id, known.template, known.regex, known.params, known.example,
-                merged_first, merged_last, c.estimate, now,
+            for gone in absorbed:
+                self.db.write(
+                    "DELETE FROM extractor.templates WHERE log_table = %(lt)s AND template_id = %(id)s",
+                    {"lt": log_table, "id": gone.template_id},
+                )
+                self.db.write(
+                    "UPDATE extractor.template_redirects SET new_id = %(new)s WHERE log_table = %(lt)s AND new_id = %(old)s",
+                    {"new": survivor.template_id, "lt": log_table, "old": gone.template_id},
+                )
+                self.db.write(
+                    "INSERT INTO extractor.template_redirects (log_table, old_id, new_id, merged_at) "
+                    "VALUES (%(lt)s, %(old)s, %(new)s, %(at)s)",
+                    {"lt": log_table, "old": gone.template_id, "new": survivor.template_id, "at": now},
+                )
+                del state[gone.template_id]
+                for k, v in list(merged.items()):
+                    if v == gone.template_id:
+                        merged[k] = survivor.template_id
+                merged[gone.template_id] = survivor.template_id
+            saved = Template(
+                log_table, survivor.template_id, c.template, c.regex, params, c.example,
+                min(firsts, default=None), max(lasts, default=None), c.estimate, now,
             )
-            by_text[c.template] = refreshed
-            items.append((refreshed, "known"))
-        return UpsertResult(items, {})
+            state[survivor.template_id] = saved
+            items.append((saved, "generalized"))
+        return UpsertResult(items, merged)
+
+    def _refresh(
+        self, log_table: str, known: Template, first: datetime | None, last: datetime | None, estimate: int | None,
+        now: datetime | None,
+    ) -> Template:
+        firsts = [d for d in (known.first_seen, first) if d is not None]
+        lasts = [d for d in (known.last_seen, last) if d is not None]
+        merged_first, merged_last = min(firsts, default=None), max(lasts, default=None)
+        self.db.write(
+            "UPDATE extractor.templates SET first_seen = %(fs)s, last_seen = %(ls)s, last_estimate = %(est)s, "
+            "last_estimate_at = %(at)s, updated_at = %(at)s WHERE log_table = %(lt)s AND template_id = %(id)s",
+            {"fs": merged_first, "ls": merged_last, "est": estimate, "at": now, "lt": log_table, "id": known.template_id},
+        )
+        return replace(known, first_seen=merged_first, last_seen=merged_last, last_estimate=estimate, last_estimate_at=now)
+
+    def resolve(self, log_table: str, template_id: str) -> Resolved:
+        """The live template for an ID, following a merge redirect (one hop by construction)."""
+        wanted = template_id.strip()
+        rows = self.db.read(
+            f"SELECT {_TEMPLATE_COLUMNS} FROM extractor.templates WHERE log_table = %(n)s AND template_id = %(id)s",
+            {"n": log_table, "id": wanted},
+        ).dicts()
+        if rows:
+            return Resolved(_template(rows[0]), None)
+        hop = self.db.read(
+            "SELECT new_id FROM extractor.template_redirects WHERE log_table = %(n)s AND old_id = %(id)s",
+            {"n": log_table, "id": wanted},
+        ).dicts()
+        if hop:
+            target = self.db.read(
+                f"SELECT {_TEMPLATE_COLUMNS} FROM extractor.templates WHERE log_table = %(n)s AND template_id = %(id)s",
+                {"n": log_table, "id": hop[0]["new_id"]},
+            ).dicts()
+            if target:
+                return Resolved(_template(target[0]), wanted)
+        raise UnknownTemplate(template_id, self._closest(log_table, wanted))
+
+    def _closest(self, log_table: str, wanted: str) -> list[str]:
+        """Templates the unknown ID may have meant: a differently spelled ID, or whose regex matches it as text."""
+        known = self.templates(log_table)
+        spelled = re.fullmatch(r"[Tt]\s*0*(\d+)", wanted)
+        if spelled:
+            same = [t.template_id for t in known if t.template_id == f"T{spelled.group(1)}"]
+            if same:
+                return same
+            redirect = self.db.read(
+                "SELECT new_id FROM extractor.template_redirects WHERE log_table = %(n)s AND old_id = %(id)s",
+                {"n": log_table, "id": f"T{spelled.group(1)}"},
+            ).dicts()
+            return [r["new_id"] for r in redirect]
+        return [t.template_id for t in known if t.template == wanted or re.fullmatch(t.regex, wanted)][:3]
+
+    def rename_parameter(self, log_table: str, template_id: str, old: str, new: str) -> Resolved:
+        """Rename one parameter for good; later surveys keep the name. Follows a merge redirect."""
+        if not PARAM_NAME.fullmatch(new):
+            raise UserFacingError(
+                f"'{new}' is an invalid parameter name: use lower-case letters, digits and underscores, starting with a letter."
+            )
+        resolved = self.resolve(log_table, template_id)
+        template = resolved.template
+        target = next((p for p in template.params if p.name == old), None)
+        if target is None:
+            names = ", ".join(p.name for p in template.params) or "none"
+            raise UserFacingError(f"{template.template_id} has no parameter named '{old}'. Its parameters: {names}.")
+        if new != old and any(p.name == new for p in template.params):
+            raise UserFacingError(f"{template.template_id} already has a parameter named '{new}'; pick another name.")
+        params = [Param(p.pos, new if p is target else p.name, p.kind) for p in template.params]
+        self.db.write(
+            "UPDATE extractor.templates SET params = %(p)s, updated_at = %(at)s "
+            "WHERE log_table = %(lt)s AND template_id = %(id)s",
+            {"p": _params_json(params), "at": datetime.now(UTC).replace(tzinfo=None), "lt": log_table, "id": template.template_id},
+        )
+        return Resolved(replace(template, params=params), resolved.redirected_from)

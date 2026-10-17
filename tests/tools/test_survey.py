@@ -6,6 +6,7 @@ import pytest
 
 from serenedb_extractor.catalog.models import CandidateTemplate
 from serenedb_extractor.catalog.store import CatalogStore
+from serenedb_extractor.templating.regex import compile_template
 from tests.conftest import call, container_parquet, id_of, ids_in
 from tests.fixtures.data import FX
 
@@ -87,12 +88,6 @@ async def test_time_range_and_zone_are_stated(mcp, fx_lt):
     assert "Europe/Paris" in out and "timeout after" in out
 
 
-async def test_exclude_is_never_silently_ignored(mcp, fx_lt):  # R27
-    out = await call(mcp, "survey", log_table="fx", exclude=["T1"])
-    assert out.startswith("How this was measured: ") and "Excluding templates isn't available yet" in out
-    assert "nothing was excluded" in out
-
-
 async def test_confirmed_cost_is_never_silently_ignored(mcp, fx_lt):  # R27
     out = await call(mcp, "survey", log_table="fx", confirmed_cost="x")
     assert "cost" in out and "isn't available yet" in out
@@ -105,7 +100,9 @@ async def test_quotes_in_filter_values_are_escaped(mcp, fx_lt):
 
 
 def _candidate(text):
-    return CandidateTemplate(text, "^x$", [], "x", None, None, 1)
+    # a real regex and example: a stub regex matching other templates' examples would now generalize them
+    compiled = compile_template(text)
+    return CandidateTemplate(text, compiled.regex, list(compiled.params), text.replace("<*>", "v"), None, None, 1)
 
 
 async def test_consecutive_upserts_get_consecutive_ids(mcp, fx_lt, database):  # R28

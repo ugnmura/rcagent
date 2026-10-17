@@ -14,7 +14,7 @@ from mcp.types import ToolAnnotations
 from serenedb_extractor import format as fmt
 from serenedb_extractor.config import ConfigError, Settings
 from serenedb_extractor.context import AppContext
-from serenedb_extractor.tools import describe, setup_tools
+from serenedb_extractor.tools import catalog_tools, describe, setup_tools
 from serenedb_extractor.tools import survey as survey_tool
 
 SINGLE_ROLE_NOTE = (
@@ -130,6 +130,17 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
             limit=limit,
             timezone=timezone,
             confirmed_cost=confirmed_cost,
+        )
+
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))
+    async def rename_parameter(log_table: str, template: str, old_name: str, new_name: str) -> str:
+        """Give a template parameter a better name, permanently (later surveys keep it). template is a T<n> ID from survey; new_name is lower-case letters, digits and underscores, unique within the template."""
+        return await runner.run_tool(
+            catalog_tools.rename_parameter,
+            log_table=log_table,
+            template=template,
+            old_name=old_name,
+            new_name=new_name,
         )
 
 
