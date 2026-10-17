@@ -5,6 +5,7 @@ from serenedb_extractor.catalog.models import ROLE_FIELDS, FieldRoles, LogTable
 from serenedb_extractor.context import AppContext
 from serenedb_extractor.db import Database, quote_ident
 from serenedb_extractor.errors import UserFacingError
+from serenedb_extractor.query.templatematch import _like_pattern
 from serenedb_extractor.query.filters import (
     FILTER_ROLES,
     Filters,
@@ -188,7 +189,7 @@ def _resolve_field(lt: LogTable, name: str, cols: dict[str, str]) -> tuple[str, 
 
 def like_pattern(text: str) -> str:
     """An ILIKE pattern (ESCAPE '\\') matching `text` anywhere, with its own % and _ taken literally."""
-    return "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    return _like_pattern(text)
 
 
 _EXACT_LOOKUP = "exact distinct-value lookup in one field"

@@ -87,3 +87,14 @@ def test_placeholder_kind():
     from serenedb_extractor.templating.masking import placeholder_kind
 
     assert [placeholder_kind(p) for p in ("<*>", "<NUM>", "<IP>")] == ["any", "num", "ip"]
+
+
+def test_tagging_matches_entries_with_edge_whitespace_like_sql():
+    """query/tags.py agrees with the SQL matchers: no special case, the regex itself allows edge whitespace."""
+    from serenedb_extractor.catalog.models import Template
+    from serenedb_extractor.query.tags import tag_entries
+    from serenedb_extractor.templating.regex import compile_template
+
+    c = compile_template("disk full on <NUM>")
+    t = Template("x", "T1", "disk full on <NUM>", c.regex, list(c.params), "", None, None, None, None)
+    assert tag_entries([t], [" disk full on 3", "disk full on 3 \n", "nope"]) == ["T1", "T1", None]

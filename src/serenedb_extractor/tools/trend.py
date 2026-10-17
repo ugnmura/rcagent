@@ -29,10 +29,10 @@ from serenedb_extractor.query.stats import collect, role_columns
 from serenedb_extractor.setup.paths import sql_literal
 from serenedb_extractor.setup.roles import is_temporal, resolve_column, role_column
 from serenedb_extractor.setup.sniff import readable
-from serenedb_extractor.templating.regex import compile_template
+from serenedb_extractor.query.templatematch import fixed_word_prefilter, fixed_words_sql, template_match_sql
 from serenedb_extractor.timezones import get_zone
 from serenedb_extractor.query.coverage import untimestamped_note
-from serenedb_extractor.tools.describe import known_columns, like_pattern
+from serenedb_extractor.tools.describe import known_columns
 
 Bucket = Literal["hour", "day"]
 Status = Literal["full", "partial", "none", "unknown"]
@@ -178,25 +178,15 @@ def _columns_read(lt: LogTable, f: Filters, cols: dict[str, str]) -> list[str]:
     return out
 
 
-def _fixed_like(i: int, t: Template, msg: str, params: dict[str, Any]) -> list[str]:
-    like = []
-    for j, w in enumerate(compile_template(t.template).fixed_words):
-        params[f"fw_{i}_{j}"] = like_pattern(w)
-        like.append(f"{msg} LIKE %(fw_{i}_{j})s ESCAPE '\\'")
-    return like
-
-
 def _classify(templates: list[Template], msg: str, params: dict[str, Any]) -> tuple[str, str | None]:
-    """CASE giving the 1-based position of the first matching template (ID order), and a prefilter
-    (fixed words of any template, on `msg`) or None when some template has no fixed word."""
-    whens, pre = [], []
+    """CASE giving the 1-based position of the first matching template (ID order), and the shared
+    fixed-word prefilter on `msg`, or None when some template has no fixed word."""
+    whens = []
     for i, t in enumerate(templates, 1):
-        like = _fixed_like(i, t, "msg", params)
+        like = fixed_words_sql(t, "msg", params, f"fw_{i}")
         params[f"rx_{i}"] = t.regex
-        whens.append(f"WHEN {' AND '.join([*like, f'regexp_full_match(msg, %(rx_{i})s)'])} THEN {i}")
-        pre.append(" AND ".join(_fixed_like(i, t, msg, params)))
-    prefilter = None if "" in pre else "(" + " OR ".join(f"({p})" for p in pre) + ")"
-    return "CASE " + " ".join(whens) + " END", prefilter
+        whens.append(f"WHEN {' AND '.join([*([like] if like else []), template_match_sql('msg', f'rx_{i}')])} THEN {i}")
+    return "CASE " + " ".join(whens) + " END", fixed_word_prefilter(templates, msg, params, "pf")
 
 
 def _build_sql(

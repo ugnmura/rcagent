@@ -37,6 +37,7 @@ from serenedb_extractor.setup.sniff import human_bytes, readable
 from serenedb_extractor.templating.drain import Breakdown, MaskedGroup, MergedTemplate, merge_groups
 from serenedb_extractor.templating.masking import mask_sql
 from serenedb_extractor.templating.regex import compile_template
+from serenedb_extractor.query.templatematch import template_match_sql
 from serenedb_extractor.query.coverage import untimestamped_note
 from serenedb_extractor.tools.describe import known_columns
 
@@ -258,7 +259,7 @@ def survey(
         match_sql, match_params = build_where(lt, TimeRange(), f, cols)  # the filters alone
         params.update(match_params)
         for i, t in enumerate(hidden):  # part of the filter, so sampling sees only what is left
-            match_sql += f" AND NOT regexp_full_match(coalesce(({role_sql(lt, 'message')})::varchar, ''), %(x_{i})s)"
+            match_sql += f" AND NOT {template_match_sql(f"coalesce(({role_sql(lt, 'message')})::varchar, '')", f'x_{i}')}"
             params[f"x_{i}"] = t.regex
         match_sql += pct(SURVEY_SQL_SUFFIX)
         scan_cols, count_cols = _columns(lt, tr, f, cols, bool(hidden))

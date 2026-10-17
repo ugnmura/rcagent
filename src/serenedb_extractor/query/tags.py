@@ -19,7 +19,7 @@ def _number(template_id: str) -> int:
 
 def tag_entries(templates: Sequence[Template], messages: Sequence[str]) -> list[str | None]:
     """For each message the ID of the first template (by template number) whose regex matches it
-    in full (trailing whitespace ignored), else None. A regex that does not compile is logged."""
+    in full (the regex itself allows edge whitespace, as in SQL), else None. A regex that does not compile is logged."""
     compiled: list[tuple[str, Any]] = []
     for t in sorted(templates, key=lambda t: _number(t.template_id)):
         try:
@@ -28,8 +28,7 @@ def tag_entries(templates: Sequence[Template], messages: Sequence[str]) -> list[
             _log.warning("template %s has a regex that does not compile and is skipped when tagging: %s", t.template_id, exc)
     out: list[str | None] = []
     for msg in messages:
-        text = msg.rstrip()
-        out.append(next((tid for tid, rx in compiled if rx.fullmatch(text)), None))
+        out.append(next((tid for tid, rx in compiled if rx.fullmatch(msg)), None))
     return out
 
 

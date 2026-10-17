@@ -2,7 +2,11 @@
 
 The regex has one capture group per placeholder and uses only syntax valid in
 both RE2 and Python `re`: literal text is escaped by hand (never with
-re.escape) and whitespace runs become `\\s+`.
+re.escape) and whitespace runs become masking.WHITESPACE_RUN (an explicit ASCII
+class, never `\\s`, on which RE2 and Python disagree). Drain strips a message's
+edge whitespace before templating, so the regex allows optional ASCII
+whitespace at both ends (masking.EDGE_WHITESPACE): every matcher (SQL
+regexp_full_match, Python re2 tagging) then agrees on which entries match.
 """
 
 import re
@@ -10,6 +14,7 @@ from dataclasses import dataclass
 
 from serenedb_extractor.catalog.models import Param
 from serenedb_extractor.templating.masking import (
+    EDGE_WHITESPACE,
     PLACEHOLDER_CAPTURE,
     WHITESPACE_RUN,
     placeholder_kind,
@@ -113,7 +118,7 @@ def compile_template(template: str) -> CompiledTemplate:
     tokens += _safe_tokens(tail, last > 0, False)
     parts.append(_escape(tail))
     return CompiledTemplate(
-        regex="^" + "".join(parts) + "$",
+        regex="^" + EDGE_WHITESPACE + "".join(parts) + EDGE_WHITESPACE + "$",
         params=tuple(params),
         fixed_words=_fixed_words(tokens),
     )

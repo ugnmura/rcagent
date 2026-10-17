@@ -25,9 +25,9 @@ from serenedb_extractor.query.stats import role_columns
 from serenedb_extractor.setup.paths import sql_literal
 from serenedb_extractor.setup.roles import is_temporal, resolve_column, role_column
 from serenedb_extractor.setup.sniff import readable
-from serenedb_extractor.templating.regex import compile_template
+from serenedb_extractor.query.templatematch import fixed_word_prefilter, template_match_sql
 from serenedb_extractor.query.coverage import untimestamped_note
-from serenedb_extractor.tools.describe import known_columns, like_pattern
+from serenedb_extractor.tools.describe import known_columns
 from serenedb_extractor.timezones import get_zone
 
 DEFAULT_GROUPS = 20
@@ -144,19 +144,8 @@ def _msg(lt: LogTable) -> str:
 
 
 def _prefilter(lt: LogTable, templates: list[Template], params: dict[str, Any]) -> str:
-    """OR over templates of (AND of the template's fixed words as LIKE); none when any template has no
-    fixed word (it could match anything). Every fixed word appears in every matching entry."""
-    ors = []
-    for i, t in enumerate(templates):
-        words = compile_template(t.template).fixed_words
-        if not words:
-            return "TRUE"
-        likes = []
-        for j, w in enumerate(words):
-            params[f"w_{i}_{j}"] = like_pattern(w)
-            likes.append(f"{_msg(lt)} LIKE %(w_{i}_{j})s ESCAPE '\\'")
-        ors.append("(" + " AND ".join(likes) + ")")
-    return "(" + " OR ".join(ors) + ")"
+    """The shared fixed-word prefilter on the message ("TRUE" when some template has no fixed word)."""
+    return fixed_word_prefilter(templates, _msg(lt), params, "w") or "TRUE"
 
 
 def _resolve_templates(ctx: AppContext, log_table: str, given: list[str]) -> tuple[list[Template], list[str]]:
@@ -273,7 +262,7 @@ def locate_occurrences(
         what = f"locating occurrences in log table {lt.name}"
         timeout = cost.run_timeout(plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
         case = "CASE " + " ".join(
-            f"WHEN regexp_full_match({_msg(lt)}, %(r_{i})s) THEN {i}" for i in range(len(tpls))
+            f"WHEN {template_match_sql(_msg(lt), f'r_{i}')} THEN {i}" for i in range(len(tpls))
         ) + " END"
         params = dict(sc.params)
         for i, t in enumerate(tpls):
@@ -529,7 +518,7 @@ class _ParamRun:
         self.matched = (
             f"SELECT {extract} AS x, b{'' if plan.exact else ', blk'} FROM ("
             f"SELECT {_msg(lt)} AS m{by_col}{blk} FROM {lt.relation} "
-            f"WHERE {self.scope_sql} AND {sc.match_sql}) WHERE regexp_full_match(m, %(regex)s)"
+            f"WHERE {self.scope_sql} AND {sc.match_sql}) WHERE {template_match_sql('m', 'regex')}"
         )
         vals = ", ".join(f"struct_extract(x, {sql_literal(n)})" for n in names)
         self.unpivot = (

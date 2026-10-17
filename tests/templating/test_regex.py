@@ -136,3 +136,30 @@ def test_fixed_words_are_substrings_of_every_matching_line():
 )
 def test_names_are_lowercase_identifiers(template, expected):
     assert names(template) == [expected]
+
+
+# C1 (final review): Drain strips edge whitespace, so a template must match an entry whose message
+# has leading/trailing whitespace (spaces, tabs, a trailing newline), in Python re2 and re alike.
+EDGE_LINES = ["disk full on 3 ", " disk full on 3", "disk full on 3\n", "\tdisk full on 3 \r\n", "disk full on 3"]
+
+
+def test_merged_template_matches_entries_with_edge_whitespace():
+    import re2  # type: ignore[import-untyped]
+
+    from serenedb_extractor.templating.drain import MaskedGroup, merge_groups
+
+    (m,) = merge_groups(
+        [MaskedGroup("disk full on <NUM> ", 2, "disk full on 3 ", None, None), MaskedGroup("disk full on <NUM>", 1, "disk full on 4", None, None)]
+    )
+    c = compile_template(m.template)
+    for line in EDGE_LINES:
+        assert re.fullmatch(c.regex, line), repr(line)
+        assert re2.fullmatch(c.regex, line), repr(line)
+        assert re2.fullmatch(c.regex, line).groups() == ("3",)
+
+
+def test_edge_whitespace_allowance_keeps_the_anchors():
+    c = compile_template("disk full on <NUM>")
+    assert not re.fullmatch(c.regex, "x disk full on 3")
+    assert not re.fullmatch(c.regex, "disk full on 3 x")
+    assert "\\s" not in c.regex

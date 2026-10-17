@@ -15,6 +15,8 @@ _HEX_LETTER = "[a-fA-F]"
 _WS = " \\t\\n\\r\\f\\v"
 # A run of ASCII whitespace as a regex fragment, identical in RE2 and Python.
 WHITESPACE_RUN = f"[{_WS}]+"
+# Optional ASCII whitespace: what a template allows at the edges of a message (Drain strips it).
+EDGE_WHITESPACE = f"[{_WS}]*"
 
 
 @dataclass(frozen=True)

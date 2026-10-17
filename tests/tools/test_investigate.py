@@ -164,3 +164,28 @@ def test_prefilter_ands_all_fixed_words():
 async def test_only_first_word_line_is_not_counted(mcp, fx_surveyed):
     out = await call(mcp, "locate_occurrences", log_table="fx", templates=[fx_surveyed["timeout"]], filters={"service": "web"})
     assert "no matching entries" in out
+
+
+# C1 (final review): entries whose message has edge whitespace (a trailing space or newline, a
+# leading tab) belong to the template Drain made from them, and every exact matcher counts them.
+EDGE_WS = """
+SELECT TIMESTAMPTZ '2026-03-01 00:00:00+00' + i * INTERVAL '1 minute' AS ts,
+  CASE i % 4 WHEN 0 THEN 'disk full on ' || i::VARCHAR || ' '
+             WHEN 1 THEN 'disk full on ' || i::VARCHAR || chr(10)
+             WHEN 2 THEN chr(9) || 'disk full on ' || i::VARCHAR
+             ELSE 'disk full on ' || i::VARCHAR END AS message
+FROM range(40) t(i)
+"""
+
+
+async def test_edge_whitespace_entries_are_counted_and_excluded(mcp, db_url):
+    path = container_parquet(db_url, "edge_ws", EDGE_WS)
+    await call(mcp, "setup_log_table", name="edge", source=path)
+    out = await call(mcp, "survey", log_table="edge")
+    tid = id_of(out, "disk full on <NUM>")
+    loc = await call(mcp, "locate_occurrences", log_table="edge", templates=[tid])
+    assert "total: 40" in loc, loc
+    ex = await call(mcp, "extract_params", log_table="edge", template=tid)
+    assert "matching entries: 40" in ex, ex
+    hidden = await call(mcp, "survey", log_table="edge", exclude=[tid])
+    assert "No entries are left after excluding those templates." in hidden, hidden
