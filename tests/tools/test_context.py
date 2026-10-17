@@ -159,6 +159,8 @@ async def test_lookup_priced_at_its_row_group_and_window_asks_with_a_token(mcp, 
     assert "TOO EXPENSIVE" in out and "confirmed_cost=" in out, out
     assert "the context of the occurrence" in out, out  # the window was priced, so the lookup ran
     assert "narrow it with a scope" not in out and "sample" not in out, out
-    token = re.search(r"confirmed_cost=(\S+)", out).group(1)
+    m = re.search(r"confirmed_cost=(\S+)", out)
+    assert m, out
+    token = m.group(1)
     ran = await call(mcp, "get_context", log_table="rg", occurrence=occ, scope="everything", confirmed_cost=token)
     assert "→" in ran and "request 10000 handled" in ran, ran
