@@ -8,11 +8,12 @@ from serenedb_extractor.catalog.models import ROLE_FIELDS, FieldRoles, LogTable,
 from serenedb_extractor.context import AppContext
 from serenedb_extractor.db import validate_name
 from serenedb_extractor.errors import UserFacingError
-from serenedb_extractor.query.filters import get_zone
-from serenedb_extractor.setup import copy as copying
+from serenedb_extractor.setup import localfiles, rawcopy, structcopy
 from serenedb_extractor.setup.paths import ResolvedSource, resolve_source
 from serenedb_extractor.setup.rawlog import LINE_FORMATS, detect_line_format, line_format_named, parse_entries
 from serenedb_extractor.setup.roles import HELPER_COLUMNS, propose_roles, role_lines, validate_roles
+from serenedb_extractor.timezones import get_zone
+from serenedb_extractor.setup.tablewrite import drop_table
 from serenedb_extractor.setup.sniff import SourceInfo, human_bytes, readable, relation_columns, sample_values, sniff
 
 
@@ -49,7 +50,7 @@ def inspect_source(
     rs = resolve_source(source, ctx.settings, format_hint)
     if rs.kind == "raw_text":
         return _inspect_raw(ctx, rs, source, line_format)
-    if copying.copy_needed(rs):
+    if localfiles.copy_needed(rs):
         return _inspect_outside(ctx, rs, source)
     info = sniff(ctx.db, rs, source)  # reports SereneDB errors in plain language
     columns = [(c, t) for c, t in info.columns if c not in HELPER_COLUMNS]
@@ -153,7 +154,7 @@ def setup_log_table(
     rs = resolve_source(source, ctx.settings, None)
     if rs.kind == "raw_text":
         return _setup_raw(ctx, name, rs, source, roles, line_format, zone, build_filter_index or build_search_index)
-    if copying.copy_needed(rs):
+    if localfiles.copy_needed(rs):
         return _setup_outside(ctx, name, rs, source, roles, zone, build_filter_index or build_search_index)
     info = sniff(ctx.db, rs, source)
     given = validate_roles(roles, dict(info.columns)) if roles else None
@@ -219,21 +220,18 @@ def _size_lines(rs: ResolvedSource) -> list[str]:
     out = []
     if rs.size_bytes is not None:
         out.append(f"size: {human_bytes(rs.size_bytes)}")
-    warning = copying.large_copy_warning(rs)
-    if warning:
-        out.append(warning)
-    return out
+    return out + localfiles.large_input_notes(rs)
 
 
 def _chosen_format(ctx: AppContext, rs: ResolvedSource, source: str, line_format: str | None) -> tuple[str, str]:
     """(format name, how it was chosen)."""
     if line_format:
         return line_format_named(line_format).name, "given by you"
-    return detect_line_format(copying.raw_head(ctx, rs, source)), "recognised from the first lines"
+    return detect_line_format(rawcopy.raw_head(ctx, rs, source)), "recognised from the first lines"
 
 
 def _inspect_raw(ctx: AppContext, rs: ResolvedSource, source: str, line_format: str | None) -> str:
-    head = copying.raw_head(ctx, rs, source)
+    head = rawcopy.raw_head(ctx, rs, source)
     name, how = _chosen_format(ctx, rs, source, line_format)
     entries = list(parse_entries(head, name, "UTC"))[:5]
     lines = [
@@ -245,7 +243,7 @@ def _inspect_raw(ctx: AppContext, rs: ResolvedSource, source: str, line_format: 
         *_size_lines(rs),
         f"line format: {name} ({how}); known formats: {', '.join(LINE_FORMATS)}",
         "pattern: " + LINE_FORMATS[name].describes,
-        "columns of the copied table: " + ", ".join(f"{c} {t}" for c, t in copying.RAW_COLUMNS),
+        "columns of the copied table: " + ", ".join(f"{c} {t}" for c, t in rawcopy.RAW_COLUMNS),
         "proposed field roles (confirm or correct):",
         "  message: message",
         "  timestamp: ts" + ("" if any(e.ts for e in entries) else "  (none found in the first lines)"),
@@ -284,8 +282,8 @@ def _sample_strings(samples: list[dict[str, Any]]) -> dict[str, list[str]]:
 
 
 def _inspect_outside(ctx: AppContext, rs: ResolvedSource, source: str) -> str:
-    src = copying.open_structured(rs, source)
-    samples = copying.peek_samples(src, get_zone("UTC"))
+    src = structcopy.open_structured(rs, source)
+    samples = structcopy.peek_samples(src, get_zone("UTC"))
     columns = src.columns
     roles, evidence = propose_roles(columns, _sample_strings(samples))
     lines = [
@@ -331,7 +329,7 @@ def _register_copied(
     try:
         ctx.store.create_log_table(lt)
     except BaseException:
-        copying.drop_table(ctx, relation)
+        drop_table(ctx, relation)
         raise
     return lt
 
@@ -366,10 +364,10 @@ def _setup_raw(
     zone: str,
     index_requested: bool = False,
 ) -> str:
-    given = validate_roles(roles, dict(copying.RAW_COLUMNS)) if roles else {}
+    given = validate_roles(roles, dict(rawcopy.RAW_COLUMNS)) if roles else {}
     fmt_name, how = _chosen_format(ctx, rs, source, line_format)
     with readable(source):
-        result = copying.copy_raw(ctx, name, rs, source, fmt_name, zone)
+        result = rawcopy.copy_raw(ctx, name, rs, source, fmt_name, zone)
     final = _merge(result.roles, given) if given else result.roles
     lt = _register_copied(ctx, name, source, "raw_text", result.relation, final, result.entries, zone)
     extra = [f"line format: {fmt_name} ({how})"]
@@ -378,6 +376,12 @@ def _setup_raw(
         extra.append(
             f"{n:,} {'entry has' if n == 1 else 'entries have'} no timestamp: "
             + "kept, but a question about a time range can't place them"
+        )
+    if result.bad_lines:
+        n = result.bad_lines
+        extra.append(
+            f"{n:,} {'line' if n == 1 else 'lines'} had bytes that are not valid UTF-8; "
+            "they were replaced with the character �"
         )
     return _copied_summary(lt, rs, extra, index_requested, "every line of the file was read and parsed; entries were copied into a table")
 
@@ -396,6 +400,6 @@ def _setup_outside(
         final, _ = propose_roles(columns, _sample_strings(samples), given)
         return final
 
-    result, final = copying.copy_structured(ctx, name, rs, source, zone, roles_for)
+    result, final = structcopy.copy_structured(ctx, name, rs, source, zone, roles_for)
     lt = _register_copied(ctx, name, source, rs.kind, result.relation, final, result.entries, zone)
-    return _copied_summary(lt, rs, [], index_requested, "every row of the file was read here and copied into a table")
+    return _copied_summary(lt, rs, [], index_requested, "every entry of the file was read here and copied into a table")

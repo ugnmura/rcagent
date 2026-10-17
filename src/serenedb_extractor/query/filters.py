@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, NamedTuple
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo
 
 import psycopg
 
@@ -11,6 +11,7 @@ from serenedb_extractor.catalog.models import LogTable
 from serenedb_extractor.db import Database, quote_ident
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.setup.paths import pct, resolve_source, sql_literal
+from serenedb_extractor.timezones import get_zone  # noqa: F401  (re-exported)
 from serenedb_extractor.setup.roles import is_temporal, resolve_column, role_column
 
 FILTER_ROLES = ("level", "service", "host", "component", "trace")
@@ -25,13 +26,6 @@ class MissingRole(UserFacingError):
             f"This log table has no {role} field, so it can't be filtered or grouped by {role}.{have} "
             "If a column holds it, set the role again with setup_log_table (roles={...})."
         )
-
-
-def get_zone(tz: str) -> ZoneInfo:
-    try:
-        return ZoneInfo(tz)
-    except (ZoneInfoNotFoundError, ValueError, OSError):
-        raise UserFacingError(f"'{tz}' is not a time zone I know; use an IANA name like UTC or Europe/Paris.") from None
 
 
 @dataclass(frozen=True)

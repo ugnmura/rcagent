@@ -1,6 +1,5 @@
-"""Raw text logs: line formats, multi-line entries, and reading lines from a local file."""
+"""Raw text logs: line formats and multi-line entries."""
 
-import gzip
 import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
@@ -8,13 +7,12 @@ from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from serenedb_extractor.errors import UserFacingError
-from serenedb_extractor.query.filters import get_zone
+from serenedb_extractor.timezones import get_zone
 
 _ISO_TS = (
     r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?"
 )
 _LEVELS = "TRACE|DEBUG|INFO|NOTICE|WARN|WARNING|ERROR|SEVERE|CRITICAL|FATAL"
-HEAD_BYTES = 262_144  # how much of a file is read to recognise its format
 
 
 @dataclass(frozen=True)
@@ -168,24 +166,3 @@ def parse_entries(lines: Iterable[str], line_format: str, tz: str) -> Iterator[R
     done = finish()
     if done is not None:
         yield done
-
-
-def _open_text(path: str):  # type: ignore[no-untyped-def]
-    opener = gzip.open if path.lower().endswith(".gz") else open
-    return opener(path, "rt", encoding="utf-8", errors="replace")
-
-
-def head_lines(path: str, max_bytes: int = HEAD_BYTES) -> list[str]:
-    """The first complete lines of a local file, reading at most `max_bytes` of it."""
-    opener = gzip.open if path.lower().endswith(".gz") else open
-    with opener(path, "rb") as f:
-        data = f.read(max_bytes)
-    lines = data.decode("utf-8", errors="replace").splitlines()
-    if len(data) >= max_bytes and len(lines) > 1:
-        lines.pop()  # the last one was cut by the byte limit
-    return lines
-
-
-def host_lines(path: str) -> Iterator[str]:
-    with _open_text(path) as f:
-        yield from f

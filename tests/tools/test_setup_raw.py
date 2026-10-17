@@ -277,3 +277,79 @@ async def test_rerun_keeps_zone_and_refuses_to_change_it_on_a_copy(mcp, tmp_path
     assert "nothing changed" in again
     out = await call(mcp, "setup_log_table", name="app", source=str(p), timezone="Asia/Tokyo")
     assert "can't be changed" in out
+
+
+# --- review fix round 1 ---
+
+
+@db
+async def test_all_untimestamped_file_is_still_reported(mcp, tmp_path):
+    p = tmp_path / "plain.log"
+    p.write_text("just some text\nmore text\n")
+    out = await call(mcp, "setup_log_table", name="plain", source=str(p))
+    assert "timestamp: absent" in out and "1 entry has no timestamp" in out
+    assert "1 entry has no timestamp" in await call(mcp, "describe_logs", log_table="plain")
+
+
+@db
+async def test_mounted_read_is_exact_and_numbered_like_the_host_reader(mcp_mounted, mcp, db_url, tmp_path, database):
+    lines = [
+        "2026-03-01 10:00:00 INFO [a] start",
+        "2026-03-01 10:00:01 ERROR [a] boom",
+        "  at frame one",
+        "",
+        "  at frame two with \x01 and \x0c inside",
+        "2026-03-01 10:00:02 INFO [a] done",
+    ]
+    (tmp_path / "same.log").write_text("\n".join(lines) + "\n")
+    def lit(line: str) -> str:  # control characters need chr(); '\x01' in plain SQL is four characters
+        return "'" + line.replace("\x01", "' || chr(1) || '").replace("\x0c", "' || chr(12) || '") + "'"
+
+    values = ", ".join(f"({i}, {lit(line)})" for i, line in enumerate(lines))
+    with psycopg.connect(db_url, autocommit=True) as conn:
+        conn.execute(
+            f"COPY (SELECT line FROM (VALUES {values}) AS t(i, line) ORDER BY i) TO '/tmp/mounted_exact.log' "
+            "(FORMAT CSV, HEADER false, QUOTE '')"
+        )
+    await call(mcp, "setup_log_table", name="host", source=str(tmp_path / "same.log"))
+    await call(mcp_mounted, "setup_log_table", name="mnt", source="/mnt/hostlogs/mounted_exact.log")
+    sql = "SELECT entry_id, line_start, line_end, level, message FROM extractor.lt_{} ORDER BY entry_id"
+    mounted = database.read(sql.format("mnt")).rows
+    # the mcp and mcp_mounted fixtures each reset the schema; re-create the host table for the comparison
+    await call(mcp, "setup_log_table", name="host", source=str(tmp_path / "same.log"))
+    host = database.read(sql.format("host")).rows
+    assert mounted == host
+    assert mounted[1][1:3] == (2, 5) and "\x01" in mounted[1][4] and "\n\n" in mounted[1][4]
+
+
+def test_large_input_states_memory_limits_mounted_or_not():
+    from serenedb_extractor.setup.localfiles import large_input_notes
+    from serenedb_extractor.setup.paths import ResolvedSource
+
+    outside = large_input_notes(ResolvedSource("raw_text", "/x.log", None, 1_100_000_000))
+    mounted = large_input_notes(ResolvedSource("raw_text", "/c/x.log", "/h/x.log", 1_100_000_000))
+    assert any("full copy" in n and "mounting the folder would avoid it" in n for n in outside)
+    assert any("in memory" in n for n in outside) and any("in memory" in n for n in mounted)
+    assert not any("full copy" in n for n in mounted)
+    assert large_input_notes(ResolvedSource("raw_text", "/x.log", None, 5_000)) == []
+
+
+@db
+async def test_undecodable_bytes_are_counted_in_the_summary(mcp, tmp_path):
+    p = tmp_path / "latin.log"
+    p.write_bytes(b"2026-03-01 10:00:00 INFO [a] caf\xe9 ok\n2026-03-01 10:00:01 INFO [a] fine\n2026-03-01 10:00:02 INFO [a] na\xefve\n")
+    out = await call(mcp, "setup_log_table", name="latin", source=str(p))
+    assert "2 lines had bytes that are not valid UTF-8" in out
+
+
+@db
+async def test_user_facing_text_says_entries_not_records(mcp, tmp_path):
+    p = tmp_path / "empty.jsonl"
+    p.write_text("[1, 2]\n")
+    out = await call(mcp, "setup_log_table", name="e", source=str(p))
+    assert "record" not in out.lower() and "entries" in out
+    q = tmp_path / "ok.jsonl"
+    q.write_text('{"ts": "2026-03-01T00:00:00", "msg": "hello there"}\n')
+    out = await call(mcp, "setup_log_table", name="ok", source=str(q))
+    assert "every entry of the file" in out and "row" not in out.lower()
+    assert "record" not in (await call(mcp, "inspect_source", source=str(q))).lower()
