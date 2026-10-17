@@ -353,3 +353,62 @@ async def test_user_facing_text_says_entries_not_records(mcp, tmp_path):
     out = await call(mcp, "setup_log_table", name="ok", source=str(q))
     assert "every entry of the file" in out and "row" not in out.lower()
     assert "record" not in (await call(mcp, "inspect_source", source=str(q))).lower()
+
+
+# --- fix round 2: mounted gzip files ---
+
+
+@db
+async def test_mounted_gzip_matches_the_host_reader(mcp_mounted, mcp, db_url, tmp_path, database):
+    import gzip
+
+    lines = [
+        "2026-03-01 10:00:00 INFO [a] start",
+        "2026-03-01 10:00:01 ERROR [a] boom",
+        "  at frame one",
+        "",
+        "  at frame \x01 two",
+        "2026-03-01 10:00:02 INFO [a] café done",
+    ]
+    with gzip.open(tmp_path / "same.log.gz", "wt", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+    def lit(line: str) -> str:
+        return "'" + line.replace("\x01", "' || chr(1) || '") + "'"
+
+    values = ", ".join(f"({i}, {lit(line)})" for i, line in enumerate(lines))
+    with psycopg.connect(db_url, autocommit=True) as conn:
+        conn.execute(
+            f"COPY (SELECT line FROM (VALUES {values}) AS t(i, line) ORDER BY i) TO '/tmp/mounted_exact.log.gz' "
+            "(FORMAT CSV, HEADER false, QUOTE '', COMPRESSION gzip)"
+        )
+    out = await call(mcp_mounted, "setup_log_table", name="mnt", source="/mnt/hostlogs/mounted_exact.log.gz")
+    assert "copied" in out and "line format: generic" in out
+    sql = "SELECT entry_id, line_start, line_end, level, message FROM extractor.lt_{} ORDER BY entry_id"
+    mounted = database.read(sql.format("mnt")).rows
+    await call(mcp, "setup_log_table", name="host", source=str(tmp_path / "same.log.gz"))
+    assert mounted == database.read(sql.format("host")).rows
+    assert mounted[1][1:3] == (2, 5) and "\x01" in mounted[1][4]
+
+
+@db
+async def test_mounted_head_drops_a_cut_last_line(mcp_mounted, db_url, database):  # noqa: ARG001
+    from serenedb_extractor.catalog.store import CatalogStore
+    from serenedb_extractor.db import Database
+    from serenedb_extractor.setup.paths import resolve_source
+    from serenedb_extractor.setup.rawcopy import HEAD_CHARS, raw_head
+
+    for ext, comp in (("log", ""), ("log.gz", ", COMPRESSION gzip")):
+        with psycopg.connect(db_url, autocommit=True) as conn:
+            conn.execute(
+                "COPY (SELECT 'line number ' || i || ' ' || repeat('x', 30) FROM range(20000) t(i) ORDER BY i) "
+                f"TO '/tmp/mounted_head.{ext}' (FORMAT CSV, HEADER false, QUOTE ''{comp})"
+            )
+        mounted_db = Database(replace(database.settings, logs_host_dir="/mnt/hostlogs", logs_container_dir="/tmp"))
+        ctx = AppContext(mounted_db.settings, mounted_db, CatalogStore(mounted_db))
+        src = f"/mnt/hostlogs/mounted_head.{ext}"
+        rs = resolve_source(src, ctx.settings)
+        lines = raw_head(ctx, rs, src, n=1_000_000)
+        assert 1000 < len(lines) < 20000 and sum(len(x) + 1 for x in lines) <= HEAD_CHARS
+        assert all(x.endswith(" " + "x" * 30) for x in lines), ext  # no half-line at the end
+        mounted_db.close()

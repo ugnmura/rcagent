@@ -1,6 +1,8 @@
 """Raw text logs: parsed here and copied into `extractor.lt_<name>`, one entry per (multi-line) log entry."""
 
+import gzip
 import json
+import zlib
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -35,17 +37,34 @@ _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def _mounted_text(ctx: AppContext, rs: ResolvedSource, source: str, chars: int | None = None) -> str:
-    """The exact content of a file under the mounted folder, read by SereneDB (`read_text`)."""
-    expr = "content" if chars is None else f"substr(content, 1, {int(chars)})"
+    """The exact content of a file under the mounted folder, read by SereneDB. Plain files use
+    `read_text`; gzipped ones come as bytes (`read_blob`, which SereneDB does not decompress) and are
+    unzipped here, decoded like host files (UTF-8, bad bytes replaced). `chars` limits the text."""
+    path = sql_literal(rs.db_path)
     with readable(source):
-        value = ctx.db.read(f"SELECT {expr} FROM read_text({sql_literal(rs.db_path)})", {}).scalar()
-    return str(value or "")
+        if not rs.db_path.lower().endswith(".gz"):
+            expr = "content" if chars is None else f"substr(content, 1, {int(chars)})"
+            return str(ctx.db.read(f"SELECT {expr} FROM read_text({path})", {}).scalar() or "")
+        blob = ctx.db.read(f"SELECT content FROM read_blob({path})", {}).scalar() or b""
+    try:
+        if chars is None:
+            data = gzip.decompress(bytes(blob))
+        else:
+            data = zlib.decompressobj(wbits=31).decompress(bytes(blob), chars * 4)  # up to 4 bytes per char
+    except (OSError, EOFError, zlib.error):
+        raise UserFacingError(f"{source} is not a readable gzip file.") from None
+    text = data.decode("utf-8", errors="replace")
+    return text if chars is None else text[:chars]
 
 
 def raw_head(ctx: AppContext, rs: ResolvedSource, source: str, n: int = HEAD_LINES) -> list[str]:
-    """The first lines of a raw log: read by SereneDB under the mount, otherwise read here."""
+    """The first lines of a raw log: read by SereneDB under the mount, otherwise read here. A last
+    line that the size limit may have cut is dropped, as for host files."""
     if under_mount(rs):
-        lines = split_lines(_mounted_text(ctx, rs, source, HEAD_CHARS))
+        text = _mounted_text(ctx, rs, source, HEAD_CHARS)
+        lines = split_lines(text)
+        if len(text) >= HEAD_CHARS and len(lines) > 1:
+            lines.pop()
         return lines[:n]
     require_file(rs, source)
     return head_lines(rs.db_path)[:n]
