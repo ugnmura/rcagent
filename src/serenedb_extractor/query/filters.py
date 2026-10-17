@@ -131,6 +131,18 @@ def _ts_type(lt: LogTable, known_columns: dict[str, str]) -> str:
     return known_columns.get(col or "", "TIMESTAMP WITH TIME ZONE")
 
 
+def ts_tz_sql(lt: LogTable, cols: dict[str, str]) -> str:
+    """The timestamp role as a timestamptz expression. Also what to aggregate: min/max of a
+    nanosecond column come back as text psycopg cannot parse (spike section 5)."""
+    expr = role_sql(lt, "timestamp")
+    typ = cols.get(role_column(role_expr(lt, "timestamp")) or "", "").upper()
+    if not is_temporal(typ):
+        return f"({expr})::timestamptz"
+    if "WITH TIME ZONE" in typ or typ.startswith("TIMESTAMPTZ"):
+        return f"({expr})::timestamptz"
+    return f"(({expr}) AT TIME ZONE {sql_literal(lt.timezone)})"
+
+
 def ts_compare(lt: LogTable, op: str, dt: datetime, key: str, known_columns: dict[str, str]) -> tuple[str, dict[str, Any]]:
     """`<timestamp role> <op> <dt>` with the literal typed to match the column so Parquet can prune
     (spike section 6): timestamptz_ns for nanosecond columns, never a cast of the column."""

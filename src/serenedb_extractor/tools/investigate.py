@@ -17,13 +17,13 @@ from serenedb_extractor.query.filters import (
     build_where,
     diagnose_empty,
     parse_time_range,
-    role_expr,
     role_sql,
     time_clause,
+    ts_tz_sql,
 )
 from serenedb_extractor.query.stats import role_columns
 from serenedb_extractor.setup.paths import sql_literal
-from serenedb_extractor.setup.roles import is_temporal, resolve_column, role_column
+from serenedb_extractor.setup.roles import resolve_column
 from serenedb_extractor.setup.sniff import readable
 from serenedb_extractor.query.templatematch import fixed_word_prefilter, template_match_sql
 from serenedb_extractor.query.coverage import untimestamped_note
@@ -50,17 +50,6 @@ NARROW = (
 # ---- grouping --------------------------------------------------------------------------------
 
 
-def _ts_tz(lt: LogTable, cols: dict[str, str]) -> str:
-    """The timestamp role as a timestamptz expression."""
-    expr = role_sql(lt, "timestamp")
-    typ = cols.get(role_column(role_expr(lt, "timestamp")) or "", "").upper()
-    if not is_temporal(typ):
-        return f"({expr})::timestamptz"
-    if "WITH TIME ZONE" in typ or typ.startswith("TIMESTAMPTZ"):
-        return f"({expr})::timestamptz"
-    return f"(({expr}) AT TIME ZONE {sql_literal(lt.timezone)})"
-
-
 def _int(n: int) -> str:
     """An integer as SQL text: int() guarantees digits only, so it is safe to put in the SQL."""
     return str(int(n))
@@ -68,7 +57,7 @@ def _int(n: int) -> str:
 
 def _bucket_sql(lt: LogTable, cols: dict[str, str], n: int, unit: str, tz: str) -> str:
     secs = _int(n * _UNIT_SECONDS[unit])
-    local = f"({_ts_tz(lt, cols)} AT TIME ZONE {sql_literal(tz)})"
+    local = f"({ts_tz_sql(lt, cols)} AT TIME ZONE {sql_literal(tz)})"
     shape = "%Y-%m-%d" if unit == "d" else "%Y-%m-%d %H:%M"
     start = f"(TIMESTAMP '1970-01-01' + to_seconds((floor(epoch({local}) / {secs}) * {secs})::bigint))"
     return f"coalesce(strftime({start}, {sql_literal(shape)}), {NONE_SQL})"

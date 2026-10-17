@@ -132,3 +132,31 @@ async def test_unknown_log_table(mcp):
 async def test_survey_is_not_read_only(mcp):
     tool = next(t for t in (await mcp.list_tools()).tools if t.name == "survey")
     assert tool.annotations is not None and tool.annotations.readOnlyHint is False and tool.annotations.destructiveHint is False
+
+
+# A TIMESTAMPTZ_NS timestamp (as in OpenTelemetry Parquet exports): min/max of a nanosecond column
+# with sub-microsecond digits come back as text psycopg can't parse ("microsecond must be in
+# 0..999999"; spike section 5), so survey reads the timestamp as timestamptz.
+NS = """
+SELECT (('2026-03-01 00:0' || i::VARCHAR || ':00.' || CASE WHEN i < 5 THEN '000000000' ELSE '123456789' END
+          || '+00')::TIMESTAMPTZ_NS) AS ts,
+  'disk full on ' || i::VARCHAR AS message
+FROM range(10) t(i) ORDER BY i
+"""  # the first 5 entries (the ones setup samples) are whole microseconds; the rest are not
+
+
+async def test_survey_first_and_last_seen_on_a_nanosecond_timestamp(mcp, db_url, database):
+    from datetime import datetime
+
+    from serenedb_extractor.catalog.store import CatalogStore
+
+    path = container_parquet(db_url, "survey_ns", NS)
+    setup = await call(mcp, "setup_log_table", name="ns", source=path)
+    assert "Set up log table" in setup, setup
+    out = await call(mcp, "survey", log_table="ns")
+    assert out.startswith("How this was measured: "), out
+    tid = id_of(out, "disk full on <NUM>")
+    (t,) = [t for t in CatalogStore(database).templates("ns") if t.template_id == tid]
+    assert t.first_seen == datetime(2026, 3, 1, 0, 0), t.first_seen
+    assert t.last_seen is not None and t.last_seen.replace(microsecond=0) == datetime(2026, 3, 1, 0, 9), t.last_seen
+    assert t.last_seen.microsecond in (123456, 123457), t.last_seen  # nanoseconds cut to microseconds

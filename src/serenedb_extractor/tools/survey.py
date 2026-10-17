@@ -29,6 +29,7 @@ from serenedb_extractor.query.filters import (
     parse_time_range,
     role_sql,
     time_clause,
+    ts_tz_sql,
 )
 from serenedb_extractor.query.stats import ScopeStats, collect, role_columns
 from serenedb_extractor.setup.paths import pct
@@ -77,6 +78,7 @@ def _scan_groups(
     reservoir: int | None,
     block_sql: str | None,
     timeout: float,
+    ts_sql: str,
 ) -> tuple[list[MaskedGroup], int, BlockCounts]:
     """Mask and group the entries in `where` inside SereneDB: all of them, a filter-first reservoir
     of `reservoir` entries, or (with `block_sql`) the entries of the sampled blocks, also counted
@@ -84,7 +86,7 @@ def _scan_groups(
     blk = f", ({block_sql}) AS blk" if block_sql else ""
     inner = (
         f"SELECT coalesce(({role_sql(lt, 'message')})::varchar, '') AS msg, ({_optional(lt, 'service')})::varchar AS svc, "
-        f"({_optional(lt, 'component')})::varchar AS comp, {_optional(lt, 'timestamp')} AS ts{blk} "
+        f"({_optional(lt, 'component')})::varchar AS comp, {ts_sql} AS ts{blk} "
         f"FROM {lt.relation} WHERE {where}"
     )
     sample = " USING SAMPLE reservoir(%(sample_rows)s ROWS) REPEATABLE (%(sample_seed)s)" if reservoir else ""
@@ -276,10 +278,11 @@ def survey(
             notes.append(missing)
         if confirmed_cost and not plan.confirmed:
             notes.append(f"confirmed_cost={confirmed_cost} was not needed: this survey fits the time budget, so it ran as usual.")
+        ts_sql = ts_tz_sql(lt, cols) if lt.roles.timestamp is not None else "NULL"
         if plan.sampling == "blocks":
-            run = _blocks(ctx, lt, stats, plan, time_sql, match_sql, params, count_cols, n_target, timeout)
+            run = _blocks(ctx, lt, stats, plan, time_sql, match_sql, params, count_cols, n_target, timeout, ts_sql)
         else:
-            run = _full(ctx, lt, time_sql + " AND " + match_sql, params, n_target, timeout)
+            run = _full(ctx, lt, time_sql + " AND " + match_sql, params, n_target, timeout, ts_sql)
         if run.sampled == 0:
             if plan.sampling == "blocks":
                 lines = ["No matching entries in the sampled blocks; matching entries may still exist outside them."]
@@ -308,14 +311,16 @@ class _Run:
     block_counts: BlockCounts = field(default_factory=dict)
 
 
-def _full(ctx: AppContext, lt: LogTable, where: str, params: dict[str, Any], n_target: int, timeout: float) -> _Run:
+def _full(
+    ctx: AppContext, lt: LogTable, where: str, params: dict[str, Any], n_target: int, timeout: float, ts_sql: str
+) -> _Run:
     """Every entry in scope is read (the exact plan): an exact count, then every matching entry,
     or a filter-first reservoir of n_target of them (it reads the same bytes; R36)."""
     population = int(_read(ctx, lt, f"SELECT count(*) FROM {lt.relation} WHERE {where}", params, timeout).scalar() or 0)
     if not population:
         return _Run([], 0, fmt.Measured(0.0, True), "every")
     reservoir = n_target if population > n_target else None
-    groups, sampled, _ = _scan_groups(ctx, lt, where, params, reservoir, None, timeout)
+    groups, sampled, _ = _scan_groups(ctx, lt, where, params, reservoir, None, timeout, ts_sql)
     method: Method = "every" if sampled >= population else "reservoir"
     return _Run(groups, sampled, fmt.Measured(float(population), True), method)
 
@@ -342,6 +347,7 @@ def _blocks(
     count_cols: list[str],
     n_target: int,
     timeout: float,
+    ts_sql: str,
 ) -> _Run:
     """Whole row groups (the plan's block sample). Every entry in them is counted per block; every
     stride-th one (R57) is masked, so the work stays near the sample size. The population is an
@@ -370,7 +376,7 @@ def _blocks(
     if not sum(c[1] for c in counted):
         return run
     run.groups, run.sampled, run.block_counts = _scan_groups(
-        ctx, lt, f"{scope} AND {spread} AND {match_sql}", params, None, block_id, timeout
+        ctx, lt, f"{scope} AND {spread} AND {match_sql}", params, None, block_id, timeout, ts_sql
     )
     left = max(0.0, cost.BUDGET_SECONDS - plan.seconds)
     count = cost.decide(stats, count_cols, True, n_target, None, budget_s=left, max_s=ctx.settings.max_timeout_s)
