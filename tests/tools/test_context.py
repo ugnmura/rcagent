@@ -1,5 +1,7 @@
 """get_context and template tags (#14), at the MCP tool seam."""
 
+import re
+
 import pytest
 
 from tests.conftest import call, container_parquet, first_occurrence
@@ -85,7 +87,10 @@ def _template(tid: str, regex: str):
 def test_tags_trailing_whitespace_and_first_match():
     from serenedb_extractor.query.tags import tag_entries
 
-    ts = [_template("T1", r"disk full on \S+"), _template("T2", r".*")]
+    from serenedb_extractor.templating.regex import compile_template
+
+    # The template's own regex allows edge whitespace (C1); tagging has no special case of its own.
+    ts = [_template("T1", compile_template("disk full on <*>").regex), _template("T2", r".*")]
     assert tag_entries(ts, ["disk full on /dev/sda\n", "other", "disk full on x  "]) == ["T1", "T2", "T1"]
 
 
@@ -106,3 +111,54 @@ def test_tags_linear_time_on_long_line_with_adjacent_placeholders():
     start = time.monotonic()
     assert tag_entries([t], ["a" * 10_000]) == [None]
     assert time.monotonic() - start < 2
+
+
+# C2 (final review): on a big in-place Parquet file the occurrence lookup reads only the row group
+# that holds the row, so it is priced as that; a window that still doesn't fit asks with a token and
+# only options that can help; a context is never sampled.
+RG = """
+SELECT TIMESTAMPTZ '2026-03-01 00:00:00+00' + i * INTERVAL '1 second' AS ts,
+  CASE WHEN i % 2 = 0 THEN 'api' ELSE 'db' END AS service,
+  'request ' || i::VARCHAR || ' handled by worker ' || (i % 13)::VARCHAR AS message
+FROM range(20480) t(i) ORDER BY ts
+"""
+
+
+@pytest.fixture
+async def rg_lt(mcp, db_url):
+    import psycopg
+
+    with psycopg.connect(db_url, autocommit=True) as conn:
+        conn.execute(f"COPY ({RG}) TO '/tmp/c2_rg.parquet' (FORMAT PARQUET, ROW_GROUP_SIZE 2048)")  # type: ignore[call-overload]
+    out = await call(mcp, "setup_log_table", name="rg", source="/tmp/c2_rg.parquet")
+    assert "Set up log table" in out, out
+
+
+def _budget_one_group(monkeypatch, database):
+    """A budget of 1.5 row groups of the shown columns (10 s; well under the 600 s maximum): a full
+    scan doesn't fit, one row group does."""
+    from serenedb_extractor.catalog.store import CatalogStore
+    from serenedb_extractor.query import cost
+    from serenedb_extractor.query.filters import TimeRange
+    from serenedb_extractor.query.stats import collect
+
+    lt = CatalogStore(database).get_log_table("rg")
+    st = collect(database, lt, TimeRange())
+    shown = ["ts", "message", "service"]
+    assert len(st.groups) == 10
+    one = max(sum(g.bytes_by_column.get(c, 0) for c in shown) for g in st.groups)
+    assert st.bytes_for(shown) > 3 * one
+    monkeypatch.setitem(cost.THROUGHPUT_BYTES_PER_S, "local", one / 6.67)
+    monkeypatch.setattr(cost, "BUDGET_SECONDS", 10.0)
+
+
+async def test_lookup_priced_at_its_row_group_and_window_asks_with_a_token(mcp, rg_lt, database, monkeypatch):
+    _budget_one_group(monkeypatch, database)
+    occ = "/tmp/c2_rg.parquet#10000"
+    out = await call(mcp, "get_context", log_table="rg", occurrence=occ, scope="everything")
+    assert "TOO EXPENSIVE" in out and "confirmed_cost=" in out, out
+    assert "the context of the occurrence" in out, out  # the window was priced, so the lookup ran
+    assert "narrow it with a scope" not in out and "sample" not in out, out
+    token = re.search(r"confirmed_cost=(\S+)", out).group(1)
+    ran = await call(mcp, "get_context", log_table="rg", occurrence=occ, scope="everything", confirmed_cost=token)
+    assert "→" in ran and "request 10000 handled" in ran, ran

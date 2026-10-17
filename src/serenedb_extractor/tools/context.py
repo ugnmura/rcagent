@@ -1,6 +1,6 @@
 """get_context: the entries shortly before and after one occurrence, cost-checked."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -19,7 +19,7 @@ from serenedb_extractor.query.filters import (
     time_clause,
     ts_compare,
 )
-from serenedb_extractor.query.stats import role_columns
+from serenedb_extractor.query.stats import ScopeStats, collect, role_columns
 from serenedb_extractor.query.tags import tag_entries, tag_text
 from serenedb_extractor.setup.sniff import readable
 from serenedb_extractor.tools.describe import context_scopes, known_columns
@@ -61,17 +61,47 @@ def _choose_scope(lt: LogTable, scope: str | list[str] | None, row: dict[str, An
     return _Scope(wanted, "the same " + " and ".join(wanted))
 
 
-def _stopped(tr: TimeRange, decision: cost.Decision, tz: str) -> str | None:
-    """The reply when the cost check did not allow an exact run (an ask, or only a sample), else None."""
+def _exact_only(stats: ScopeStats) -> ScopeStats:
+    """A context must be exact: never let the cost check fall back to a sample."""
+    return replace(stats, can_sample=False, groups=())
+
+
+def _decide(ctx: AppContext, stats: ScopeStats, columns: list[str], confirmed: str | None, options: list[str]) -> cost.Decision:
+    s = ctx.settings
+    return cost.decide(
+        _exact_only(stats), columns, True, s.sample_size, confirmed, max_s=s.max_timeout_s, ask_options=options
+    )
+
+
+def _stopped(tr: TimeRange, decision: cost.Decision, tz: str, what: str) -> str | None:
+    """The reply when the cost check did not allow the exact read (an ask with its token), else None."""
+    if decision.status == "run":
+        assert decision.plan.exact  # _exact_only: a context is never sampled
+        return None
     head = fmt.how_measured(cost.ASKED_HOW, tr.describe() if tr.bounded else None, None, tz=tz)
-    if decision.status == "ask":
-        return head + "\n" + decision.message
-    if not decision.plan.exact:  # a context cannot be sampled
-        return head + "\n" + fmt.refusal(
-            "showing the context exactly would read more than the time budget allows",
-            ["use a shorter window_minutes", "narrow it with a scope or filters"],
-        )
-    return None
+    return head + "\n" + decision.message.replace("TOO EXPENSIVE: ", f"TOO EXPENSIVE: {what} ", 1)
+
+
+def _lookup_scope(lt: LogTable, stats: ScopeStats, params: dict[str, Any]) -> tuple[ScopeStats, str]:
+    """What finding the occurrence's own row reads, and SQL that keeps the read to it.
+
+    - one in-place Parquet file, `<file>#<row>`: only the row group holding that row (its
+      `file_row_number` range, which SereneDB prunes on, as the block sampler does);
+    - a copied table, `e:<n>`: a primary-key lookup of one entry;
+    - anything else (several files, JSON, a table's `pk:` order column, not known to be a key): every
+      entry is read to find it, priced as such."""
+    k = occ_mod.kind(lt)
+    if k == "file" and stats.can_sample:
+        row = int(params["occ_row"])
+        for g in stats.groups:
+            if g.first_row <= row < g.first_row + g.rows:
+                one = replace(stats, rows_in_range=g.rows, bytes_by_column=dict(g.bytes_by_column), groups=(g,))
+                return one, f" AND file_row_number BETWEEN {int(g.first_row)} AND {int(g.first_row + g.rows - 1)}"
+        raise UserFacingError(f"No entry has the occurrence ID '{params.get('occ_file')}#{row}' in log table '{lt.name}'.")
+    if k == "entry":
+        per_row = {c: -(-b // max(stats.total_rows, 1)) for c, b in stats.bytes_by_column.items()}
+        return replace(stats, rows_in_range=1, bytes_by_column=per_row), ""
+    return stats, ""
 
 
 def _select(lt: LogTable, cols: dict[str, str]) -> str:
@@ -85,12 +115,14 @@ def _fetch_occurrence(
     """The occurrence's row, or the reply text when the cost check stopped the lookup."""
     where, params = occ_mod.decode_occurrence(lt, occ)
     what = f"finding the context of occurrence {occ} in log table {lt.name}"
-    _, decision = cost.check(ctx.db, lt, TimeRange(tz=tz), shown_cols, confirmed)
-    if (stop := _stopped(TimeRange(tz=tz), decision, tz)) is not None:
+    whole = TimeRange(tz=tz)
+    stats, keep = _lookup_scope(lt, collect(ctx.db, lt, whole), params)
+    decision = _decide(ctx, stats, shown_cols, confirmed, [])
+    if (stop := _stopped(whole, decision, tz, "finding the occurrence's own entry")) is not None:
         return stop
     timeout = cost.run_timeout(decision.plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
     rows = ctx.db.read(
-        f"SELECT {select} FROM {lt.relation} WHERE {where} LIMIT 1", params,
+        f"SELECT {select} FROM {lt.relation} WHERE {where}{keep} LIMIT 1", params,
         timeout_s=timeout, what=what, how_to_narrow=NARROW,
     ).dicts()
     if not rows:
@@ -112,8 +144,15 @@ def _fetch_window(
     """The nearest entries either side of the occurrence, or the reply text when the cost check stopped it."""
     db, ts = ctx.db, occ_row["occ_ts"]
     wcols = shown_cols * 2 + [c for r in scope.roles for c in role_columns(getattr(lt.roles, r))]
-    _, decision = cost.check(db, lt, tr, wcols, confirmed)
-    if (stop := _stopped(tr, decision, tr.tz)) is not None:
+    stats = collect(db, lt, tr)
+    # A smaller window only helps where the time range skips row groups and this one spans several.
+    options = (
+        ["a smaller window_minutes (fewer row groups to read)"]
+        if stats.time_skippable and (not stats.can_sample or len(stats.groups) > 1)
+        else []
+    )
+    decision = _decide(ctx, stats, wcols, confirmed, options)
+    if (stop := _stopped(tr, decision, tr.tz, "showing the context of the occurrence")) is not None:
         return stop
     timeout = cost.run_timeout(decision.plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
     conds = ["TRUE"]

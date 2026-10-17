@@ -128,9 +128,14 @@ def decide(
     indexed: Collection[str] = (),
     max_s: float | None = None,
     index_hints: Mapping[str, str] | None = None,
+    ask_options: list[str] | None = None,
+    upper_bound: bool = False,
 ) -> Decision:
     """`columns`: what the query reads, once per scan (a column two scans read is listed twice).
-    `max_s`: the server's maximum query time; a plan predicted beyond it is never offered."""
+    `max_s`: the server's maximum query time; a plan predicted beyond it is never offered.
+    `ask_options`: the ask's options besides "run it anyway" (default: narrow the scope, build an index),
+    for callers whose scope can't be narrowed that way. `upper_bound`: the exact cost is only a bound
+    (worded "up to ~X")."""
     budget = BUDGET_SECONDS if budget_s is None else budget_s  # read now, so it can be tuned/patched
     speed = THROUGHPUT_BYTES_PER_S["remote" if stats.remote else "local"]
     read = [c for c in columns if c not in indexed]
@@ -184,7 +189,11 @@ def decide(
                 return Decision("run", replace(plan, notes=tuple(notes)))
     if exact.seconds <= budget:  # an estimate was wanted but no sample is cheaper: the exact answer fits
         return Decision("run", exact)
-    return Decision("ask", exact, _ask(stats, exact, tried, budget, max_s if too_long else None, problem, index_hints or {}))
+    return Decision(
+        "ask",
+        exact,
+        _ask(stats, exact, tried, budget, max_s if too_long else None, problem, index_hints or {}, ask_options, upper_bound),
+    )
 
 
 def _ask(
@@ -195,14 +204,16 @@ def _ask(
     beyond_max: float | None,
     problem: str,
     index_hints: Mapping[str, str],
+    ask_options: list[str] | None = None,
+    upper_bound: bool = False,
 ) -> str:
-    reason = f"needs {cost_text(exact)} (the budget for one query is {fmt.duration(budget)})"
+    reason = f"{'reads up to' if upper_bound else 'needs'} {cost_text(exact)} (the budget for one query is {fmt.duration(budget)})"
     if tried:
         cheapest = min(tried, key=lambda p: p.bytes)
         reason += f"; even an estimate from a sample would need {cost_text(cheapest)}"
-    options = ["narrow it: a shorter period (start/end) or filters such as level or service"]
+    options = list(ask_options) if ask_options is not None else ["narrow it: a shorter period (start/end) or filters such as level or service"]
     kind = "search" if not stats.has_search_index else ("filter" if not stats.has_filter_index else None)
-    if kind is not None:  # the size is named when an estimate was made earlier (create_index dry_run, setup)
+    if kind is not None and ask_options is None:  # the size is named when an estimate was made earlier (create_index dry_run, setup)
         hint = index_hints.get(kind)
         options.append(
             f"build a {kind} index ({hint}; create_index builds it, create_index with dry_run re-estimates)"
@@ -216,6 +227,8 @@ def _ask(
         )
     else:
         options.insert(0, f"run it anyway: repeat the same call with confirmed_cost={exact.cost_token()}")
+    if not options:
+        options.append("none that reads less: this source can only be read whole for this request")
     out = fmt.refusal(reason, options)
     return (problem + "\n" + out) if problem else out
 
