@@ -11,12 +11,13 @@ filters) is never narrowed here: that would change the question.
 
 import math
 import re
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Literal
 
 from serenedb_extractor import format as fmt
 from serenedb_extractor.query.stats import WHOLE, GroupStat, ScopeStats, collect
+from serenedb_extractor.setup import indexes
 from serenedb_extractor.setup.sniff import human_bytes
 
 if TYPE_CHECKING:
@@ -110,13 +111,15 @@ def decide(
     budget_s: float | None = None,
     indexed: Collection[str] = (),
     max_s: float | None = None,
+    index_hints: Mapping[str, str] | None = None,
 ) -> Decision:
     """`columns`: what the query reads, once per scan (a column two scans read is listed twice).
     `max_s`: the server's maximum query time; a plan predicted beyond it is never offered."""
     budget = BUDGET_SECONDS if budget_s is None else budget_s  # read now, so it can be tuned/patched
     speed = THROUGHPUT_BYTES_PER_S["remote" if stats.remote else "local"]
     read = [c for c in columns if c not in indexed]
-    exact_bytes = float(stats.bytes_for(read))
+    # Everything the query reads is served by an index (and nothing else is touched): it costs nothing.
+    exact_bytes = float(stats.bytes_for(read)) if read or not columns else 0.0
     exact = Plan(
         exact=True,
         sampling=None,
@@ -175,21 +178,31 @@ def decide(
                 return Decision("run", replace(plan, notes=tuple(notes)))
     if exact.seconds <= budget:  # an estimate was wanted but no sample is cheaper: the exact answer fits
         return Decision("run", exact)
-    return Decision("ask", exact, _ask(stats, exact, tried, budget, max_s if too_long else None, problem))
+    return Decision("ask", exact, _ask(stats, exact, tried, budget, max_s if too_long else None, problem, index_hints or {}))
 
 
-def _ask(stats: ScopeStats, exact: Plan, tried: list[Plan], budget: float, beyond_max: float | None, problem: str) -> str:
+def _ask(
+    stats: ScopeStats,
+    exact: Plan,
+    tried: list[Plan],
+    budget: float,
+    beyond_max: float | None,
+    problem: str,
+    index_hints: Mapping[str, str],
+) -> str:
     reason = f"needs {cost_text(exact)} (the budget for one query is {fmt.duration(budget)})"
     if tried:
         cheapest = min(tried, key=lambda p: p.bytes)
         reason += f"; even an estimate from a sample would need {cost_text(cheapest)}"
-    # TODO(#17): give the index's size here (≈X GB) once create_index can estimate it.
-    index = (
-        "build a search index (create_index with dry_run shows its size)"
-        if not stats.has_search_index
-        else "build a filter index (create_index with dry_run shows its size)"
-    )
-    options = ["narrow it: a shorter period (start/end) or filters such as level or service", index]
+    options = ["narrow it: a shorter period (start/end) or filters such as level or service"]
+    kind = "search" if not stats.has_search_index else ("filter" if not stats.has_filter_index else None)
+    if kind is not None:  # the size is named when an estimate was made earlier (create_index dry_run, setup)
+        hint = index_hints.get(kind)
+        options.append(
+            f"build a {kind} index ({hint}; create_index builds it, create_index with dry_run re-estimates)"
+            if hint
+            else f"build a {kind} index (create_index with dry_run shows its size)"
+        )
     if beyond_max is not None:
         reason += (
             f"; that is more than the server's maximum query time ({fmt.seconds_label(beyond_max)} s), "
@@ -208,8 +221,19 @@ def check(
     columns: list[str],
     confirmed_cost: str | None = None,
     want_exact: bool = True,
+    indexed: Collection[str] = (),
 ) -> tuple[ScopeStats, Decision]:
-    """Collect the scope's metadata and decide, with the server's sample size and maximum query time."""
+    """Collect the scope's metadata and decide, with the server's sample size and maximum query time.
+    `indexed`: columns the caller really reads from an index relation, which cost nothing."""
     stats = collect(db, lt, tr)
     s = db.settings
-    return stats, decide(stats, columns, want_exact, s.sample_size, confirmed_cost, max_s=s.max_timeout_s)
+    return stats, decide(
+        stats,
+        columns,
+        want_exact,
+        s.sample_size,
+        confirmed_cost,
+        indexed=indexed,
+        max_s=s.max_timeout_s,
+        index_hints=indexes.hints(db, lt),
+    )

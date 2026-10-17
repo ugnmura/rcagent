@@ -160,6 +160,14 @@ class CatalogStore:
             "UPDATE extractor.log_tables SET timezone = %(tz)s WHERE name = %(name)s", {"tz": timezone, "name": name}
         )
 
+    def set_index(self, name: str, kind: str, index_name: str | None) -> None:
+        """Record (or clear) the filter or search index built for a log table."""
+        column = {"filter": "filter_index_name", "search": "search_index_name"}[kind]
+        self.db.write(
+            f"UPDATE extractor.log_tables SET {column} = %(idx)s WHERE name = %(name)s",
+            {"idx": index_name, "name": name},
+        )
+
     def template_count(self, name: str) -> int:
         return int(
             self.db.read("SELECT count(*) FROM extractor.templates WHERE log_table = %(n)s", {"n": name}).scalar()

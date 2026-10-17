@@ -7,8 +7,10 @@ from serenedb_extractor import format as fmt
 from serenedb_extractor.catalog.models import ROLE_FIELDS, FieldRoles, LogTable, UnknownLogTable
 from serenedb_extractor.context import AppContext
 from serenedb_extractor.db import validate_name
+import psycopg
+
 from serenedb_extractor.errors import UserFacingError
-from serenedb_extractor.setup import localfiles, rawcopy, structcopy
+from serenedb_extractor.setup import indexes, localfiles, rawcopy, structcopy
 from serenedb_extractor.setup.paths import ResolvedSource, resolve_source
 from serenedb_extractor.setup.rawlog import LINE_FORMATS, detect_line_format, line_format_named, parse_entries
 from serenedb_extractor.setup.roles import HELPER_COLUMNS, propose_roles, role_lines, validate_roles
@@ -18,6 +20,9 @@ from serenedb_extractor.setup.sniff import SourceInfo, human_bytes, readable, re
 
 
 OUTSIDE_MOUNT = "outside the mounted folder"
+INDEX_AFTER_COPY = (
+    "indexes: none is built unless you ask; once the copy exists, create_index with dry_run estimates their size."
+)
 
 
 def _why_copy(rs: ResolvedSource) -> str:
@@ -55,9 +60,16 @@ def inspect_source(
     info = sniff(ctx.db, rs, source)  # reports SereneDB errors in plain language
     columns = [(c, t) for c, t in info.columns if c not in HELPER_COLUMNS]
     roles, evidence = propose_roles(info.columns, sample_values(info))
+    offer = indexes.offer_lines(ctx, info.from_sql, roles, info.row_count)
+    trial = info.row_count is not None and info.row_count >= indexes.MIN_ROWS_FOR_OFFER
     lines = [
         fmt.how_measured(
-            "read only metadata and 5 sample entries; nothing was created or changed", sample="5 sample entries"
+            "read only metadata and 5 sample entries; nothing was created or changed"
+            if not trial
+            else "read metadata and 5 sample entries, plus trial index builds on a sample of "
+            f"{min(info.row_count or 0, indexes.TRIAL_ROWS):,} entries for the estimates (the trial indexes were dropped again); "
+            "nothing else was created or changed",
+            sample="5 sample entries",
         ),
         f"source: {source} ({rs.kind})",
         f"how it will be used: {_where_read(rs)}",
@@ -87,6 +99,7 @@ def inspect_source(
     for i, row in enumerate(info.samples, 1):
         shown = ", ".join(f"{k}={fmt.shorten(str(v), 80)}" for k, v in row.items() if k not in HELPER_COLUMNS)
         lines.append(f"  {i}. {shown}")
+    lines += offer
     return "\n".join(lines)
 
 
@@ -153,9 +166,9 @@ def setup_log_table(
     get_zone(zone)
     rs = resolve_source(source, ctx.settings, None)
     if rs.kind == "raw_text":
-        return _setup_raw(ctx, name, rs, source, roles, line_format, zone, build_filter_index or build_search_index)
+        return _setup_raw(ctx, name, rs, source, roles, line_format, zone, (build_filter_index, build_search_index))
     if localfiles.copy_needed(rs):
-        return _setup_outside(ctx, name, rs, source, roles, zone, build_filter_index or build_search_index)
+        return _setup_outside(ctx, name, rs, source, roles, zone, (build_filter_index, build_search_index))
     info = sniff(ctx.db, rs, source)
     given = validate_roles(roles, dict(info.columns)) if roles else None
     final, _ = propose_roles(info.columns, sample_values(info), given)
@@ -182,8 +195,12 @@ def setup_log_table(
             if rs.kind != "table":
                 ctx.db.write(f"DROP VIEW IF EXISTS {relation}", {})
             raise
+    index_lines, read_data = _index_section(ctx, lt, build_filter_index, build_search_index)
     lines = [
-        fmt.how_measured("log table registered; only the source's metadata and 5 sample entries were read"),
+        fmt.how_measured(
+            "log table registered; only the source's metadata and 5 sample entries were read"
+            + (index_lines_how(read_data) if read_data else "")
+        ),
         f"Set up log table '{name}': {_where_read(rs)}."
         + (f" View {relation} reads the source directly." if rs.kind != "table" else ""),
         f"entries: {lt.row_count:,}" if lt.row_count is not None else "entries: not counted",
@@ -192,10 +209,7 @@ def setup_log_table(
         *role_lines(final, "  "),
         "The template catalog starts empty.",
     ]
-    if build_filter_index or build_search_index:
-        lines.append("Indexes can't be built yet, so none was built. No index is ever built unless you ask for it.")
-    else:
-        lines.append("No index was built.")
+    lines += index_lines
     return "\n".join(lines)
 
 
@@ -269,6 +283,7 @@ def _inspect_raw(ctx: AppContext, rs: ResolvedSource, source: str, line_format: 
         lines.append(f"  {i}. {shown}")
     if not entries:
         lines.append("  (no lines)")
+    lines.append(INDEX_AFTER_COPY)
     return "\n".join(lines)
 
 
@@ -305,6 +320,7 @@ def _inspect_outside(ctx: AppContext, rs: ResolvedSource, source: str) -> str:
     lines.append("sample entries:")
     for i, row in enumerate(samples, 1):
         lines.append(f"  {i}. " + ", ".join(f"{k}={fmt.shorten(str(v), 80)}" for k, v in row.items()))
+    lines.append(INDEX_AFTER_COPY)
     return "\n".join(lines)
 
 
@@ -335,10 +351,11 @@ def _register_copied(
 
 
 def _copied_summary(
-    lt: LogTable, rs: ResolvedSource, extra: list[str], index_requested: bool, how: str
+    ctx: AppContext, lt: LogTable, rs: ResolvedSource, extra: list[str], build: tuple[bool, bool], how: str
 ) -> str:
+    index_lines, read_data = _index_section(ctx, lt, *build)
     lines = [
-        fmt.how_measured(how),
+        fmt.how_measured(how + (index_lines_how(read_data) if read_data else "")),
         f"Set up log table '{lt.name}': {_why_copy(rs)}",
         f"The copy is {lt.relation} ({lt.row_count:,} entries); the original file was not changed.",
         *_size_lines(rs),
@@ -347,9 +364,7 @@ def _copied_summary(
         "field roles:",
         *role_lines(lt.roles, "  "),
         "The template catalog starts empty.",
-        "Indexes can't be built yet, so none was built. No index is ever built unless you ask for it."
-        if index_requested
-        else "No index was built.",
+        *index_lines,
     ]
     return "\n".join(lines)
 
@@ -362,7 +377,7 @@ def _setup_raw(
     roles: dict[str, Any] | None,
     line_format: str | None,
     zone: str,
-    index_requested: bool = False,
+    build: tuple[bool, bool] = (False, False),
 ) -> str:
     given = validate_roles(roles, dict(rawcopy.RAW_COLUMNS)) if roles else {}
     fmt_name, how = _chosen_format(ctx, rs, source, line_format)
@@ -383,7 +398,7 @@ def _setup_raw(
             f"{n:,} {'line' if n == 1 else 'lines'} had bytes that are not valid UTF-8; "
             "they were replaced with the character �"
         )
-    return _copied_summary(lt, rs, extra, index_requested, "every line of the file was read and parsed; entries were copied into a table")
+    return _copied_summary(ctx, lt, rs, extra, build, "every line of the file was read and parsed; entries were copied into a table")
 
 
 def _setup_outside(
@@ -393,7 +408,7 @@ def _setup_outside(
     source: str,
     roles: dict[str, Any] | None,
     zone: str,
-    index_requested: bool = False,
+    build: tuple[bool, bool] = (False, False),
 ) -> str:
     def roles_for(columns: list[tuple[str, str]], samples: list[dict[str, Any]]) -> FieldRoles:
         given = validate_roles(roles, dict(columns)) if roles else None
@@ -402,4 +417,78 @@ def _setup_outside(
 
     result, final = structcopy.copy_structured(ctx, name, rs, source, zone, roles_for)
     lt = _register_copied(ctx, name, source, rs.kind, result.relation, final, result.entries, zone)
-    return _copied_summary(lt, rs, [], index_requested, "every entry of the file was read here and copied into a table")
+    return _copied_summary(ctx, lt, rs, [], build, "every entry of the file was read here and copied into a table")
+
+
+# ---------------------------------------------------------------- indexes
+
+
+def index_lines_how(read_data: bool) -> str:
+    return "; trial or real index builds read the entries (see the index lines)" if read_data else ""
+
+
+def _index_section(ctx: AppContext, lt: LogTable, build_filter: bool, build_search: bool) -> tuple[list[str], bool]:
+    """Lines about indexes for a fresh log table, and whether entries were read for them. A requested
+    build runs now; otherwise estimates are shown for a big source. A failed build leaves the table set up."""
+    wanted = [k for k, on in (("filter", build_filter), ("search", build_search)) if on]
+    if not wanted:
+        out = indexes.offer_lines(ctx, lt.relation, lt.roles, lt.row_count, cache_for=lt.name)
+        big = lt.row_count is not None and lt.row_count >= indexes.MIN_ROWS_FOR_OFFER
+        return out + ["No index was built."], big
+    out = []
+    for kind in wanted:
+        try:
+            built = indexes.build_measured(ctx, lt, kind)
+            out.append(_built_line(kind, built))
+        except (psycopg.Error, UserFacingError) as exc:
+            out.append(f"The {kind} index could not be built ({exc}); the log table is set up without it.")
+    return out, True
+
+
+def _built_line(kind: str, built: indexes.BuiltIndex) -> str:
+    return f"Built the {kind} index {built.name}: {human_bytes(built.size_bytes)} on disk, built in {fmt.duration(built.seconds)}."
+
+
+def create_index(ctx: AppContext, log_table: str, kind: str, dry_run: bool = False) -> str:
+    kind = indexes.check_kind(kind)
+    lt = ctx.store.get_log_table(log_table)
+    have = lt.filter_index_name if kind == "filter" else lt.search_index_name
+    if have:
+        return (
+            fmt.how_measured("catalog only; nothing was read or built")
+            + f"\nLog table '{lt.name}' already has its {kind} index {have}; nothing changed."
+        )
+    with readable(f"the source of log table '{lt.name}'"):
+        if dry_run:
+            est = indexes.estimate(ctx, lt, kind)
+            return "\n".join(
+                [
+                    fmt.how_measured(
+                        f"a trial {kind} index was built on {est.sample_rows:,} of {est.total_rows:,} entries "
+                        "and dropped again; size and time are scaled up linearly",
+                        sample=f"{est.sample_rows:,} entries",
+                    ),
+                    f"Estimated {kind} index for log table '{lt.name}': {est.describe()}.",
+                    *(
+                        [
+                            f"Warning: that is longer than the server's maximum time for one statement "
+                            f"({fmt.duration(ctx.settings.max_timeout_s)}), so a build would be cancelled."
+                        ]
+                        if est.build_seconds > ctx.settings.max_timeout_s
+                        else []
+                    ),
+                    "Nothing was built. Run create_index again without dry_run to build it.",
+                ]
+            )
+        built = indexes.build_measured(ctx, lt, kind)
+    note = {
+        "filter": "describe_logs now lists values exactly and filters on the indexed fields cost almost nothing.",
+        "search": "search_logs uses it for text search, and fuzzy search is available.",
+    }[kind]
+    return "\n".join(
+        [
+            fmt.how_measured(f"the {kind} index was built over every entry of the log table"),
+            _built_line(kind, built),
+            note,
+        ]
+    )

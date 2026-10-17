@@ -17,6 +17,7 @@ from serenedb_extractor.context import AppContext
 from serenedb_extractor.tools import catalog_tools, describe, lookup, setup_tools
 from serenedb_extractor.tools import context as context_tool
 from serenedb_extractor.tools import sql as sql_tool
+from serenedb_extractor.tools import investigate
 from serenedb_extractor.tools import survey as survey_tool
 from serenedb_extractor.tools import trend as trend_tool
 
@@ -79,7 +80,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         build_filter_index: bool = False,
         build_search_index: bool = False,
     ) -> str:
-        """Set up a log table over a source, read in place, with confirmed field roles. Re-running with roles or timezone corrects only those. timezone (IANA name, default UTC) is how timestamps without a zone are read."""
+        """Set up a log table over a source, read in place, with confirmed field roles; build_filter_index / build_search_index build an index right away (default: none; the result shows size and time estimates for big sources). Re-running with roles or timezone corrects only those. timezone (IANA name, default UTC) is how timestamps without a zone are read."""
         return await runner.run_tool(
             setup_tools.setup_log_table,
             name=name,
@@ -90,6 +91,11 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
             build_filter_index=build_filter_index,
             build_search_index=build_search_index,
         )
+
+    @mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
+    async def create_index(log_table: str, kind: str, dry_run: bool = False) -> str:
+        """Build a filter index (kind="filter": exact value lists, nearly free filters) or a search index (kind="search": faster text search and fuzzy search) on a log table. dry_run=True only estimates size and build time from a trial build on a sample and builds nothing. Only build when the user asks for it."""
+        return await runner.run_tool(setup_tools.create_index, log_table=log_table, kind=kind, dry_run=dry_run)
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
     async def describe_logs(
@@ -209,6 +215,60 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         """Escape hatch: run ONE read-only SQL statement (SELECT, WITH, set operations or EXPLAIN) when no other tool fits. Anything that could change data is refused. Results are cut to limit rows (default 50); the plan is cost-checked first and a too-expensive query answers TOO EXPENSIVE with a confirmed_cost to repeat it with once the user agrees. Log tables are views named like extractor.lt_<name>."""
         return await runner.run_tool(
             sql_tool.run_sql, sql=sql, limit=limit, timeout_s=timeout_s, confirmed_cost=confirmed_cost
+        )
+
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    async def locate_occurrences(
+        log_table: str,
+        templates: list[str],
+        start: str | None = None,
+        end: str | None = None,
+        filters: dict[str, Any] | None = None,
+        group_by: list[str] | None = None,
+        examples_per_group: int = 3,
+        limit: int | None = None,
+        timezone: str = "UTC",
+        confirmed_cost: str | None = None,
+    ) -> str:
+        """Exact counts of the entries matching templates (T<n> IDs from survey), grouped by any role, column or time bucket (group_by=["service", "time:1h"]; buckets are time:<n>m|h|d), with example occurrence IDs per group. Needs at least one template: run survey first. The cost is checked first: a too-expensive count may be estimated from a sample (said so), or answer TOO EXPENSIVE with a confirmed_cost to repeat it with once the user agrees."""
+        return await runner.run_tool(
+            investigate.locate_occurrences,
+            log_table=log_table,
+            templates=templates,
+            start=start,
+            end=end,
+            filters=filters,
+            group_by=group_by,
+            examples_per_group=examples_per_group,
+            limit=limit,
+            timezone=timezone,
+            confirmed_cost=confirmed_cost,
+        )
+
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    async def extract_params(
+        log_table: str,
+        template: str,
+        start: str | None = None,
+        end: str | None = None,
+        filters: dict[str, Any] | None = None,
+        by: str | None = None,
+        limit: int | None = None,
+        timezone: str = "UTC",
+        confirmed_cost: str | None = None,
+    ) -> str:
+        """For one template (T<n> ID from survey): each parameter's top values with counts (10 per parameter, raisable with limit) and, for numeric parameters, min, p50, p95 and max. by="service" (a role or column) breaks it down per value. The cost is checked first: a too-expensive extraction may be estimated from a sample (said so), or answer TOO EXPENSIVE with a confirmed_cost to repeat it with once the user agrees."""
+        return await runner.run_tool(
+            investigate.extract_params,
+            log_table=log_table,
+            template=template,
+            start=start,
+            end=end,
+            filters=filters,
+            by=by,
+            limit=limit,
+            timezone=timezone,
+            confirmed_cost=confirmed_cost,
         )
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))

@@ -1,6 +1,7 @@
 """search_logs: filtered and text search for ad-hoc lookups, cost-checked before it runs."""
 
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any
 
 from serenedb_extractor import format as fmt
@@ -17,11 +18,13 @@ from serenedb_extractor.query.filters import (
     parse_time_range,
     role_sql,
     time_clause,
+    ts_compare,
 )
 from serenedb_extractor.query.stats import role_columns
 from serenedb_extractor.query.tags import tag_entries, tag_text
+from serenedb_extractor.setup import indexes
 from serenedb_extractor.setup.paths import pct, sql_literal
-from serenedb_extractor.setup.roles import is_temporal, resolve_column, role_column
+from serenedb_extractor.setup.roles import HELPER_COLUMNS, is_temporal, resolve_column, role_column
 from serenedb_extractor.setup.sniff import readable
 from serenedb_extractor.tools.describe import known_columns, like_pattern
 
@@ -35,6 +38,10 @@ SEARCH_SQL_SUFFIX = ""
 FUZZY_NEEDS_INDEX = (
     "fuzzy search needs a search index (see create_index with dry_run for its size and build time); "
     "without one, search for an exact word or phrase (fuzzy=false)."
+)
+WHOLE_WORDS_NOTE = (
+    "\nThe search index matches whole words, so a fragment of a word can't be found through it; "
+    "scanning for a fragment would need {cost}, so it was not run."
 )
 NARROW = (
     "narrow it: a shorter period (start/end), filters such as level or service, or a longer, rarer phrase; "
@@ -76,12 +83,12 @@ def columns_read(lt: LogTable, f: Filters, cols: dict[str, str], text: str | Non
     return count + shown
 
 
-def _scope_text(f: Filters, text: str | None) -> str | None:
+def _scope_text(f: Filters, text: str | None, how: str = "contains") -> str | None:
     parts = []
     for key, wanted in f.items():
         parts.append(f"{key} in ({', '.join(repr(w) for w in wanted)})" if isinstance(wanted, list) else f"{key}={wanted!r}")
     if text:
-        parts.append(f"message contains {text!r} (any case)")
+        parts.append(f"message {how} {text!r} (any case)")
     return ", ".join(parts) or None
 
 
@@ -93,7 +100,11 @@ def _show_ts(value: Any, tr: TimeRange) -> str:
 
 def _line(lt: LogTable, row: dict[str, Any], tr: TimeRange, tag: str = "") -> str:
     roles = " ".join(f"{r}={row[f'occ_{r}']}" for r in FILTER_ROLES if row.get(f"occ_{r}") is not None)
-    parts = [_show_ts(row["occ_ts"], tr), occurrence.encode_occurrence(lt, row), roles, tag, fmt.shorten(str(row["occ_msg"] or ""))]
+    try:
+        occ = occurrence.encode_occurrence(lt, row)
+    except KeyError:  # an entry found through the index that could not be placed in the source again
+        occ = "(occurrence ID not found)"
+    parts = [_show_ts(row["occ_ts"], tr), occ, roles, tag, fmt.shorten(str(row["occ_msg"] or ""))]
     return "  " + "  ".join(p for p in parts if p)
 
 
@@ -122,13 +133,23 @@ def search_logs(
     if fuzzy:
         if lt.search_index_name is None:
             raise UserFacingError(FUZZY_NEEDS_INDEX)
-        raise UserFacingError("Fuzzy search through the search index is not available yet; search without fuzzy.")
+        if not text:
+            raise UserFacingError("Fuzzy search needs the text to look for (text=...).")
     if order not in ORDERS:
         raise UserFacingError(f"order must be 'newest' or 'oldest', not '{order}'.")
     shown_limit = fmt.clamp_limit(limit, DEFAULT_LIMIT, DEFAULT_LIMIT * ctx.settings.limit_cap)
     db = ctx.db
     with readable(f"the source of log table '{lt.name}'"):
         cols = known_columns(db, lt)
+        ix = _index_path(ctx, lt, f, text, fuzzy, cols)
+        index_answer: str | None = None
+        if ix is not None:
+            index_answer, found = _search_via_index(
+                ctx, lt, tr, f, text, ix, order, shown_limit, timezone, confirmed_cost, cols
+            )
+            if found or ix.fuzzy or index_answer.startswith(fmt.PREFIX + cost.ASKED_HOW):
+                return index_answer
+            # Nothing has these whole words: the text may be part of a word, which only a scan finds.
         time_sql, time_params = time_clause(lt, tr, cols)
         match_sql, params = build_where(lt, TimeRange(), f, cols)  # the filters alone
         params.update(time_params)
@@ -137,6 +158,8 @@ def search_logs(
             params["text_pattern"] = like_pattern(text)
         match_sql += pct(SEARCH_SQL_SUFFIX)
         stats, decision = cost.check(db, lt, tr, columns_read(lt, f, cols, text), confirmed_cost)
+        if index_answer is not None and (decision.status == "ask" or not decision.plan.exact):
+            return index_answer + WHOLE_WORDS_NOTE.format(cost=cost.cost_text(decision.plan))
         if decision.status == "ask":
             return _ask(lt, tr, f, text, timezone, decision.message)
         plan = decision.plan
@@ -165,6 +188,174 @@ def search_logs(
                 tags = [tag_text(t) for t in tag_entries(templates, [str(r["occ_msg"] or "") for r in rows])]
         empty_why = diagnose_empty(db, lt, tr, f, cols) if plan.exact and total == 0 else []
     return _render(lt, tr, f, text, timezone, plan, measured, rows, tags, total, order, empty_why)
+
+
+@dataclass(frozen=True)
+class _IndexPath:
+    """A text search that can run on a search index relation alone."""
+
+    name: str
+    covered: frozenset[str]
+    words: tuple[str, ...]  # the dictionary's tokens of the text
+    fuzzy: bool
+
+
+def _fuzzy_distance(word: str) -> int:
+    return 2 if len(word) >= 4 else 1
+
+
+def _index_path(
+    ctx: AppContext, lt: LogTable, f: Filters, text: str | None, fuzzy: bool, cols: dict[str, str]
+) -> "_IndexPath | None":
+    """The search index to use for this search, or None (then the entries are scanned). A fuzzy search
+    has no other way to run, so it explains what is missing instead of returning None."""
+    name = lt.search_index_name
+    if not text or name is None:
+        return None
+    db = ctx.db
+    words = db.read("SELECT ts_lexize(%(d)s, %(t)s)", {"d": indexes.LOG_DICT, "t": text}).scalar() or []
+    if not words:
+        if fuzzy:
+            raise UserFacingError(f"'{text}' has no searchable words (only punctuation or very common words); try other text.")
+        return None  # e.g. "---": a substring scan can still find it
+    covered = indexes.indexed_columns(db, name)
+    need: list[str] = []
+    for role in ("message", "timestamp", *FILTER_ROLES):
+        expr = getattr(lt.roles, role)
+        if expr is None:
+            continue
+        col = role_column(expr)
+        need.append(col if col is not None else "")  # a JSON path can't be read from the index
+    for key, _ in f.items():
+        if key not in FILTER_ROLES:
+            need.append(resolve_column(key, cols) or "")
+    ok = lt.roles.timestamp is not None and all(c and c in covered for c in need)
+    if not ok:
+        if fuzzy:
+            raise UserFacingError(
+                "Fuzzy search can't use the search index for this question (a filter or field it needs is not in "
+                "the index, or the log table has no timestamp); drop the column filters or search without fuzzy."
+            )
+        return None
+    return _IndexPath(name, frozenset(covered), tuple(str(w) for w in words), fuzzy)
+
+
+def _text_predicate(lt: LogTable, ix: _IndexPath) -> tuple[str, dict[str, Any]]:
+    """`@@` over the index relation: the words in order (ts_phrase), or each word within a typo or two."""
+    msg = role_sql(lt, "message")
+    if not ix.fuzzy:
+        return f"{msg} @@ ts_phrase(%(text_phrase)s)", {"text_phrase": " ".join(ix.words)}
+    parts, params = [], {}
+    for i, w in enumerate(ix.words):
+        parts.append(f"{msg} @@ ts_levenshtein(%(fz{i})s, {_fuzzy_distance(w)})")
+        params[f"fz{i}"] = w
+    return " AND ".join(parts), params
+
+
+def _search_via_index(
+    ctx: AppContext,
+    lt: LogTable,
+    tr: TimeRange,
+    f: Filters,
+    text: str | None,
+    ix: _IndexPath,
+    order: str,
+    shown_limit: int,
+    tz: str,
+    confirmed_cost: str | None,
+    cols: dict[str, str],
+) -> tuple[str, int]:
+    """Count and list the matches from the index relation (spike sections 9, 10), then look up the matches'
+    occurrence IDs in the source: the index relation can't give the Parquet helper columns."""
+    db = ctx.db
+    time_sql, time_params = time_clause(lt, tr, cols)
+    where, params = build_where(lt, TimeRange(), f, cols)
+    pred, text_params = _text_predicate(lt, ix)
+    params.update(time_params)
+    params.update(text_params)
+    match_sql = f"{where} AND {pred}"
+    # The order role and the occurrence columns are read from the source for the listed entries only.
+    extra = set(HELPER_COLUMNS) | set(role_columns(lt.roles.order))
+    _, decision = cost.check(
+        db, lt, tr, columns_read(lt, f, cols, text), confirmed_cost, indexed=set(ix.covered) | extra
+    )
+    how = "has the words" if not ix.fuzzy else "has words close to"
+    if decision.status == "ask":
+        head = fmt.how_measured(cost.ASKED_HOW, tr.describe() if tr.bounded else None, _scope_text(f, text, how), tz=tz)
+        return head + "\n" + decision.message, 0
+    plan = decision.plan
+    what = f"searching log table {lt.name} through its search index for '{text}'"
+    timeout = cost.run_timeout(plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
+    total = int(
+        db.read(
+            f"SELECT count(*) FROM {ix.name} WHERE {time_sql} AND {match_sql}",
+            params, timeout_s=timeout, what=what, how_to_narrow=NARROW,
+        ).scalar()
+        or 0
+    )
+    rows: list[dict[str, Any]] = []
+    tags: list[str] = []
+    if total:
+        role_sel = "".join(
+            f", ({role_sql(lt, r)})::varchar AS occ_{r}" for r in FILTER_ROLES if getattr(lt.roles, r) is not None
+        )
+        direction = "DESC" if order == "newest" else "ASC"
+        rows = db.read(
+            f"SELECT {ts_select(lt, cols)}, ({role_sql(lt, 'message')})::varchar AS occ_msg{role_sel} "
+            f"FROM {ix.name} WHERE {time_sql} AND {match_sql} "
+            f"ORDER BY {role_sql(lt, 'timestamp')} {direction} NULLS LAST LIMIT %(shown_limit)s",
+            {**params, "shown_limit": shown_limit},
+            timeout_s=timeout, what=what, how_to_narrow=NARROW,
+        ).dicts()
+        _attach_occurrences(ctx, lt, rows, cols, timeout, what)
+        templates = ctx.store.templates(lt.name)
+        if templates:
+            tags = [tag_text(t) for t in tag_entries(templates, [str(r["occ_msg"] or "") for r in rows])]
+    empty_why = diagnose_empty(db, lt, tr, f, cols) if total == 0 else []
+    out = _render(
+        lt, tr, f, text, tz, plan, fmt.Measured(float(total), True), rows, tags, total, order, empty_why,
+        via=(ix.name, how),
+    )
+    return out, total
+
+
+def _attach_occurrences(
+    ctx: AppContext, lt: LogTable, rows: list[dict[str, Any]], cols: dict[str, str], timeout: float, what: str
+) -> None:
+    """Add the occurrence columns (`occ_file`, `occ_row`, ...) to rows found through the index, by finding
+    the same entries in the source. The timestamp bounds the read (row groups outside it are skipped);
+    entries that look identical get the IDs in turn, which is fine since they are indistinguishable."""
+    if occurrence.kind(lt) is None or not rows:
+        return
+    db = ctx.db
+    found: dict[tuple[Any, str], list[dict[str, Any]]] = {}
+    stamps = list(dict.fromkeys(r["occ_ts"] for r in rows))
+    for start in range(0, len(stamps), 100):
+        conds: list[str] = []
+        params: dict[str, Any] = {}
+        for i, ts in enumerate(stamps[start : start + 100]):
+            if isinstance(ts, datetime):
+                lo, p1 = ts_compare(lt, ">=", ts, f"lo{i}", cols)
+                hi, p2 = ts_compare(lt, "<", ts + timedelta(milliseconds=1), f"hi{i}", cols)
+                conds.append(f"({lo} AND {hi})")
+                params.update(p1)
+                params.update(p2)
+            elif ts is None:
+                conds.append(f"({role_sql(lt, 'timestamp')}) IS NULL")
+            else:
+                conds.append(f"({role_sql(lt, 'timestamp')})::varchar = %(s{i})s")
+                params[f"s{i}"] = str(ts)
+        for r in db.read(
+            f"SELECT {ts_select(lt, cols)}, ({role_sql(lt, 'message')})::varchar AS occ_msg{occurrence.select_sql(lt)} "
+            f"FROM {lt.relation} WHERE {' OR '.join(conds)}",
+            params, timeout_s=timeout, what=what, how_to_narrow=NARROW,
+        ).dicts():
+            found.setdefault((r["occ_ts"], str(r["occ_msg"] or "")), []).append(r)
+    for row in rows:
+        candidates = found.get((row["occ_ts"], str(row["occ_msg"] or "")))
+        if candidates:
+            source = candidates.pop(0)
+            row.update({k: v for k, v in source.items() if k.startswith("occ_") and k not in row})
 
 
 def _count(
@@ -200,8 +391,14 @@ def _render(
     total: int,
     order: str,
     empty_why: list[str],
+    via: tuple[str, str] | None = None,
 ) -> str:
-    if plan.exact:
+    if via:
+        kind = f"exact search through the search index {via[0]}: every entry whose message {via[1]} was found" + (
+            " (run as you confirmed)" if plan.confirmed else ""
+        )
+        sample = None
+    elif plan.exact:
         kind = "exact search: every entry in scope was checked" + (" (run as you confirmed)" if plan.confirmed else "")
         sample = None
     else:
@@ -211,7 +408,16 @@ def _render(
             f"block sample of {plan.sample_rows or 0:,} of {upto}{plan.population_rows:,} entries "
             f"({len(plan.groups)} whole row group{'' if len(plan.groups) == 1 else 's'} overlapping the period; repeatable)"
         )
-    out = [fmt.how_measured(kind, tr.describe() if tr.bounded else None, _scope_text(f, text), sample, tz=tz)]
+    out = [
+        fmt.how_measured(
+            kind,
+            tr.describe() if tr.bounded else None,
+            _scope_text(f, text, via[1] if via else "contains"),
+            sample,
+            index_used=via[0] if via else None,
+            tz=tz,
+        )
+    ]
     out += [fmt.sentence(n) for n in plan.notes]
     if plan.exact:
         out.append(f"{total:,} matching {'entry' if total == 1 else 'entries'} (exact)")
