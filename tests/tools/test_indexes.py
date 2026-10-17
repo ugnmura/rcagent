@@ -109,6 +109,8 @@ async def test_filter_index_values_equal_the_scan(mcp, fx_lt):
         b = [ln.strip() for ln in after.splitlines() if ln.strip().startswith(f"{role}:")]
         assert a and b and b[0].startswith(a[0]), (a, b)  # same values and counts; the index adds a note
     assert "payments (3,000)" in after and "exact" in after
+    head = after.splitlines()[0]  # every top value came from the index: the header must not say "sampled"
+    assert "sampled" not in head and "sample" not in head and "index" in head, head
 
 
 async def test_search_index_enables_fuzzy(mcp, fx_lt):

@@ -1,5 +1,7 @@
 """describe_logs: what is set up, what values exist, and why a lookup came back empty."""
 
+from dataclasses import dataclass, field
+
 from serenedb_extractor import format as fmt
 from serenedb_extractor.catalog.models import ROLE_FIELDS, FieldRoles, LogTable
 from serenedb_extractor.context import AppContext
@@ -108,7 +110,15 @@ def _affordable(db: Database, lt: LogTable, tr: TimeRange, columns: list[str]) -
     return f"counting would need {cost.cost_text(cost.exact_plan(stats, columns))}; narrow the period, or build a filter index"
 
 
-def _describe_one(ctx: AppContext, lt: LogTable, tr: TimeRange) -> list[str]:
+@dataclass
+class _TopSources:
+    """Where the top values shown came from, for the How-measured header."""
+
+    sampled: bool = False
+    indexes: set[str] = field(default_factory=set)
+
+
+def _describe_one(ctx: AppContext, lt: LogTable, tr: TimeRange, top: _TopSources) -> list[str]:
     db = ctx.db
     cols = known_columns(db, lt)
     where, params = build_where(lt, tr, Filters(), cols)
@@ -162,6 +172,8 @@ def _describe_one(ctx: AppContext, lt: LogTable, tr: TimeRange) -> list[str]:
         else:
             sampled = True
             lines.append(f"    {role}: {_top_values(db, lt, role, where, params)}")
+    top.sampled = top.sampled or sampled
+    top.indexes |= used
     period = f" in {tr.describe()}" if tr.bounded else ""
     if sampled:
         label = "sampled — rare values may be missing"
@@ -329,14 +341,21 @@ def describe_logs(
         with readable(f"the source of log table '{lt.name}'"):
             kind, sample, lines = _find_values(ctx, lt, find_values, tr, confirmed_cost)
         return fmt.how_measured(kind, period=period, sample=sample, tz=timezone) + "\n" + "\n".join(lines)
-    header = fmt.how_measured(
-        "catalog and metadata, a time range from Parquet statistics or a column scan, and a block sample; top values are sampled, counts of values found are exact",
-        period=period,
-        sample=f"top values from a block of {SAMPLE_ROWS:,} entries",
-        tz=timezone,
-    )
     body: list[str] = []
+    top = _TopSources()
     for lt in tables:
         with readable(f"the source of log table '{lt.name}'"):
-            body += _describe_one(ctx, lt, tr)
+            body += _describe_one(ctx, lt, tr, top)
+    via = ", ".join(sorted(top.indexes)) or None
+    base = "catalog and metadata, a time range from Parquet statistics or a column scan"
+    if top.sampled:
+        kind = base + ", and a block sample; top values are sampled" + (
+            " (those marked [exact] come from an index)" if via else ""
+        ) + ", counts of values found are exact"
+        top_sample: str | None = f"top values from a block of {SAMPLE_ROWS:,} entries"
+    elif via:
+        kind, top_sample = base + "; top values are exact, read from an index", None
+    else:
+        kind, top_sample = base, None
+    header = fmt.how_measured(kind, period=period, sample=top_sample, index_used=via, tz=timezone)
     return header + "\n" + "\n".join(body)
