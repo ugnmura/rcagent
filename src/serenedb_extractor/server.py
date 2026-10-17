@@ -15,6 +15,7 @@ from serenedb_extractor import format as fmt
 from serenedb_extractor.config import ConfigError, Settings
 from serenedb_extractor.context import AppContext
 from serenedb_extractor.tools import catalog_tools, describe, lookup, setup_tools
+from serenedb_extractor.tools import context as context_tool
 from serenedb_extractor.tools import survey as survey_tool
 
 SINGLE_ROLE_NOTE = (
@@ -137,6 +138,32 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         )
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    async def get_context(
+        log_table: str,
+        occurrence: str,
+        scope: str | list[str] | None = None,
+        window_minutes: float = 5.0,
+        before: int = 10,
+        after: int = 10,
+        filters: dict[str, Any] | None = None,
+        timezone: str = "UTC",
+        confirmed_cost: str | None = None,
+    ) -> str:
+        """Show the entries shortly before and after one occurrence (an ID from search_logs or locate results), marked with →, each tagged with its template. Default scope is the narrowest available (same trace, else same service and host); scope='everything' or a list of trace/service/host overrides it. window_minutes (default 5) is the window either side; before/after limit the entries shown (nearest first). Long entries are shortened."""
+        return await runner.run_tool(
+            context_tool.get_context,
+            log_table=log_table,
+            occurrence=occurrence,
+            scope=scope,
+            window_minutes=window_minutes,
+            before=before,
+            after=after,
+            filters=filters,
+            timezone=timezone,
+            confirmed_cost=confirmed_cost,
+        )
+
     async def survey(
         log_table: str,
         start: str | None = None,

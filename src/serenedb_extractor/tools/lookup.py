@@ -8,6 +8,7 @@ from serenedb_extractor.catalog.models import LogTable
 from serenedb_extractor.context import AppContext
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.query import cost, occurrence, sampling
+from serenedb_extractor.query.tags import tag_entries, tag_text
 from serenedb_extractor.query.filters import (
     FILTER_ROLES,
     Filters,
@@ -92,7 +93,7 @@ def _show_ts(value: Any, tr: TimeRange) -> str:
 
 def _line(lt: LogTable, row: dict[str, Any], tr: TimeRange) -> str:
     roles = " ".join(f"{r}={row[f'occ_{r}']}" for r in FILTER_ROLES if row.get(f"occ_{r}") is not None)
-    parts = [_show_ts(row["occ_ts"], tr), occurrence.encode_occurrence(lt, row), roles, fmt.shorten(str(row["occ_msg"] or ""))]
+    parts = [_show_ts(row["occ_ts"], tr), occurrence.encode_occurrence(lt, row), roles, row.get("occ_tag", ""), fmt.shorten(str(row["occ_msg"] or ""))]
     return "  " + "  ".join(p for p in parts if p)
 
 
@@ -158,6 +159,10 @@ def search_logs(
                 what=what,
                 how_to_narrow=NARROW,
             ).dicts()
+            templates = ctx.store.templates(lt.name)
+            if templates:  # template tags once the catalog has templates
+                for r, tag in zip(rows, tag_entries(templates, [str(r["occ_msg"] or "") for r in rows]), strict=True):
+                    r["occ_tag"] = tag_text(tag)
         empty_why = diagnose_empty(db, lt, tr, f, cols) if plan.exact and total == 0 else []
     return _render(lt, tr, f, text, timezone, plan, measured, rows, total, order, empty_why)
 
