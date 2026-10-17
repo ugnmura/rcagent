@@ -15,6 +15,7 @@ import time
 from typing import Callable
 
 import psycopg
+import psycopg.conninfo
 
 URL = os.environ.get("SERENEDB_TEST_URL", "postgresql://postgres@localhost:17890/postgres")
 PQ = "https://public-pme.s3.eu-west-3.amazonaws.com/text_bench/part_000.parquet"
@@ -31,8 +32,9 @@ def connect() -> psycopg.Connection:
 
 def _guard() -> None:
     """The script runs DROP SCHEMA ... CASCADE; refuse anything but the local test container."""
-    host_port = URL.split("@")[-1].split("/")[0]
-    if host_port not in ("localhost:17890", "127.0.0.1:17890") and os.environ.get("VERIFY_ALLOW_DESTRUCTIVE") != "1":
+    info = psycopg.conninfo.conninfo_to_dict(URL)
+    host_port = f"{info.get('host', '')}:{info.get('port', '5432')}"
+    if (info.get("hostaddr") or host_port not in ("localhost:17890", "127.0.0.1:17890")) and os.environ.get("VERIFY_ALLOW_DESTRUCTIVE") != "1":
         sys.exit(f"refusing to run destructive checks against {host_port}; "
                  "use the sdb-test container (localhost:17890) or set VERIFY_ALLOW_DESTRUCTIVE=1")
 
@@ -359,7 +361,7 @@ CHECKS: list[tuple[int, str, Callable[[], bool]]] = [
 
 
 # Checks whose verdict only means "ran without error"; the numbers/plans are observed, not asserted.
-OBSERVED_ONLY = {7: "timings and sample sizes observed, not asserted", 9: "build time, size and term counts observed; only success of each statement asserted"}
+OBSERVED_ONLY = {5: "schema, metadata and counts observed; only success of each statement asserted", 7: "timings and sample sizes observed, not asserted", 8: "timings and counts observed; only success of each statement asserted", 9: "build time, size and term counts observed; only success of each statement asserted"}
 
 
 def main() -> int:
