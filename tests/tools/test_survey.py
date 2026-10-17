@@ -90,8 +90,8 @@ async def test_time_range_and_zone_are_stated(mcp, fx_lt):
 
 async def test_confirmed_cost_is_never_silently_ignored(mcp, fx_lt):  # R27
     out = await call(mcp, "survey", log_table="fx", confirmed_cost="x")
-    assert "cost" in out and "isn't available yet" in out
-    assert "isn't available yet" not in await call(mcp, "survey", log_table="fx")
+    assert "confirmed_cost=x was not needed" in out  # cheap: it ran as usual, and says so (#12)
+    assert "not needed" not in await call(mcp, "survey", log_table="fx")
 
 
 async def test_quotes_in_filter_values_are_escaped(mcp, fx_lt):
