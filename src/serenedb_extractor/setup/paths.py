@@ -97,8 +97,9 @@ def resolve_source(source: str, settings: Settings, format: str | None = None) -
         return ResolvedSource("table", src, None, None)
     db_path, host_path = _translate(src, settings)
     size: int | None = None
-    if host_path and os.path.isfile(host_path):
-        size = os.path.getsize(host_path)
+    local = host_path or db_path  # outside the mount the path is a file on this machine, if it exists
+    if os.path.isfile(local):
+        size = os.path.getsize(local)
     return ResolvedSource(kind, db_path, host_path, size)
 
 

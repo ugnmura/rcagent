@@ -1,0 +1,9 @@
+=== app server log, restart 7 ===
+2026-03-01 10:00:00 INFO [payments] charge accepted order=1001
+2026-03-01 10:00:01 INFO [auth] login ok for user alice
+2026-03-01 10:00:02 ERROR [payments] refund failed
+java.lang.NullPointerException: refund is null
+    at com.acme.Refund.apply(Refund.java:42)
+    at com.acme.Handler.run(Handler.java:10)
+2026-03-01 10:00:03 WARN [auth] login failed for user bob
+2026-03-01 10:00:04 INFO [payments] charge accepted order=1002

@@ -185,7 +185,10 @@ def build_where(
 def _shown(wanted: str | list[str]) -> str:
     if isinstance(wanted, list) and len(wanted) == 1:
         wanted = wanted[0]
-    return "in (" + ", ".join(f"'{w}'" for w in wanted) + ")" if isinstance(wanted, list) else f"='{wanted}'"
+    def q(w: str) -> str:
+        return "'" + str(w).replace("'", "''") + "'"
+
+    return "in (" + ", ".join(q(w) for w in wanted) + ")" if isinstance(wanted, list) else f"={q(wanted)}"
 
 
 class DataRange(NamedTuple):
@@ -205,7 +208,7 @@ def data_range(db: Database, lt: LogTable, known_columns: dict[str, str]) -> Dat
     naive = is_temporal(typ) and "WITH TIME ZONE" not in typ and not typ.startswith("TIMESTAMPTZ")
     zone = sql_literal(lt.timezone)
     note = ""
-    if lt.source_format == "parquet" and col is not None:
+    if lt.mode == "in_place" and lt.source_format == "parquet" and col is not None:
         path = resolve_source(lt.source, db.settings, "parquet").db_path
         cast = f"(stats_min::timestamp) AT TIME ZONE {zone}" if naive else "stats_min::timestamptz"
         cast_max = f"(stats_max::timestamp) AT TIME ZONE {zone}" if naive else "stats_max::timestamptz"

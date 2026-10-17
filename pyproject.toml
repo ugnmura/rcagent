@@ -12,6 +12,7 @@ dependencies = [
     "psycopg[binary]",
     "drain3",
     "sqlglot",
+    "pyarrow>=26.0.0",
 ]
 
 [project.scripts]
@@ -37,3 +38,7 @@ markers = [
 [tool.mypy]
 check_untyped_defs = true
 python_version = "3.12"
+
+[[tool.mypy.overrides]]
+module = ["pyarrow", "pyarrow.*"]
+ignore_missing_imports = true

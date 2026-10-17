@@ -74,6 +74,13 @@ def _describe_one(ctx: AppContext, lt: LogTable, tr: TimeRange) -> list[str]:
     out.append(f"  entries: {lt.row_count:,}" if lt.row_count is not None else "  entries: not counted")
     out.append("  " + _time_range_line(db, lt, cols, tr))
     idx = [n for n in (lt.filter_index_name, lt.search_index_name) if n]
+    if lt.mode == "copied" and lt.roles.timestamp is not None:
+        missing = db.read(f"SELECT count(*) FROM {lt.relation} WHERE ({role_sql(lt, 'timestamp')}) IS NULL", {}).scalar()
+        if missing:
+            out.append(
+                f"  {missing:,} {'entry has' if missing == 1 else 'entries have'} no timestamp "
+                "(kept, but not placed in any time range)"
+            )
     out.append("  indexes: " + (", ".join(idx) if idx else "none"))
     out.append("  context scopes: " + ", ".join(context_scopes(lt.roles)))
     out.append(f"  catalog: {ctx.store.template_count(lt.name)} templates")

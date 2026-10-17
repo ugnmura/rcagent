@@ -124,11 +124,6 @@ async def test_remote_raw_rejected(mcp):
     assert "raw text" in (await call(mcp, "setup_log_table", name="x", source="s3://b/app.log")).lower()
 
 
-async def test_local_raw_text_not_available_yet(mcp):
-    out = await call(mcp, "setup_log_table", name="app", source="/logs/app.log")
-    assert "raw text setup isn't available yet" in out
-
-
 async def test_filter_on_absent_role(mcp, fx_lt):
     out = await call(mcp, "describe_logs", log_table="fx", find_values={"role_or_column": "host", "like": "x"})
     assert "no host" in out.lower()
