@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from serenedb_extractor import format as fmt
-from serenedb_extractor.catalog.models import LogTable, Param, Template
+from serenedb_extractor.catalog.models import LogTable, Template
 from serenedb_extractor.context import AppContext
 from serenedb_extractor.db import quote_ident
 from serenedb_extractor.errors import UserFacingError
@@ -22,10 +22,11 @@ from serenedb_extractor.query.filters import (
     time_clause,
 )
 from serenedb_extractor.query.stats import role_columns
-from serenedb_extractor.setup.paths import pct, sql_literal
+from serenedb_extractor.setup.paths import sql_literal
 from serenedb_extractor.setup.roles import is_temporal, resolve_column, role_column
 from serenedb_extractor.setup.sniff import readable
-from serenedb_extractor.tools.describe import known_columns
+from serenedb_extractor.templating.regex import compile_template
+from serenedb_extractor.tools.describe import known_columns, like_pattern
 from serenedb_extractor.timezones import get_zone
 
 DEFAULT_GROUPS = 20
@@ -33,6 +34,7 @@ DEFAULT_VALUES = 10
 BY_GROUPS = 10
 BY_VALUES = 5
 NONE_LABEL = "(none)"
+NONE_SQL = sql_literal(NONE_LABEL)
 _TIME = re.compile(r"time:(\d+)([mhd])")
 _UNIT_SECONDS = {"m": 60, "h": 3600, "d": 86400}
 _UNIT_NAME = {"m": "minute", "h": "hour", "d": "day"}
@@ -58,12 +60,17 @@ def _ts_tz(lt: LogTable, cols: dict[str, str]) -> str:
     return f"(({expr}) AT TIME ZONE {sql_literal(lt.timezone)})"
 
 
+def _int(n: int) -> str:
+    """An integer as SQL text: int() guarantees digits only, so it is safe to put in the SQL."""
+    return str(int(n))
+
+
 def _bucket_sql(lt: LogTable, cols: dict[str, str], n: int, unit: str, tz: str) -> str:
-    secs = n * _UNIT_SECONDS[unit]
+    secs = _int(n * _UNIT_SECONDS[unit])
     local = f"({_ts_tz(lt, cols)} AT TIME ZONE {sql_literal(tz)})"
     shape = "%Y-%m-%d" if unit == "d" else "%Y-%m-%d %H:%M"
     start = f"(TIMESTAMP '1970-01-01' + to_seconds((floor(epoch({local}) / {secs}) * {secs})::bigint))"
-    return f"coalesce(strftime({start}, {sql_literal(shape)}), '{NONE_LABEL}')"
+    return f"coalesce(strftime({start}, {sql_literal(shape)}), {NONE_SQL})"
 
 
 def parse_group_by(
@@ -82,9 +89,9 @@ def parse_group_by(
             get_zone(tz)
             out.append((name.lower(), _bucket_sql(lt, known, int(m.group(1)), m.group(2), tz)))
         elif name in FILTER_ROLES:
-            out.append((name, f"coalesce(({role_sql(lt, name)})::varchar, '{NONE_LABEL}')"))
+            out.append((name, f"coalesce(({role_sql(lt, name)})::varchar, {NONE_SQL})"))
         elif (col := resolve_column(name, known)) is not None:
-            out.append((col, f"coalesce({quote_ident(col)}::varchar, '{NONE_LABEL}')"))
+            out.append((col, f"coalesce({quote_ident(col)}::varchar, {NONE_SQL})"))
         else:
             raise UserFacingError(
                 f"I can't group by '{item}': use a role ({', '.join(FILTER_ROLES)}), a column ({', '.join(known)}) "
@@ -131,25 +138,23 @@ def _filters_text(f: Filters, templates: list[Template]) -> str | None:
     return ", ".join(parts)
 
 
-def _like(word: str) -> str:
-    return "%" + word.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-
-
 def _msg(lt: LogTable) -> str:
     return f"coalesce(({role_sql(lt, 'message')})::varchar, '')"
 
 
 def _prefilter(lt: LogTable, templates: list[Template], params: dict[str, Any]) -> str:
-    """OR of `msg LIKE '%<first fixed word>%'`; none when any template has no fixed word (it could match anything)."""
-    from serenedb_extractor.templating.regex import compile_template
-
+    """OR over templates of (AND of the template's fixed words as LIKE); none when any template has no
+    fixed word (it could match anything). Every fixed word appears in every matching entry."""
     ors = []
     for i, t in enumerate(templates):
         words = compile_template(t.template).fixed_words
         if not words:
             return "TRUE"
-        params[f"w_{i}"] = _like(words[0])
-        ors.append(f"{_msg(lt)} LIKE %(w_{i})s ESCAPE '\\'")
+        likes = []
+        for j, w in enumerate(words):
+            params[f"w_{i}_{j}"] = like_pattern(w)
+            likes.append(f"{_msg(lt)} LIKE %(w_{i}_{j})s ESCAPE '\\'")
+        ors.append("(" + " AND ".join(likes) + ")")
     return "(" + " OR ".join(ors) + ")"
 
 
@@ -257,7 +262,7 @@ def locate_occurrences(
             + _group_columns(lt, group_by or [], sc.cols)
         )
         scans = base * (2 if per_group and has_ids else 1)
-        stats, decision = cost.check(db, lt, tr, scans, confirmed_cost)
+        _, decision = cost.check(db, lt, tr, scans, confirmed_cost)
         if decision.status == "ask":
             return _ask(sc, decision.message)
         plan = decision.plan
@@ -370,7 +375,7 @@ def _examples(
     order = role_sql(lt, "timestamp") if lt.roles.timestamp is not None else "1"
     occ_cols = occurrence.select_sql(lt)
     occ_names = [c.split(" AS ")[-1].strip() for c in occ_cols.split(",") if c.strip()]
-    part = ", ".join(["tpl", *key_names]) 
+    part = ", ".join(["tpl", *key_names])
     inner = (
         f"SELECT {case} AS tpl{keys}, {order} AS ord_{occ_cols} FROM {lt.relation} "
         f"WHERE {scope_sql} AND {sc.match_sql}"
@@ -378,7 +383,7 @@ def _examples(
     sql = (
         f"SELECT tpl, {', '.join(key_names + occ_names)} FROM ("
         f"SELECT *, row_number() OVER (PARTITION BY {part} ORDER BY ord_) AS rn FROM ({inner}) "
-        f"WHERE tpl IS NOT NULL AND ({' OR '.join(ors)})) WHERE rn <= {per_group}"
+        f"WHERE tpl IS NOT NULL AND ({' OR '.join(ors)})) WHERE rn <= {_int(per_group)}"
     )
     out: dict[tuple[int, tuple[str, ...]], list[str]] = {}
     for r in sc.db.read(sql, p, timeout_s=timeout, what=what, how_to_narrow=NARROW).dicts():
@@ -480,7 +485,7 @@ def extract_params(
             + _group_columns(lt, [by] if by else [], sc.cols)
         )
         n_scans = 1 + (1 if numeric else 0) + (2 + (1 if numeric else 0) if by else 0)
-        stats, decision = cost.check(db, lt, tr, base * n_scans, confirmed_cost)
+        _, decision = cost.check(db, lt, tr, base * n_scans, confirmed_cost)
         if decision.status == "ask":
             return _ask(sc, decision.message)
         plan = decision.plan
@@ -556,7 +561,7 @@ class _ParamRun:
         for p, v, c, d, tot in self.q(
             "SELECT p, v, c, d, tot FROM (SELECT p, v, c, row_number() OVER (PARTITION BY p ORDER BY c DESC, v) AS rn, "
             "count(*) OVER (PARTITION BY p) AS d, sum(c) OVER (PARTITION BY p) AS tot FROM ("
-            f"SELECT p, v, count(*) AS c FROM ({self.unpivot}) WHERE v IS NOT NULL GROUP BY 1, 2)) WHERE rn <= {self.limit}"
+            f"SELECT p, v, count(*) AS c FROM ({self.unpivot}) WHERE v IS NOT NULL GROUP BY 1, 2)) WHERE rn <= {_int(self.limit)}"
         ):
             top.setdefault(p, []).append((str(v), int(c)))
             distinct[p], values[p] = int(d), int(tot)
@@ -571,7 +576,7 @@ class _ParamRun:
 
     def _by(self, res: ParamResult) -> None:
         rows = self.q(
-            f"SELECT b, count(*) AS c, count(*) OVER () AS g FROM ({self.matched}) GROUP BY b ORDER BY c DESC, b LIMIT {BY_GROUPS}"
+            f"SELECT b, count(*) AS c, count(*) OVER () AS g FROM ({self.matched}) GROUP BY b ORDER BY c DESC, b LIMIT {_int(BY_GROUPS)}"
         )
         res.by_total = [(str(r[0]), int(r[1])) for r in rows]
         res.by_distinct = int(rows[0][2]) if rows else 0
@@ -586,7 +591,7 @@ class _ParamRun:
         for b, name, v, c in self.q(
             "SELECT b, p, v, c FROM (SELECT b, p, v, c, row_number() OVER (PARTITION BY b, p ORDER BY c DESC, v) AS rn FROM ("
             f"SELECT b, p, v, count(*) AS c FROM ({self.unpivot}) WHERE v IS NOT NULL AND b IN ({', '.join(marks)}) GROUP BY 1, 2, 3)) "
-            f"WHERE rn <= {BY_VALUES}",
+            f"WHERE rn <= {_int(BY_VALUES)}",
             p,
         ):
             res.by_top.setdefault((str(b), name), []).append((str(v), int(c)))

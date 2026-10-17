@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
 
+import re
+
 import pytest
 
 from serenedb_extractor.catalog.models import FieldRoles, LogTable
@@ -43,8 +45,10 @@ async def test_time_bucket(mcp, fx_surveyed):
 
 async def test_group_by_column_and_hour_bucket(mcp, fx_surveyed):
     out = await call(mcp, "locate_occurrences", log_table="fx", templates=[fx_surveyed["login"]], group_by=["component", "time:6h"])
-    assert "login, 2026-03-01 00:00" in out
-    assert "1,500" not in out or "≈" not in out  # exact
+    assert "≈" not in out
+    buckets = re.findall(r"^\s+login, (\d{4}-\d\d-\d\d \d\d:\d\d): ([\d,]+)$", out, re.M)
+    assert buckets[0][0] == "2026-03-01 00:00" and all(b[0][-5:] in ("00:00", "06:00", "12:00", "18:00") for b in buckets)
+    assert sum(int(n.replace(",", "")) for _, n in buckets) == 1500
 
 
 async def test_two_templates_no_double_count(mcp, fx_surveyed):
@@ -141,3 +145,22 @@ async def test_estimate_fallback_labelled(mcp, big_surveyed, database, monkeypat
     ex = await call(mcp, "extract_params", log_table="big", template=big_surveyed)
     assert "estimated" in ex and "min" in ex and "from the sample" in ex
 
+
+
+def test_prefilter_ands_all_fixed_words():
+    from serenedb_extractor.catalog.models import Template
+    from serenedb_extractor.templating.regex import compile_template
+    from serenedb_extractor.tools.investigate import _prefilter
+
+    text = "timeout after <NUM>ms calling payments"
+    c = compile_template(text)
+    t = Template("fx", "T1", text, c.regex, list(c.params), "", None, None, None, None)
+    params: dict = {}
+    sql = _prefilter(_lt(), [t], params)
+    assert len(c.fixed_words) >= 2 and sql.count(" LIKE ") == len(c.fixed_words) == len(params)
+    assert sql.count(" AND ") == len(c.fixed_words) - 1
+
+
+async def test_only_first_word_line_is_not_counted(mcp, fx_surveyed):
+    out = await call(mcp, "locate_occurrences", log_table="fx", templates=[fx_surveyed["timeout"]], filters={"service": "web"})
+    assert "no matching entries" in out
