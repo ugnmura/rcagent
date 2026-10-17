@@ -10,7 +10,7 @@ import psycopg
 import pytest
 import pytest_asyncio
 from mcp.server.fastmcp import FastMCP
-from mcp.types import CallToolResult, ListToolsResult
+from mcp.types import CallToolResult, GetPromptResult, ListPromptsResult, ListToolsResult
 from mcp.shared.memory import create_connected_server_and_client_session
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
@@ -79,6 +79,14 @@ class Client:
     async def call_tool(self, name: str, args: dict[str, Any]) -> CallToolResult:
         async with create_connected_server_and_client_session(self.server) as session:
             return await session.call_tool(name, args)
+
+    async def list_prompts(self) -> ListPromptsResult:
+        async with create_connected_server_and_client_session(self.server) as session:
+            return await session.list_prompts()
+
+    async def get_prompt(self, name: str) -> GetPromptResult:
+        async with create_connected_server_and_client_session(self.server) as session:
+            return await session.get_prompt(name)
 
     def close(self) -> None:
         for ctx in self.made:

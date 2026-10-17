@@ -14,6 +14,8 @@ from mcp.types import ToolAnnotations
 from serenedb_extractor import format as fmt
 from serenedb_extractor.config import ConfigError, Settings
 from serenedb_extractor.context import AppContext
+from serenedb_extractor.instructions import SERVER_INSTRUCTIONS
+from serenedb_extractor.prompts import register_prompts
 from serenedb_extractor.tools import catalog_tools, describe, lookup, setup_tools
 from serenedb_extractor.tools import context as context_tool
 from serenedb_extractor.tools import investigate
@@ -301,9 +303,10 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
 
 
 def build_server(ctx_factory: Callable[[], AppContext]) -> FastMCP:
-    mcp = FastMCP("serenedb-extractor")
+    mcp = FastMCP("serenedb-extractor", instructions=SERVER_INSTRUCTIONS)
     runner = ToolRunner(ctx_factory)
     register_tools(mcp, runner)
+    register_prompts(mcp)
     return mcp
 
 
