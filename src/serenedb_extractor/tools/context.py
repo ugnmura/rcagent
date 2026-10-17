@@ -7,6 +7,7 @@ from typing import Any
 from serenedb_extractor import format as fmt
 from serenedb_extractor.catalog.models import LogTable
 from serenedb_extractor.context import AppContext
+from serenedb_extractor.db import Database
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.query import cost
 from serenedb_extractor.query import occurrence as occ_mod
@@ -82,14 +83,30 @@ def _stopped(tr: TimeRange, decision: cost.Decision, tz: str, what: str) -> str 
     return head + "\n" + decision.message.replace("TOO EXPENSIVE: ", f"TOO EXPENSIVE: {what} ", 1)
 
 
-def _lookup_scope(lt: LogTable, stats: ScopeStats, params: dict[str, Any]) -> tuple[ScopeStats, str]:
+def entry_id_is_key(db: Database, lt: LogTable) -> bool:
+    """Whether the copied table's entry_id is its primary key, from the table metadata. Setup makes it
+    one only when setup added the column itself; a source that brought its own entry_id has no key."""
+    schema, _, table = lt.relation.rpartition(".")
+    found = db.read(
+        "SELECT count(*) FROM information_schema.table_constraints tc "
+        "JOIN information_schema.key_column_usage k ON k.constraint_name = tc.constraint_name "
+        "AND k.table_schema = tc.table_schema AND k.table_name = tc.table_name "
+        "WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = %(s)s AND tc.table_name = %(t)s "
+        "AND k.column_name = 'entry_id'",
+        {"s": schema.strip('"'), "t": table.strip('"')},
+        what=f"reading the key of {lt.name}",
+    ).scalar()
+    return bool(found)
+
+
+def _lookup_scope(lt: LogTable, stats: ScopeStats, params: dict[str, Any], keyed: bool = False) -> tuple[ScopeStats, str]:
     """What finding the occurrence's own row reads, and SQL that keeps the read to it.
 
     - one in-place Parquet file, `<file>#<row>`: only the row group holding that row (its
       `file_row_number` range, which SereneDB prunes on, as the block sampler does);
-    - a copied table, `e:<n>`: a primary-key lookup of one entry;
-    - anything else (several files, JSON, a table's `pk:` order column, not known to be a key): every
-      entry is read to find it, priced as such."""
+    - a copied table, `e:<n>`, whose entry_id is its primary key (`keyed`): a key lookup of one entry;
+    - anything else (several files, JSON, a table's `pk:` order column, a copied entry_id that is not
+      a key): every entry is read to find it, priced as such."""
     k = occ_mod.kind(lt)
     if k == "file" and stats.can_sample:
         row = int(params["occ_row"])
@@ -98,7 +115,7 @@ def _lookup_scope(lt: LogTable, stats: ScopeStats, params: dict[str, Any]) -> tu
                 one = replace(stats, rows_in_range=g.rows, bytes_by_column=dict(g.bytes_by_column), groups=(g,))
                 return one, f" AND file_row_number BETWEEN {int(g.first_row)} AND {int(g.first_row + g.rows - 1)}"
         raise UserFacingError(f"No entry has the occurrence ID '{params.get('occ_file')}#{row}' in log table '{lt.name}'.")
-    if k == "entry":
+    if k == "entry" and keyed:
         per_row = {c: -(-b // max(stats.total_rows, 1)) for c, b in stats.bytes_by_column.items()}
         return replace(stats, rows_in_range=1, bytes_by_column=per_row), ""
     return stats, ""
@@ -116,7 +133,8 @@ def _fetch_occurrence(
     where, params = occ_mod.decode_occurrence(lt, occ)
     what = f"finding the context of occurrence {occ} in log table {lt.name}"
     whole = TimeRange(tz=tz)
-    stats, keep = _lookup_scope(lt, collect(ctx.db, lt, whole), params)
+    keyed = occ_mod.kind(lt) == "entry" and entry_id_is_key(ctx.db, lt)
+    stats, keep = _lookup_scope(lt, collect(ctx.db, lt, whole), params, keyed)
     decision = _decide(ctx, stats, shown_cols, confirmed, [])
     if (stop := _stopped(whole, decision, tz, "finding the occurrence's own entry")) is not None:
         return stop

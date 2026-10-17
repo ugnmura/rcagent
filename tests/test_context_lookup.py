@@ -31,5 +31,32 @@ def test_a_row_past_the_file_is_no_entry_and_reads_nothing():
 
 def test_copied_entry_lookup_is_a_key_lookup_of_one_entry():
     st = ScopeStats(1000, 1000, {"m": 10_000}, False, False, False, False)
-    one, sql = _lookup_scope(_lt("copied", "raw"), st, {"occ_row": 7})
+    one, sql = _lookup_scope(_lt("copied", "raw"), st, {"occ_row": 7}, keyed=True)
     assert one.bytes_for(["m"]) == 10 and sql == ""
+
+
+def test_copied_entry_lookup_without_a_key_is_priced_as_a_full_read():
+    # The source brought its own entry_id column, so setup made no primary key: finding one entry scans.
+    st = ScopeStats(1000, 1000, {"m": 10_000}, False, False, False, False)
+    full, sql = _lookup_scope(_lt("copied", "parquet"), st, {"occ_row": 7}, keyed=False)
+    assert full.bytes_for(["m"]) == 10_000 and full.rows_in_range == 1000 and sql == ""
+
+
+@pytest.mark.db
+def test_entry_id_key_is_read_from_the_table_metadata(database):
+    from serenedb_extractor.tools.context import entry_id_is_key
+
+    database.write("CREATE SCHEMA IF NOT EXISTS lookup_probe", {})
+    try:
+        database.write("CREATE TABLE lookup_probe.keyed (entry_id BIGINT PRIMARY KEY, m VARCHAR)", {})
+        database.write("CREATE TABLE lookup_probe.plain (entry_id BIGINT, m VARCHAR)", {})
+        now = datetime.now(UTC)
+        roles = FieldRoles(message='"m"')
+
+        def lt(rel: str) -> LogTable:
+            return LogTable("t", "/x", "parquet", "copied", rel, roles, None, None, 1, "UTC", now, now)
+
+        assert entry_id_is_key(database, lt("lookup_probe.keyed"))
+        assert not entry_id_is_key(database, lt("lookup_probe.plain"))
+    finally:
+        database.write("DROP SCHEMA lookup_probe CASCADE", {})
