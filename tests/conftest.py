@@ -19,7 +19,7 @@ from serenedb_extractor.context import AppContext
 from serenedb_extractor.db import Database
 from serenedb_extractor.server import build_server
 
-TEST_DB = "extractor_test"
+TEST_DB = os.environ.get("SERENEDB_TEST_DB", "extractor_test")
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -28,7 +28,7 @@ def pytest_configure(config: pytest.Config) -> None:
 
 @pytest.fixture(scope="session")
 def db_url() -> str:
-    """URL of the dedicated `extractor_test` database (created if missing); never `postgres`."""
+    """URL of the dedicated test database (`SERENEDB_TEST_DB`, default `extractor_test`) (created if missing); never `postgres`."""
     base = os.environ.get("SERENEDB_TEST_URL")
     if not base:
         pytest.skip("SERENEDB_TEST_URL not set")
@@ -40,7 +40,9 @@ def db_url() -> str:
 
 
 def _reset_schema(url: str) -> None:
-    assert conninfo_to_dict(url).get("dbname") == TEST_DB, "tests may only reset schema extractor in extractor_test"
+    assert str(conninfo_to_dict(url).get("dbname", "")).startswith("extractor_test"), (
+        "tests may only reset schema extractor in a database named extractor_test*"
+    )
     with psycopg.connect(url, autocommit=True) as conn:
         conn.execute("DROP SCHEMA IF EXISTS extractor CASCADE")
 
