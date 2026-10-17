@@ -2,6 +2,7 @@
 cancels it inside SereneDB (Postgres cancel request from a timer thread, spike section 2)."""
 
 import logging
+import math
 import re
 import threading
 from dataclasses import dataclass
@@ -17,6 +18,13 @@ _NAME = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 
 
 DEFAULT_NARROW = "narrow it: a shorter period (start/end) or more filters (level, service), then try again."
+CONNECT_TIMEOUT_CAP_S = 30  # libpq connect_timeout (whole seconds, at least 2): the query timeout, at most this
+CANCEL_TIMEOUT_S = 2.0  # how long the cancel request may take; finish() can wait at most this long for it
+
+
+class QueryCancelledElsewhere(UserFacingError):
+    def __init__(self) -> None:
+        super().__init__("The query was cancelled by the database.")
 
 
 class QueryTimeout(UserFacingError):
@@ -69,9 +77,15 @@ class _Conn:
         self.lock = threading.RLock()
         self._conn: psycopg.Connection[Any] | None = None
 
-    def get(self) -> psycopg.Connection[Any]:
+    def get(self, timeout_s: float | None = None) -> psycopg.Connection[Any]:
         if self._conn is None or self._conn.closed:
-            self._conn = psycopg.connect(self.url, autocommit=True, cursor_factory=psycopg.ClientCursor)
+            limit = CONNECT_TIMEOUT_CAP_S if timeout_s is None else min(timeout_s, CONNECT_TIMEOUT_CAP_S)
+            self._conn = psycopg.connect(
+                self.url,
+                autocommit=True,
+                cursor_factory=psycopg.ClientCursor,
+                connect_timeout=max(2, math.ceil(limit)),  # a hung connect is bounded too
+            )
         return self._conn
 
     def close(self) -> None:
@@ -80,20 +94,30 @@ class _Conn:
                 self._conn.close()
             self._conn = None
 
-    def run(self, sql: str, params: dict[str, Any] | None, timeout_s: float | None = None, what: str = "") -> Rows:
+    def run(
+        self,
+        sql: str,
+        params: dict[str, Any] | None,
+        timeout_s: float | None = None,
+        what: str = "",
+        how_to_narrow: str = DEFAULT_NARROW,
+    ) -> Rows:
         """Run one statement; past `timeout_s` it is cancelled in SereneDB and QueryTimeout is raised."""
         with self.lock:
             canceller = _Canceller(self, timeout_s)
             try:
-                cur = self.get().execute(sql, params)  # type: ignore[call-overload]
+                cur = self.get(timeout_s).execute(sql, params)  # type: ignore[call-overload]
                 if cur.description is None:
                     return Rows([], [])
                 return Rows([d.name for d in cur.description], cur.fetchall())
             except psycopg.errors.QueryCanceled:
                 if canceller.fired and timeout_s is not None:
-                    raise QueryTimeout(timeout_s, what) from None
-                raise
+                    raise QueryTimeout(timeout_s, what, how_to_narrow) from None
+                raise QueryCancelledElsewhere() from None  # not our timer: an operator or the server
             except psycopg.OperationalError as exc:
+                if canceller.fired and timeout_s is not None:  # the cancel failed and the timer closed the link
+                    self.close()
+                    raise QueryTimeout(timeout_s, what, how_to_narrow) from None
                 conn = self._conn
                 if exc.sqlstate is not None and conn is not None and not conn.closed and not conn.broken:
                     raise  # SereneDB answered with an error (e.g. a file could not be read): not a dead link
@@ -128,7 +152,7 @@ class _Canceller:
                 return
             self.fired = True
             try:
-                pg.cancel_safe(timeout=10.0)
+                pg.cancel_safe(timeout=CANCEL_TIMEOUT_S)
             except Exception:  # cancel failed: fall back to dropping the connection (spike section 2)
                 logging.getLogger("serenedb_extractor").warning("cancel request failed; closing the connection")
                 pg.close()
@@ -157,19 +181,40 @@ class Database:
         return min(requested, s.max_timeout_s)
 
     def read(
-        self, sql: str, params: dict[str, Any] | None = None, timeout_s: float | None = None, what: str = ""
+        self,
+        sql: str,
+        params: dict[str, Any] | None = None,
+        timeout_s: float | None = None,
+        what: str = "",
+        how_to_narrow: str = DEFAULT_NARROW,
     ) -> Rows:
-        return self._execute(self._reader, sql, params, timeout_s, what)
+        return self._execute(self._reader, sql, params, timeout_s, what, how_to_narrow, self.settings.default_timeout_s)
 
     def write(
-        self, sql: str, params: dict[str, Any] | None = None, timeout_s: float | None = None, what: str = ""
+        self,
+        sql: str,
+        params: dict[str, Any] | None = None,
+        timeout_s: float | None = None,
+        what: str = "",
+        how_to_narrow: str = DEFAULT_NARROW,
     ) -> Rows:
-        return self._execute(self._writer, sql, params, timeout_s, what)
+        return self._execute(self._writer, sql, params, timeout_s, what, how_to_narrow, self.settings.max_timeout_s)
 
     def _execute(
-        self, conn: _Conn, sql: str, params: dict[str, Any] | None, timeout_s: float | None, what: str = ""
+        self,
+        conn: _Conn,
+        sql: str,
+        params: dict[str, Any] | None,
+        timeout_s: float | None,
+        what: str,
+        how_to_narrow: str,
+        default_s: float,
     ) -> Rows:
-        return conn.run(sql, params, self.effective_timeout(timeout_s), what)
+        """Every statement runs under a timeout. Reads default to the query timeout (60 s); writes
+        (DDL, catalog updates, copy batches) default to the maximum (600 s), because setup and index
+        builds are long but approved work. Either can be set per call, capped at the maximum."""
+        timeout = default_s if timeout_s is None or timeout_s <= 0 else timeout_s
+        return conn.run(sql, params, min(timeout, self.settings.max_timeout_s), what, how_to_narrow)
 
     def copy_rows(self, table: str, columns: list[str], rows: list[tuple[Any, ...]], batch: int = 500) -> int:
         """Insert rows in batches through the writer; `table` may be schema-qualified."""
@@ -183,7 +228,7 @@ class Database:
             )
             params = {f"r{j}c{i}": v for j, row in enumerate(chunk) for i, v in enumerate(row)}
             self._writer.run(
-                f"INSERT INTO {table_sql} ({cols}) VALUES {values}", params, self.effective_timeout(None), "saving entries"
+                f"INSERT INTO {table_sql} ({cols}) VALUES {values}", params, self.settings.max_timeout_s, "saving entries"
             )
             total += len(chunk)
         return total

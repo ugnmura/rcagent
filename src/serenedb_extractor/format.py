@@ -75,6 +75,7 @@ class Measured:
     sample_size: int | None = None
     hits: int | None = None
     margin_rel: float | None = None
+    rough: str | None = None  # why no margin can be given (e.g. too few sampled blocks); rendered instead of ±
 
 
 def estimate(hits: int, sample_size: int, population: int) -> Measured:
@@ -105,9 +106,18 @@ def _margin_label(margin: float) -> str:
 def render(m: Measured) -> str:
     if m.exact:
         return f"{round(m.value):,} (exact)"
+    if m.rough is not None and (m.hits or 0) >= MIN_HITS:
+        return f"≈{_sig3(m.value):,} (rough estimate from a {_sample_label(m.sample_size or 0)} sample; {m.rough})"
     if m.margin_rel is None:
         return f"too rare to estimate reliably: {m.hits or 0} sampled hits"
     return f"≈{_sig3(m.value):,} (estimated from a {_sample_label(m.sample_size or 0)} sample, ±{_margin_label(m.margin_rel)}%)"
+
+
+def sentence(text: str) -> str:
+    """A note as a sentence: capital first letter, final full stop."""
+    if not text:
+        return text
+    return text[0].upper() + text[1:] + ("" if text.endswith(".") else ".")
 
 
 def seconds_label(seconds: float) -> str:

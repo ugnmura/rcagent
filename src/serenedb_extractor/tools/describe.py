@@ -3,11 +3,12 @@
 from serenedb_extractor import format as fmt
 from serenedb_extractor.catalog.models import ROLE_FIELDS, FieldRoles, LogTable
 from serenedb_extractor.context import AppContext
-from serenedb_extractor.db import Database, QueryTimeout, quote_ident
+from serenedb_extractor.db import Database, quote_ident
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.query.filters import (
     FILTER_ROLES,
     Filters,
+    ScanTooExpensive,
     TimeRange,
     build_where,
     data_range,
@@ -17,7 +18,7 @@ from serenedb_extractor.query.filters import (
     time_clause,
 )
 from serenedb_extractor.query import cost, sampling
-from serenedb_extractor.query.stats import collect, role_columns
+from serenedb_extractor.query.stats import role_columns
 from serenedb_extractor.setup.roles import resolve_column, role_lines
 from serenedb_extractor.setup.sniff import readable, relation_columns
 
@@ -55,7 +56,10 @@ def _top_values(db: Database, lt: LogTable, role: str, where: str, params: dict[
 def _time_range_line(db: Database, lt: LogTable, cols: dict[str, str], tr: TimeRange) -> str:
     if lt.roles.timestamp is None:
         return "time range: unknown (no timestamp field)"
-    rng = data_range(db, lt, cols)
+    try:
+        rng = data_range(db, lt, cols)
+    except ScanTooExpensive as exc:
+        return f"time range: not measured ({exc})"
     if rng is None:
         return "time range: no timestamps found"
     if rng.from_stats:
@@ -63,6 +67,14 @@ def _time_range_line(db: Database, lt: LogTable, cols: dict[str, str], tr: TimeR
     else:
         how = "from a scan of the timestamp column" + (f"; {rng.note}" if rng.note else "")
     return f"time range: {tr.fmt(rng.first)} to {tr.fmt(rng.last)} {tr.tz} ({how})"
+
+
+def _affordable(db: Database, lt: LogTable, tr: TimeRange, columns: list[str]) -> str | None:
+    """None when an exact scan of `columns` fits the cost check, else why it was skipped."""
+    _, decision = cost.check(db, lt, tr, columns)
+    if decision.status == "run" and decision.plan.exact:
+        return None
+    return f"counting would need {cost.cost_text(decision.plan)}; narrow the period, or build a filter index"
 
 
 def _describe_one(ctx: AppContext, lt: LogTable, tr: TimeRange) -> list[str]:
@@ -76,8 +88,13 @@ def _describe_one(ctx: AppContext, lt: LogTable, tr: TimeRange) -> list[str]:
     out.append(f"  entries: {lt.row_count:,}" if lt.row_count is not None else "  entries: not counted")
     out.append("  " + _time_range_line(db, lt, cols, tr))
     idx = [n for n in (lt.filter_index_name, lt.search_index_name) if n]
+    ts_cols = role_columns(lt.roles.timestamp)
     if lt.mode == "copied":
-        if lt.roles.timestamp is not None:
+        skipped = _affordable(db, lt, TimeRange(), ts_cols) if lt.roles.timestamp is not None else None
+        if skipped:
+            missing = 0
+            out.append(f"  entries without a timestamp: not counted ({skipped})")
+        elif lt.roles.timestamp is not None:
             missing = db.read(f"SELECT count(*) FROM {lt.relation} WHERE ({role_sql(lt, 'timestamp')}) IS NULL", {}).scalar()
         else:  # no timestamp field at all: every entry lacks one
             missing = db.read(f"SELECT count(*) FROM {lt.relation}", {}).scalar()
@@ -90,8 +107,13 @@ def _describe_one(ctx: AppContext, lt: LogTable, tr: TimeRange) -> list[str]:
     out.append("  context scopes: " + ", ".join(context_scopes(lt.roles)))
     out.append(f"  catalog: {ctx.store.template_count(lt.name)} templates")
     if tr.bounded:
-        n = db.read(f"SELECT count(*) FROM {lt.relation} WHERE {where}", params).scalar()
-        out.append(f"  entries in {tr.describe()}: {n:,}")
+        skipped = _affordable(db, lt, tr, ts_cols)
+        if skipped:
+            out.append(f"  entries in {tr.describe()}: not counted ({skipped})")
+            n = None
+        else:
+            n = db.read(f"SELECT count(*) FROM {lt.relation} WHERE {where}", params).scalar()
+            out.append(f"  entries in {tr.describe()}: {n:,}")
         if n == 0:
             out += [f"  {line}" for line in diagnose_empty(db, lt, tr, Filters(), cols)]
             return out
@@ -126,8 +148,8 @@ def like_pattern(text: str) -> str:
 
 
 _EXACT_LOOKUP = "exact distinct-value lookup in one field"
-_ASKED = "cost predicted from the source's metadata only; no log entries were read"
 _LOOKUP_NARROW = "narrow it: a shorter period (start/end), or build a filter index (create_index with dry_run)."
+_VALUES_CAP = 1000
 
 
 def _find_values(
@@ -143,49 +165,80 @@ def _find_values(
     label, expr = _resolve_field(lt, field, cols)
     time_sql, time_params = time_clause(lt, tr, cols)
     read = role_columns(expr) + (role_columns(lt.roles.timestamp) if tr.bounded else [])
-    stats = collect(db, lt, tr)
-    decision = cost.decide(stats, read, True, ctx.settings.sample_size, confirmed_cost)
+    _, decision = cost.check(db, lt, tr, read, confirmed_cost)
     if decision.status == "ask":
-        return _ASKED, None, [decision.message]
+        return cost.ASKED_HOW, None, [decision.message]
     plan = decision.plan
-    block = f" AND {sampling.clause(plan)}" if plan.sampling else ""
-    cap = 1000
+    params = {**time_params, "like": like_pattern(str(like))}
+    timeout = cost.run_timeout(plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
     what = f"looking up values like '{like}' in {label} of log table {lt.name}"
-    try:
-        rows = db.read(
-            f"SELECT v, count(*) AS c FROM (SELECT ({expr})::varchar AS v FROM {lt.relation} WHERE {time_sql}{block}) "
-            f"WHERE v ILIKE %(like)s ESCAPE '\\' GROUP BY v ORDER BY c DESC, v LIMIT {cap}",
-            {**time_params, "like": like_pattern(str(like))},
-            timeout_s=cost.run_timeout(plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s),
+    if plan.exact:
+        found = db.read(
+            f"SELECT v, count(*) AS c FROM (SELECT ({expr})::varchar AS v FROM {lt.relation} WHERE {time_sql}) "
+            f"WHERE v ILIKE %(like)s ESCAPE '\\' GROUP BY v ORDER BY c DESC, v LIMIT {_VALUES_CAP}",
+            params,
+            timeout_s=timeout,
             what=what,
+            how_to_narrow=_LOOKUP_NARROW,
         ).rows
-    except QueryTimeout as exc:
-        raise QueryTimeout(exc.seconds, what, _LOOKUP_NARROW) from None
+        rows: list[tuple[str, str]] = [(str(v), f"{c:,}") for v, c in found]
+    else:
+        rows = _sampled_values(db, lt, plan, expr, time_sql, params, timeout, what)
     where_txt = f" between {tr.describe()}" if tr.bounded else ""
-    notes = [n[0].upper() + n[1:] + ("" if n.endswith(".") else ".") for n in plan.notes]
     if plan.exact:
         kind, sample = _EXACT_LOOKUP + (" (run as you confirmed)" if plan.confirmed else ""), None
     else:
-        kind = "estimated distinct-value lookup in one field: a block sample was read, so rare values may be missing"
-        sample = f"block sample of about {plan.sample_rows or 0:,} of {stats.rows_in_range:,} entries"
-    out = [f"log table {lt.name}", *("  " + n for n in notes)]
+        kind = "estimated distinct-value lookup in one field: whole blocks of entries were read, so rare values may be missing"
+        upto = "" if plan.rows_exact else "up to "
+        sample = f"block sample of {plan.sample_rows or 0:,} of {upto}{plan.population_rows:,} entries"
+    out = [f"log table {lt.name}", *("  " + fmt.sentence(n) for n in plan.notes)]
     if not rows:
         out.append(f"  no values like '{like}' in {label}{where_txt}" + ("" if plan.exact else " in the sample") + ".")
         if tr.bounded and plan.exact:
             out += ["  " + line for line in diagnose_empty(db, lt, tr, Filters(), cols)]
         return kind, sample, out
     shown, note = fmt.cut(rows, 50, "values")
-    if len(rows) >= cap:
-        note = f"showing {len(shown)} of at least {cap} values"
-    if plan.exact:
-        out.append(f"  values like '{like}' in {label}{where_txt} (exact counts):")
-        out += [f"    {v} ({c:,})" for v, c in shown]
-    else:
-        out.append(f"  values like '{like}' in {label}{where_txt} found in the sample (estimated counts):")
-        out += [f"    {v} ({fmt.render(fmt.estimate(int(c), plan.sample_rows or 0, stats.rows_in_range))})" for v, c in shown]
+    if len(rows) >= _VALUES_CAP:
+        note = f"showing {len(shown)} of at least {_VALUES_CAP} values"
+    counts = "exact counts" if plan.exact else "found in the sample, estimated counts"
+    out.append(f"  values like '{like}' in {label}{where_txt} ({counts}):")
+    out += [f"    {v} ({c})" if plan.exact else f"    {v}: {c}" for v, c in shown]
     if note:
         out.append("  " + note)
     return kind, sample, out
+
+
+def _sampled_values(
+    db: Database,
+    lt: LogTable,
+    plan: cost.Plan,
+    expr: str,
+    time_sql: str,
+    params: dict[str, object],
+    timeout: float,
+    what: str,
+) -> list[tuple[str, str]]:
+    """Per value, an estimate from per-block counts (between-block margin), largest first."""
+    found = db.read(
+        f"SELECT b, v, count(*) AS c FROM (SELECT {sampling.block_id_sql(plan)} AS b, "
+        f"CASE WHEN ({expr})::varchar ILIKE %(like)s ESCAPE '\\' THEN ({expr})::varchar END AS v "
+        f"FROM {lt.relation} WHERE {time_sql} AND {sampling.clause(plan)}) GROUP BY 1, 2",
+        params,
+        timeout_s=timeout,
+        what=what,
+        how_to_narrow=_LOOKUP_NARROW,
+    ).rows
+    n_block = [0] * len(plan.groups)
+    hits: dict[str, list[int]] = {}
+    for b, v, c in found:
+        if b is None:
+            continue
+        n_block[int(b)] += int(c)
+        if v is not None:
+            hits.setdefault(str(v), [0] * len(plan.groups))[int(b)] += int(c)
+    measured = {v: sampling.block_estimate(list(zip(n_block, ys, strict=True)), plan.fraction) for v, ys in hits.items()}
+    ordered = sorted(measured, key=lambda v: (-measured[v].value, v))[:_VALUES_CAP]
+    return [(v, fmt.render(measured[v])) for v in ordered]
 
 
 def describe_logs(

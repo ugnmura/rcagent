@@ -18,6 +18,13 @@ FILTER_ROLES = ("level", "service", "host", "component", "trace")
 _FMT = "%Y-%m-%d %H:%M:%S"
 
 
+class ScanTooExpensive(UserFacingError):
+    """A diagnostic scan (e.g. of the whole timestamp column) did not pass the cost check."""
+
+    def __init__(self, what: str, cost_text: str) -> None:
+        super().__init__(f"{what} would need {cost_text}; narrow the period or build a filter index")
+
+
 class MissingRole(UserFacingError):
     def __init__(self, role: str, present: list[str] | None = None) -> None:
         self.role = role
@@ -217,7 +224,14 @@ def data_range(db: Database, lt: LogTable, known_columns: dict[str, str]) -> Dat
             note = "the file has no statistics for it"
         except psycopg.Error as exc:
             note = "Parquet statistics could not be read: " + " ".join(str(exc).split())[:120]
-    # TODO(#10): cap the cost of this full scan with the cost check (it reads the whole timestamp column).
+    # The full scan reads the whole timestamp column, so it goes through the cost check (exact only:
+    # a min/max from a sample would be wrong). Local imports: query.cost imports this module.
+    from serenedb_extractor.query import cost
+    from serenedb_extractor.query.stats import role_columns
+
+    _, decision = cost.check(db, lt, TimeRange(), role_columns(expr))
+    if decision.status != "run" or not decision.plan.exact:
+        raise ScanTooExpensive("a scan of the timestamp column", cost.cost_text(decision.plan))
     e = pct(expr)
     cast_e = f"e AT TIME ZONE {zone}" if naive else "e::timestamptz"
     row = db.read(f"SELECT min({cast_e})::timestamptz, max({cast_e})::timestamptz FROM (SELECT {e} AS e FROM {lt.relation})", {}).rows[0]
@@ -249,7 +263,10 @@ def diagnose_empty(
     lines: list[str] = []
     time_sql, time_params = time_clause(lt, tr, known_columns)
     if tr.bounded:
-        rng = data_range(db, lt, known_columns)
+        try:
+            rng = data_range(db, lt, known_columns)
+        except ScanTooExpensive as exc:
+            return [f"No entries from {tr.describe()}; whether the data covers that period was not checked: {exc}."]
         outside = rng is not None and ((tr.end is not None and tr.end <= rng.first) or (tr.start is not None and tr.start > rng.last))
         if outside or rng is None:
             return [f"No entries from {tr.describe()}: {covers_text(rng, tr)}."]
