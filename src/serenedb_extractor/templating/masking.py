@@ -13,6 +13,8 @@ _DIGIT = "[0-9]"
 _HEX_LETTER = "[a-fA-F]"
 # RE2's \s lacks \v while Python's ASCII \s has it, so never use \s in rules.
 _WS = " \\t\\n\\r\\f\\v"
+# A run of ASCII whitespace as a regex fragment, identical in RE2 and Python.
+WHITESPACE_RUN = f"[{_WS}]+"
 
 
 @dataclass(frozen=True)
@@ -63,6 +65,11 @@ MASK_RULES: tuple[MaskRule, ...] = (
 PLACEHOLDER_CAPTURE: dict[str, str] = {r.placeholder: r.capture for r in MASK_RULES} | {
     "<*>": r"(\S+)"
 }
+
+def placeholder_kind(placeholder: str) -> str:
+    """`<NUM>` -> `num`; Drain's `<*>` -> `any`."""
+    return "any" if placeholder == "<*>" else placeholder[1:-1].lower()
+
 
 _COMPILED = tuple((re.compile(r.regex, re.ASCII), r.replacement) for r in MASK_RULES)
 

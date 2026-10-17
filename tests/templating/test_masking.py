@@ -81,3 +81,9 @@ def test_mask_sql_shape() -> None:
 def test_sql_equals_python(database) -> None:  # type: ignore[no-untyped-def]
     for raw in SAMPLES:
         assert database.read(f"SELECT {mask_sql('%(m)s')}", {"m": raw}).scalar() == mask_py(raw)
+
+
+def test_placeholder_kind():
+    from serenedb_extractor.templating.masking import placeholder_kind
+
+    assert [placeholder_kind(p) for p in ("<*>", "<NUM>", "<IP>")] == ["any", "num", "ip"]

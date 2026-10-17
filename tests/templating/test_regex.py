@@ -51,10 +51,17 @@ def test_one_capture_group_per_placeholder_and_values_are_captured():
     assert m and m.groups() == ("10.0.0.7:80", "12.5", "ok")
 
 
-def test_whitespace_runs_match_any_whitespace():
+def test_whitespace_runs_match_any_ascii_whitespace():
     c = compile_template("a   b\tc <NUM>")
     assert re.fullmatch(c.regex, "a b  c\t7")
-    assert c.regex.startswith("^a\\s+b\\s+c\\s+") and c.regex.endswith("$")
+    assert "\\s" not in c.regex
+
+
+def test_non_ascii_whitespace_is_a_literal_character():
+    c = compile_template("a\u00a0b <NUM>")
+    assert "\\s" not in c.regex
+    assert re.fullmatch(c.regex, "a\u00a0b 1")
+    assert not re.fullmatch(c.regex, "a b 1")
 
 
 def test_anchored():
@@ -88,15 +95,44 @@ def test_regex_avoids_syntax_re2_lacks():
 
 
 def test_fixed_words():
-    assert compile_template("disk full on <*> after <NUM> retries").fixed_words[0] == "disk full on"
+    c = compile_template("disk full on <*> after <NUM> retries")
+    assert c.fixed_words == ("retries", "after", "disk")
 
 
-def test_fixed_words_longest_first_max_three_min_four_chars():
+def test_fixed_words_tie_rule_longer_first_then_first_appearance():
+    c = compile_template("zzzz <*> aaaa bbbbbb cccc")
+    assert c.fixed_words == ("bbbbbb", "zzzz", "aaaa")
+
+
+def test_fixed_words_max_three_min_four_and_deduped():
     c = compile_template("aa <*> bbbbbb <*> cccc <*> ddddddddd <*> eeeee <*> ddddddddd")
     assert c.fixed_words == ("ddddddddd", "bbbbbb", "eeeee")
 
 
-def test_fixed_words_collapse_whitespace_and_skip_empty():
-    c = compile_template("<NUM>  retry   later <NUM>")
-    assert c.fixed_words == ("retry later",)
+def test_fixed_words_are_whitespace_free_and_never_glued_to_a_placeholder():
+    assert compile_template("error: user <*> failed").fixed_words == ("error:", "failed", "user")
+    assert compile_template("user=<*> id:<NUM>ms done").fixed_words == ("done",)
+    assert compile_template("<NUM>  retry   later <NUM>").fixed_words == ("retry", "later")
     assert compile_template("<NUM> <*>").fixed_words == ()
+
+
+def test_fixed_words_are_substrings_of_every_matching_line():
+    c = compile_template("pre<NUM>post login<*> ok fine")
+    line = "pre12post loginXYZ ok fine"
+    assert re.fullmatch(c.regex, line)
+    assert all(w in line for w in c.fixed_words) and c.fixed_words == ("fine",)
+
+
+@pytest.mark.parametrize(
+    ("template", "expected"),
+    [
+        ("User <*>", "user"),
+        ("a userId=<NUM> x", "userid"),
+        ("user.name: <*>", "user_name"),
+        ("x-request-id=<UUID>", "x_request_id"),
+        ("__a__=<NUM>", "a"),
+        ("_=<NUM>", "num_1"),
+    ],
+)
+def test_names_are_lowercase_identifiers(template, expected):
+    assert names(template) == [expected]
