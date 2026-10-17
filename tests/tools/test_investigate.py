@@ -189,3 +189,32 @@ async def test_edge_whitespace_entries_are_counted_and_excluded(mcp, db_url):
     assert "matching entries: 40" in ex, ex
     hidden = await call(mcp, "survey", log_table="edge", exclude=[tid])
     assert "No entries are left after excluding those templates." in hidden, hidden
+
+
+# Final review: a catalog saved before the edge-whitespace fix holds regexes anchored with no
+# allowance for edge whitespace; loading the catalog rebuilds each regex from its template, so
+# tagging and counting still match entries with trailing whitespace, and a survey writes the
+# rebuilt regex back.
+async def test_old_style_catalog_regex_still_matches_edge_whitespace(mcp, db_url, database):
+    from serenedb_extractor.templating.masking import EDGE_WHITESPACE
+    from serenedb_extractor.templating.regex import compile_template
+
+    path = container_parquet(db_url, "edge_ws_old", EDGE_WS)
+    await call(mcp, "setup_log_table", name="edgeold", source=path)
+    tid = id_of(await call(mcp, "survey", log_table="edgeold"), "disk full on <NUM>")
+    new = compile_template("disk full on <NUM>").regex
+    old = "^" + new.removeprefix("^" + EDGE_WHITESPACE).removesuffix(EDGE_WHITESPACE + "$") + "$"
+    assert old != new
+    database.write(
+        "UPDATE extractor.templates SET regex = %(r)s WHERE log_table = 'edgeold' AND template_id = %(i)s",
+        {"r": old, "i": tid},
+    )
+    loc = await call(mcp, "locate_occurrences", log_table="edgeold", templates=[tid])
+    assert "total: 40" in loc, loc
+    found = await call(mcp, "search_logs", log_table="edgeold", text="disk full on 4", order="oldest", limit=1)
+    assert f"[{tid}]" in found, found  # entry 4 ends with a space
+    await call(mcp, "survey", log_table="edgeold")
+    stored = database.read(
+        "SELECT regex FROM extractor.templates WHERE log_table = 'edgeold' AND template_id = %(i)s", {"i": tid}
+    ).scalar()
+    assert stored == new

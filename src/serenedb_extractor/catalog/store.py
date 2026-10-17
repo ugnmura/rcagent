@@ -24,6 +24,7 @@ from serenedb_extractor.catalog.models import (
 )
 from serenedb_extractor.db import Database
 from serenedb_extractor.errors import UserFacingError
+from serenedb_extractor.templating.regex import compile_template
 
 _COLUMNS = (
     "name, source, source_format, mode, relation, "
@@ -59,13 +60,15 @@ def _naive_utc(dt: datetime | None) -> datetime | None:
 
 
 def _template(r: dict[str, Any]) -> Template:
+    """A catalog row as a Template. The regex is rebuilt from the template text, so a catalog saved by
+    an older version (e.g. regexes without the edge-whitespace allowance) matches like a new one."""
     raw = r["params"]
     items = json.loads(raw) if isinstance(raw, str) else raw
     return Template(
         log_table=r["log_table"],
         template_id=r["template_id"],
         template=r["template"],
-        regex=r["regex"],
+        regex=compile_template(r["template"]).regex,
         params=[Param(int(p["pos"]), p["name"], p["kind"]) for p in items],
         example=r["example"],
         first_seen=r["first_seen"],
@@ -243,7 +246,7 @@ class CatalogStore:
                 survivor, absorbed = group[0], group[1:]
                 firsts, lasts = _bounds([*group], first, last)
                 if not absorbed and same is survivor:
-                    saved = replace(survivor, first_seen=firsts, last_seen=lasts, last_estimate=c.estimate, last_estimate_at=now)
+                    saved = replace(survivor, regex=c.regex, first_seen=firsts, last_seen=lasts, last_estimate=c.estimate, last_estimate_at=now)
                     self._write_template(saved, now)
                     items.append((saved, "known"))
                 else:
