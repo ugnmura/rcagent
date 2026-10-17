@@ -13,11 +13,12 @@ When every matching entry was read, counts are exact (R26). Nothing fits -> the 
 import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from serenedb_extractor import format as fmt
 from serenedb_extractor.catalog.models import CandidateTemplate, LogTable, Template, UpsertResult
 from serenedb_extractor.context import AppContext
+from serenedb_extractor.db import Rows
 from serenedb_extractor.query import cost, sampling
 from serenedb_extractor.query.filters import (
     FILTER_ROLES,
@@ -43,7 +44,9 @@ SAMPLE_SEED = 3  # fixed so that repeating a survey over unchanged data samples 
 TOP_BREAKDOWN = 3
 NONE_LABEL = "(none)"
 MIN_BLOCKS = sampling.MIN_BLOCKS_FOR_MARGIN  # R46
-BLOCK_KEY = "\x00block"  # breakdown key carrying per-block counts through the Drain merge (never shown)
+
+Method = Literal["every", "reservoir", "blocks"]
+BlockCounts = dict[str, dict[int, int]]  # masked string -> sampled block -> masked matching entries in it
 NARROW = (
     "narrow it: a shorter period (start/end) or filters such as level or service, "
     "or a smaller sample_size; then survey again."
@@ -59,6 +62,11 @@ def _optional(lt: LogTable, role: str) -> str:
     return role_sql(lt, role) if getattr(lt.roles, role) is not None else "NULL"
 
 
+def _read(ctx: AppContext, lt: LogTable, sql: str, params: dict[str, Any], timeout: float) -> Rows:
+    """Every survey query: the run's timeout, and a survey-specific way to narrow on a timeout."""
+    return ctx.db.read(sql, params, timeout_s=timeout, what=f"surveying log table {lt.name}", how_to_narrow=NARROW)
+
+
 def _scan_groups(
     ctx: AppContext,
     lt: LogTable,
@@ -67,11 +75,10 @@ def _scan_groups(
     reservoir: int | None,
     block_sql: str | None,
     timeout: float,
-) -> tuple[list[MaskedGroup], int]:
+) -> tuple[list[MaskedGroup], int, BlockCounts]:
     """Mask and group the entries in `where` inside SereneDB: all of them, a filter-first reservoir
-    of `reservoir` entries, or (with `block_sql`) every entry of the sampled blocks, counted per
-    block. The per-block counts ride along in each group's breakdown under BLOCK_KEY, so they add
-    up per template when Drain merges groups."""
+    of `reservoir` entries, or (with `block_sql`) the entries of the sampled blocks, also counted
+    per block for each masked string."""
     blk = f", ({block_sql}) AS blk" if block_sql else ""
     inner = (
         f"SELECT coalesce(({role_sql(lt, 'message')})::varchar, '') AS msg, ({_optional(lt, 'service')})::varchar AS svc, "
@@ -85,13 +92,12 @@ def _scan_groups(
         f"FROM (SELECT * FROM ({inner}){sample}) GROUP BY {'1, 2, 3, 4' if block_sql else '1, 2, 3'}"
     )
     run_params = {**params, "sample_rows": int(reservoir or 0), "sample_seed": SAMPLE_SEED}
-    rows = ctx.db.read(
-        sql, run_params, timeout_s=timeout, what=f"surveying log table {lt.name}", how_to_narrow=NARROW
-    ).dicts()
+    rows = _read(ctx, lt, sql, run_params, timeout).dicts()
     by_mask: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         by_mask.setdefault(row["m"], []).append(row)
     groups: list[MaskedGroup] = []
+    per_block: BlockCounts = {}
     sampled = 0
     for masked, items in by_mask.items():
         breakdown: Breakdown = {}
@@ -103,9 +109,9 @@ def _scan_groups(
                 label = NONE_LABEL if r[col] is None else str(r[col])
                 counts[label] = counts.get(label, 0) + int(r["c"])
         if block_sql:
-            per_block = breakdown.setdefault(BLOCK_KEY, {})
+            mine = per_block.setdefault(masked, {})
             for r in items:
-                per_block[str(r["blk"])] = per_block.get(str(r["blk"]), 0) + int(r["c"])
+                mine[int(r["blk"])] = mine.get(int(r["blk"]), 0) + int(r["c"])
         total = sum(int(r["c"]) for r in items)
         sampled += total
         seen_first = [r["first_ts"] for r in items if r["first_ts"] is not None]
@@ -120,7 +126,7 @@ def _scan_groups(
                 breakdown=breakdown,
             )
         )
-    return groups, sampled
+    return groups, sampled, per_block
 
 
 def _filters_text(f: Filters, excluded: list[str] | None = None) -> str | None:
@@ -284,33 +290,41 @@ def survey(
 
 @dataclass
 class _Run:
-    """What the survey read: the masked groups, how many matching entries they hold, the
-    population of matching entries, and how to measure each template's count."""
+    """What the survey read: the masked groups, how many matching entries they hold, and the
+    population of matching entries. Block runs also keep what each template's estimate needs."""
 
     groups: list[MaskedGroup]
     sampled: int
     population: fmt.Measured
-    method: str  # "every" | "reservoir" | "blocks"
+    method: Method
     population_note: str | None = None
-    block_rows: list[int] = field(default_factory=list)  # entries in scope per sampled block
+    stride: int = 1  # block runs: every stride-th entry of each block was masked (R57)
+    looked_at: list[int] = field(default_factory=list)  # block runs: entries in scope looked at (every stride-th) per block
+    looked_fraction: float = 1.0  # block runs: the looked-at entries' share of the in-range rows
+    block_counts: BlockCounts = field(default_factory=dict)
 
 
 def _full(ctx: AppContext, lt: LogTable, where: str, params: dict[str, Any], n_target: int, timeout: float) -> _Run:
     """Every entry in scope is read (the exact plan): an exact count, then every matching entry,
     or a filter-first reservoir of n_target of them (it reads the same bytes; R36)."""
-    what = f"surveying log table {lt.name}"
-    population = int(
-        ctx.db.read(
-            f"SELECT count(*) FROM {lt.relation} WHERE {where}", params, timeout_s=timeout, what=what, how_to_narrow=NARROW
-        ).scalar()
-        or 0
-    )
+    population = int(_read(ctx, lt, f"SELECT count(*) FROM {lt.relation} WHERE {where}", params, timeout).scalar() or 0)
     if not population:
         return _Run([], 0, fmt.Measured(0.0, True), "every")
     reservoir = n_target if population > n_target else None
-    groups, sampled = _scan_groups(ctx, lt, where, params, reservoir, None, timeout)
-    method = "every" if sampled >= population else "reservoir"
+    groups, sampled, _ = _scan_groups(ctx, lt, where, params, reservoir, None, timeout)
+    method: Method = "every" if sampled >= population else "reservoir"
     return _Run(groups, sampled, fmt.Measured(float(population), True), method)
+
+
+def _stride(plan: cost.Plan, n_target: int) -> int:
+    """R57: mask at most ceil(n_target / blocks) entries per sampled block, spread evenly through it."""
+    cap = max(1, math.ceil(n_target / max(1, len(plan.groups))))
+    return max([1, *(math.ceil(g.rows / cap) for g in plan.groups)])
+
+
+def _positions(first: int, rows: int, stride: int) -> int:
+    """How many row positions in [first, first + rows) are multiples of `stride`."""
+    return (first + rows - 1) // stride - (first - 1) // stride if rows else 0
 
 
 def _blocks(
@@ -325,37 +339,48 @@ def _blocks(
     n_target: int,
     timeout: float,
 ) -> _Run:
-    """Whole row groups (the plan's block sample): every matching entry in them, counted per block.
-    The population is an exact count when the cost check prices it within what is left of the
-    budget, otherwise estimated from the blocks."""
-    what = f"surveying log table {lt.name}"
+    """Whole row groups (the plan's block sample). Every entry in them is counted per block; every
+    stride-th one (R57) is masked, so the work stays near the sample size. The population is an
+    exact count when the cost check prices it within what is left of the budget, otherwise it is
+    estimated from the blocks' counts."""
+    stride = _stride(plan, n_target)
+    spread = f"mod({sampling.POSITION}, {stride}) = 0" if stride > 1 else "TRUE"
     scope = f"{time_sql} AND {sampling.clause(plan)}"
-    per_block = ctx.db.read(
-        f"SELECT {sampling.block_id_sql(plan)} AS b, count(*) AS n, count(*) FILTER (WHERE {match_sql}) AS y "
-        f"FROM {lt.relation} WHERE {scope} GROUP BY 1",
-        params, timeout_s=timeout, what=what, how_to_narrow=NARROW,
+    block_id = sampling.block_id_sql(plan)
+    per_block = _read(
+        ctx, lt,
+        f"SELECT {block_id} AS b, count(*) AS n, count(*) FILTER (WHERE {match_sql}) AS y, "
+        f"count(*) FILTER (WHERE {spread}) AS n_seen FROM {lt.relation} WHERE {scope} GROUP BY 1",
+        params, timeout,
     ).rows
-    found = {int(r[0]): (int(r[1]), int(r[2])) for r in per_block if r[0] is not None}
-    blocks = [found.get(i, (0, 0)) for i in range(len(plan.groups))]
-    rows = [n for n, _ in blocks]
-    if not sum(y for _, y in blocks):
-        return _Run([], 0, fmt.Measured(0.0, False), "blocks")
-    groups, sampled = _scan_groups(ctx, lt, f"{scope} AND {match_sql}", params, None, sampling.block_id_sql(plan), timeout)
+    found = {int(r[0]): (int(r[1]), int(r[2]), int(r[3])) for r in per_block if r[0] is not None}
+    counted = [found.get(i, (0, 0, 0)) for i in range(len(plan.groups))]
+    looked_fraction = (
+        sum(_positions(g.first_row, g.rows, stride) for g in plan.groups) / plan.population_rows
+        if plan.population_rows else 1.0
+    )
+    run = _Run(
+        [], 0, fmt.Measured(0.0, False), "blocks", stride=stride, looked_at=[c[2] for c in counted],
+        looked_fraction=looked_fraction,
+    )
+    if not sum(c[1] for c in counted):
+        return run
+    run.groups, run.sampled, run.block_counts = _scan_groups(
+        ctx, lt, f"{scope} AND {spread} AND {match_sql}", params, None, block_id, timeout
+    )
     left = max(0.0, cost.BUDGET_SECONDS - plan.seconds)
     count = cost.decide(stats, count_cols, True, n_target, None, budget_s=left, max_s=ctx.settings.max_timeout_s)
     if count.status == "run" and count.plan.exact:
-        n = ctx.db.read(
-            f"SELECT count(*) FROM {lt.relation} WHERE {time_sql} AND {match_sql}",
-            params, timeout_s=timeout, what=what, how_to_narrow=NARROW,
-        ).scalar()
-        return _Run(groups, sampled, fmt.Measured(float(n or 0), True), "blocks", block_rows=rows)
+        n = _read(ctx, lt, f"SELECT count(*) FROM {lt.relation} WHERE {time_sql} AND {match_sql}", params, timeout).scalar()
+        run.population = fmt.Measured(float(n or 0), True)
+        return run
     b = float(stats.bytes_for(count_cols))
-    seconds = b / cost.THROUGHPUT_BYTES_PER_S["remote" if stats.remote else "local"]
-    note = (
-        f"an exact count of the matching entries would read a further ~{human_bytes(b)} ({fmt.duration(seconds)}), "
-        "beyond the time budget, so it was not run"
+    run.population_note = (
+        f"an exact count of the matching entries would read a further ~{human_bytes(b)} "
+        f"({fmt.duration(cost.seconds_for(stats, b))}), beyond the time budget, so it was not run"
     )
-    return _Run(groups, sampled, sampling.block_estimate(blocks, plan.fraction), "blocks", note, rows)
+    run.population = sampling.block_estimate([(c[0], c[1]) for c in counted], plan.fraction)
+    return run
 
 
 def _kind(run: _Run, plan: cost.Plan) -> str:
@@ -373,9 +398,14 @@ def _kind(run: _Run, plan: cost.Plan) -> str:
             "counts per template are estimates scaled from the sample"
         )
     return (
-        "survey, estimated: every matching entry in whole blocks of entries (row groups) was masked, grouped and "
+        "survey, estimated: matching entries in whole blocks of entries (row groups) were masked, grouped and "
         "merged into templates inside SereneDB; counts per template are estimates scaled up from the blocks"
     )
+
+
+def _ordinal(n: int) -> str:
+    suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
 
 
 def _method(run: _Run, plan: cost.Plan) -> str:
@@ -388,20 +418,26 @@ def _method(run: _Run, plan: cost.Plan) -> str:
         )
     k = len(plan.groups)
     upto = "" if plan.rows_exact else "up to "
+    spread = (
+        f"; every {_ordinal(run.stride)} entry of each looked at: {sum(run.looked_at):,} entries" if run.stride > 1 else ""
+    )
     return (
         f"block sample of {k} row group{'' if k == 1 else 's'} ({plan.sample_rows or 0:,} of {upto}"
-        f"{plan.population_rows:,} entries in the period; repeatable)"
+        f"{plan.population_rows:,} entries in the period{spread}; entries in a row group are close together in time, "
+        "so margins may understate the error; repeatable)"
     )
 
 
-def _measure_template(m: MergedTemplate, run: _Run, plan: cost.Plan) -> fmt.Measured:
+def _measure_template(m: MergedTemplate, run: _Run) -> fmt.Measured:
     if run.method == "every":
         return fmt.Measured(float(m.count), True, run.sampled, m.count)
     if run.method == "reservoir":
         return fmt.estimate(m.count, run.sampled, round(run.population.value))
-    per_block = m.breakdown.get(BLOCK_KEY, {})
-    blocks = [(n, per_block.get(str(i), 0)) for i, n in enumerate(run.block_rows)]
-    return sampling.block_estimate(blocks, plan.fraction)
+    hits = [0] * len(run.looked_at)
+    for masked in m.masks:
+        for b, c in run.block_counts.get(masked, {}).items():
+            hits[b] += c
+    return sampling.block_estimate(list(zip(run.looked_at, hits, strict=True)), run.looked_fraction)
 
 
 def _render(
@@ -417,7 +453,7 @@ def _render(
 ) -> str:
     merged = merge_groups(run.groups)
     exact = run.method == "every"
-    measures = {m.template: _measure_template(m, run, plan) for m in merged}
+    measures = {m.template: _measure_template(m, run) for m in merged}
     candidates = [_candidate(m, measures[m.template]) for m in merged]
     result = ctx.store.upsert_survey_templates(lt.name, candidates, datetime.now(UTC))
     saved: dict[str, tuple[Template, str]] = {t.template: (t, status) for t, status in result.items}

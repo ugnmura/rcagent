@@ -46,6 +46,7 @@ class MergedTemplate:
     last_seen: datetime | None
     breakdown: Breakdown
     members: int  # number of masked groups merged into this template
+    masks: tuple[str, ...] = ()  # the masked strings merged into it, biggest first
 
 
 def _miner(sim_th: float, depth: int) -> TemplateMiner:
@@ -89,6 +90,7 @@ def merge_groups(
                 last_seen=max(seen_last, default=None),
                 breakdown={r: dict(c) for r, c in breakdown.items()},
                 members=len(items),
+                masks=tuple(i.masked for i in items),
             )
         )
     merged.sort(key=lambda m: (-m.count, m.template))

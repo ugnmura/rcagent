@@ -85,6 +85,11 @@ def cost_text(plan: Plan) -> str:
     return f"~{human_bytes(plan.bytes)} read, {fmt.duration(plan.seconds)}"
 
 
+def seconds_for(stats: ScopeStats, nbytes: float) -> float:
+    """How long reading `nbytes` from this scope's source takes at the assumed throughput."""
+    return nbytes / THROUGHPUT_BYTES_PER_S["remote" if stats.remote else "local"]
+
+
 def run_timeout(plan: Plan, default_s: float, max_s: float) -> float:
     """A confirmed run gets a timeout covering its estimate (with margin), clamped to the maximum."""
     if plan.confirmed:

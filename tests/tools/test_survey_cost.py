@@ -1,6 +1,8 @@
 """Cost-aware survey (#12), at the MCP tool seam: the cost check picks the sampling method,
 asks when nothing fits, honours confirmations and cancels on timeout."""
 
+import re
+
 import psycopg
 import pytest
 
@@ -103,3 +105,32 @@ async def test_survey_timeout(mcp_short_timeout, fx_lt_short, monkeypatch):
     assert out.startswith("TIMEOUT after 1s") and "narrow" in out
     monkeypatch.setattr(survey_mod, "SURVEY_SQL_SUFFIX", "")
     assert "timeout after <NUM>ms" in await call(mcp_short_timeout, "survey", log_table="fx")
+
+
+RG_PATH = "/tmp/t12_fx_rg.parquet"  # FX in three row groups: 2,048 + 2,048 + 904 entries
+
+
+@pytest.fixture
+async def fxrg_lt(mcp, db_url):
+    path = _write(db_url, FX, RG_PATH)
+    out = await call(mcp, "setup_log_table", name="fxrg", source=path)
+    assert "Set up log table" in out, out
+    return path
+
+
+async def test_block_sample_masks_a_capped_spread(mcp, big_lt):  # R57
+    # 2,048 wanted over 5 blocks of 2,048: at most ceil(2048 / 5) = 410 entries masked per block,
+    # every 5th entry of each, so the masking work stays near the sample size.
+    out = await call(mcp, "survey", log_table="big", sample_size=2048)
+    head = out.splitlines()[0]
+    assert "every 5th entry" in head and "close together in time, so margins may understate the error" in head
+    assert re.search(r"≈[\d,]+ \(estimated from a 2,0\d\d sample, ±\d+%\)", out), out
+    assert "30,720 entries match" in out  # the population is still counted over every entry
+
+
+async def test_few_blocks_give_a_rough_estimate(mcp, fxrg_lt, monkeypatch):  # R38 in survey
+    # 1 KB/s: reading all three row groups (~65 KB) is over budget, one row group (~22 KB) fits.
+    monkeypatch.setattr(cost, "THROUGHPUT_BYTES_PER_S", {"remote": 1.0, "local": 1e3})
+    out = await call(mcp, "survey", log_table="fxrg", sample_size=1000)
+    assert "block sample of 1 row group" in out.splitlines()[0]
+    assert "margin not estimable from 1 block" in out and "±" not in out
