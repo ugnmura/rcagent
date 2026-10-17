@@ -44,7 +44,7 @@ def quote_ident(name: str) -> str:
 
 def validate_name(name: str) -> str:
     if not _NAME.match(name):
-        raise ValueError(
+        raise UserFacingError(
             f"'{name}' is not a usable name: start with a lowercase letter, then lowercase "
             "letters, digits or underscores (at most 41 characters)."
         )

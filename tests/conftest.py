@@ -148,7 +148,7 @@ def container_parquet(db_url: str, name: str, select_sql: str) -> str:
     """Write `select_sql` to a Parquet file inside the SereneDB container; return its path there."""
     path = f"/tmp/{name}.parquet"
     with psycopg.connect(db_url, autocommit=True) as conn:
-        conn.execute(f"COPY ({select_sql}) TO '{path}' (FORMAT PARQUET)")  # type: ignore[call-overload]
+        conn.execute(f"COPY ({select_sql}) TO '{path.replace(chr(39), chr(39) * 2)}' (FORMAT PARQUET)")  # type: ignore[call-overload]
     return path
 
 

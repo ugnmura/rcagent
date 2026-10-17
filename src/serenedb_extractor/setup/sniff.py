@@ -1,6 +1,8 @@
 """Metadata-only look at a source: reader SQL, columns, a few sample entries, sizes."""
 
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -24,6 +26,15 @@ class SourceUnreadable(UserFacingError):
             else " Check the path as SereneDB sees it (and the logs folder mount, if one is configured)."
         )
         super().__init__(f"SereneDB could not read {source}: {detail}.{hint}")
+
+
+@contextmanager
+def readable(source: str, remote: bool = False) -> Iterator[None]:
+    """Turn any error SereneDB reports into one plain-language line naming the source."""
+    try:
+        yield
+    except psycopg.Error as exc:
+        raise SourceUnreadable(source, str(exc), remote) from exc
 
 
 @dataclass
@@ -56,11 +67,9 @@ def reader_sql(rs: ResolvedSource) -> str:
 
 def relation_columns(db: Database, from_sql: str, source: str = "", remote: bool = False) -> list[tuple[str, str]]:
     """(name, type) of every column of a relation or reader, helper columns included."""
-    try:
-        names = db.read(f"SELECT * FROM {from_sql} LIMIT 0").columns
-        types = {r[0]: r[1] for r in db.read(f"DESCRIBE SELECT * FROM {from_sql}").rows}
-    except psycopg.Error as exc:
-        raise SourceUnreadable(source or from_sql, str(exc), remote) from exc
+    with readable(source or from_sql, remote):
+        names = db.read(f"SELECT * FROM {from_sql} LIMIT 0", {}).columns
+        types = {r[0]: r[1] for r in db.read(f"DESCRIBE SELECT * FROM {from_sql}", {}).rows}
     return [(n, types.get(n, "VARCHAR" if n == "filename" else "")) for n in names]
 
 
@@ -80,17 +89,15 @@ def sniff(db: Database, rs: ResolvedSource, source: str) -> SourceInfo:
         if not found.rows or schema == "extractor":
             raise UserFacingError(f"There is no table named '{rs.db_path}' that can be used as a log source.")
     columns = relation_columns(db, from_sql, source, rs.remote)
-    try:
-        sample = db.read(f"SELECT * FROM {from_sql} LIMIT 5")
-    except psycopg.Error as exc:
-        raise SourceUnreadable(source, str(exc), rs.remote) from exc
-    info = SourceInfo(rs, from_sql, columns, sample.dicts(), size_bytes=rs.size_bytes)
-    try:
+    with readable(source, rs.remote):
+        sample = db.read(f"SELECT * FROM {from_sql} LIMIT 5", {})
+        info = SourceInfo(rs, from_sql, columns, sample.dicts(), size_bytes=rs.size_bytes)
         if rs.kind == "parquet":
             lit = sql_literal(rs.db_path)
             meta = db.read(
                 "SELECT sum(num_rows)::bigint AS n, count(*) AS files, sum(file_size_bytes)::bigint AS size, "
-                f"sum(num_row_groups)::bigint AS groups FROM parquet_file_metadata({lit})"
+                f"sum(num_row_groups)::bigint AS groups FROM parquet_file_metadata({lit})",
+                {},
             ).dicts()[0]
             info.row_count, info.num_files, info.size_bytes, info.row_groups = (
                 meta["n"],
@@ -100,15 +107,12 @@ def sniff(db: Database, rs: ResolvedSource, source: str) -> SourceInfo:
             )
             big = db.read(
                 "SELECT path_in_schema AS c, sum(total_compressed_size)::bigint AS b "
-                f"FROM parquet_metadata({lit}) GROUP BY 1 ORDER BY 2 DESC LIMIT 5"
+                f"FROM parquet_metadata({lit}) GROUP BY 1 ORDER BY 2 DESC LIMIT 5",
+                {},
             )
             info.big_columns = [(r[0], int(r[1])) for r in big.rows]
         elif rs.kind == "table":
-            info.row_count = db.read(f"SELECT count(*) FROM {from_sql}").scalar()
-    except psycopg.Error as exc:
-        if rs.kind == "parquet":
-            raise SourceUnreadable(source, str(exc), rs.remote) from exc
-        raise
+            info.row_count = db.read(f"SELECT count(*) FROM {from_sql}", {}).scalar()
     return info
 
 

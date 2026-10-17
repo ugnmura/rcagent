@@ -1,7 +1,5 @@
 """describe_logs: what is set up, what values exist, and why a lookup came back empty."""
 
-import psycopg
-
 from serenedb_extractor import format as fmt
 from serenedb_extractor.catalog.models import ROLE_FIELDS, FieldRoles, LogTable
 from serenedb_extractor.context import AppContext
@@ -9,27 +7,21 @@ from serenedb_extractor.db import Database, quote_ident
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.query.filters import (
     FILTER_ROLES,
+    Filters,
     TimeRange,
     build_where,
     data_range,
     diagnose_empty,
-    Filters,
     parse_time_range,
-    role_expr,
+    role_sql,
     time_clause,
 )
-from serenedb_extractor.setup.roles import display_role
-from serenedb_extractor.setup.sniff import relation_columns
+from serenedb_extractor.setup.roles import resolve_column, role_lines
+from serenedb_extractor.setup.sniff import readable, relation_columns
 
 SAMPLE_ROWS = 10_000
 TOP_N = 8
 _TOP_ROLES = ("level", "service", "component")
-_ROLE_ORDER = ("timestamp", "message", "level", "service", "host", "component", "trace", "order")
-
-
-def role_lines(roles: FieldRoles, indent: str = "  ") -> list[str]:
-    """One line per role, absent ones listed as absent (ruling R1: simple identifiers unquoted)."""
-    return [f"{indent}{r}: {display_role(getattr(roles, r))}" for r in _ROLE_ORDER if r in ROLE_FIELDS]
 
 
 def context_scopes(roles: FieldRoles) -> list[str]:
@@ -42,7 +34,7 @@ def known_columns(db: Database, lt: LogTable) -> dict[str, str]:
 
 
 def _top_values(db: Database, lt: LogTable, role: str, where: str, params: dict[str, object]) -> str:
-    expr = str(getattr(lt.roles, role))
+    expr = role_sql(lt, role)
     rows = db.read(
         f"SELECT v, c, count(*) OVER () AS n FROM (SELECT e::varchar AS v, count(*) AS c FROM "
         f"(SELECT {expr} AS e FROM {lt.relation} WHERE {where} LIMIT {SAMPLE_ROWS}) GROUP BY 1) "
@@ -64,23 +56,22 @@ def _time_range_line(db: Database, lt: LogTable, cols: dict[str, str], tr: TimeR
     rng = data_range(db, lt, cols)
     if rng is None:
         return "time range: no timestamps found"
-    src = "from Parquet statistics" if lt.source_format == "parquet" and _plain(lt) else "from the data"
-    return f"time range: {tr.fmt(rng[0])} to {tr.fmt(rng[1])} {tr.tz} ({src})"
-
-
-def _plain(lt: LogTable) -> bool:
-    return bool(lt.roles.timestamp) and str(lt.roles.timestamp).startswith('"') and "->>" not in str(lt.roles.timestamp)
+    if rng.from_stats:
+        how = "from Parquet statistics"
+    else:
+        how = "from a scan of the timestamp column" + (f"; {rng.note}" if rng.note else "")
+    return f"time range: {tr.fmt(rng.first)} to {tr.fmt(rng.last)} {tr.tz} ({how})"
 
 
 def _describe_one(ctx: AppContext, lt: LogTable, tr: TimeRange) -> list[str]:
     db = ctx.db
     cols = known_columns(db, lt)
     where, params = build_where(lt, tr, Filters(), cols)
-    src_kind = {"in_place": "in place"}.get(lt.mode, lt.mode)
-    out = [f"log table {lt.name}", f"  source: {lt.source} ({lt.source_format}, read {src_kind})", f"  mode: {src_kind}"]
+    mode = lt.mode.replace("_", " ")
+    out = [f"log table {lt.name}", f"  source: {lt.source} ({lt.source_format})", f"  mode: {mode}"]
     out.append("  roles:")
     out += role_lines(lt.roles, "    ")
-    out.append(f"  rows: {lt.row_count:,}" if lt.row_count is not None else "  rows: not recorded")
+    out.append(f"  entries: {lt.row_count:,}" if lt.row_count is not None else "  entries: not counted")
     out.append("  " + _time_range_line(db, lt, cols, tr))
     idx = [n for n in (lt.filter_index_name, lt.search_index_name) if n]
     out.append("  indexes: " + (", ".join(idx) if idx else "none"))
@@ -107,10 +98,10 @@ def _resolve_field(lt: LogTable, name: str, cols: dict[str, str]) -> tuple[str, 
     """(label, SQL expression) for a role name or a real column."""
     key = name.strip()
     if key.lower() in ROLE_FIELDS and key.lower() not in ("order",):
-        return key.lower(), role_expr(lt, key.lower())
-    match = [c for c in cols if c == key] or [c for c in cols if c.lower() == key.lower()]
-    if len(match) == 1:
-        return match[0], quote_ident(match[0])
+        return key.lower(), role_sql(lt, key.lower())
+    match = resolve_column(key, cols)
+    if match is not None:
+        return match, quote_ident(match)
     raise UserFacingError(
         f"'{name}' is neither a field role ({', '.join(FILTER_ROLES)}, timestamp, message) nor a column of "
         f"this log table. Columns: {', '.join(cols)}."
@@ -173,7 +164,7 @@ def describe_logs(
     else:
         tables = [ctx.store.get_log_table(log_table)]
     header = fmt.how_measured(
-        "catalog, Parquet statistics and a block sample; top values are sampled, counts of values found are exact"
+        "catalog and metadata, a time range from Parquet statistics or a column scan, and a block sample; top values are sampled, counts of values found are exact"
         if not find_values
         else "exact distinct-value lookup in one field",
         period=tr.describe() if tr.bounded else None,
@@ -182,14 +173,10 @@ def describe_logs(
     )
     body: list[str] = []
     for lt in tables:
-        try:
+        with readable(f"the source of log table '{lt.name}'"):
             if find_values:
                 body.append(f"log table {lt.name}")
                 body += ["  " + line for line in _find_values(ctx, lt, find_values, tr)]
             else:
                 body += _describe_one(ctx, lt, tr)
-        except psycopg.Error as exc:
-            raise UserFacingError(
-                f"SereneDB could not read the source of log table '{lt.name}': {' '.join(str(exc).split())[:300]}"
-            ) from exc
     return header + "\n" + "\n".join(body)

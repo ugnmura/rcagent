@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NamedTuple
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import psycopg
@@ -10,8 +10,8 @@ import psycopg
 from serenedb_extractor.catalog.models import LogTable
 from serenedb_extractor.db import Database, quote_ident
 from serenedb_extractor.errors import UserFacingError
-from serenedb_extractor.setup.paths import resolve_source, sql_literal
-from serenedb_extractor.setup.roles import is_temporal, role_column
+from serenedb_extractor.setup.paths import pct, resolve_source, sql_literal
+from serenedb_extractor.setup.roles import is_temporal, resolve_column, role_column
 
 FILTER_ROLES = ("level", "service", "host", "component", "trace")
 _FMT = "%Y-%m-%d %H:%M:%S"
@@ -108,17 +108,20 @@ def role_expr(lt: LogTable, role: str) -> str:
 
 
 def _find_column(name: str, known_columns: dict[str, str]) -> str:
-    if name in known_columns:
-        return name
-    ci = [c for c in known_columns if c.lower() == name.lower()]
-    if len(ci) == 1:
-        return ci[0]
-    raise UserFacingError(f"There is no column '{name}' in this log table. Columns: {', '.join(known_columns)}.")
+    col = resolve_column(name, known_columns)
+    if col is None:
+        raise UserFacingError(f"There is no column '{name}' in this log table. Columns: {', '.join(known_columns)}.")
+    return col
+
+
+def role_sql(lt: LogTable, role: str) -> str:
+    """A role's expression, ready to put into SQL that is sent with a params dict."""
+    return pct(role_expr(lt, role))
 
 
 def _filter_expr(lt: LogTable, key: str, known_columns: dict[str, str]) -> str:
     if key in FILTER_ROLES:
-        return role_expr(lt, key)
+        return role_sql(lt, key)
     return quote_ident(_find_column(key, known_columns))
 
 
@@ -132,7 +135,7 @@ def time_clause(lt: LogTable, tr: TimeRange, known_columns: dict[str, str], pref
     (spike section 6): timestamptz_ns for nanosecond columns, never a cast of the column."""
     if not tr.bounded:
         return "TRUE", {}
-    expr = role_expr(lt, "timestamp")
+    expr = role_sql(lt, "timestamp")
     typ = _ts_type(lt, known_columns).upper()
     parts: list[str] = []
     params: dict[str, Any] = {}
@@ -183,8 +186,15 @@ def _shown(wanted: str | list[str]) -> str:
     return "in (" + ", ".join(f"'{w}'" for w in wanted) + ")" if isinstance(wanted, list) else f"='{wanted}'"
 
 
-def data_range(db: Database, lt: LogTable, known_columns: dict[str, str]) -> tuple[datetime, datetime] | None:
-    """(first, last) timestamp in the data, UTC. Parquet statistics when possible (no data read)."""
+class DataRange(NamedTuple):
+    first: datetime
+    last: datetime
+    from_stats: bool  # True when read from Parquet statistics, False when scanned
+    note: str = ""  # why statistics were not used, when that is worth telling
+
+
+def data_range(db: Database, lt: LogTable, known_columns: dict[str, str]) -> DataRange | None:
+    """First and last timestamp in the data (UTC). Parquet statistics when possible (no data read)."""
     if lt.roles.timestamp is None:
         return None
     expr = lt.roles.timestamp
@@ -192,6 +202,7 @@ def data_range(db: Database, lt: LogTable, known_columns: dict[str, str]) -> tup
     typ = known_columns.get(col or "", "").upper()
     naive = is_temporal(typ) and "WITH TIME ZONE" not in typ and not typ.startswith("TIMESTAMPTZ")
     zone = sql_literal(lt.timezone)
+    note = ""
     if lt.source_format == "parquet" and col is not None:
         path = resolve_source(lt.source, db.settings, "parquet").db_path
         cast = f"(stats_min::timestamp) AT TIME ZONE {zone}" if naive else "stats_min::timestamptz"
@@ -203,19 +214,21 @@ def data_range(db: Database, lt: LogTable, known_columns: dict[str, str]) -> tup
                 {"c": col},
             ).rows[0]
             if row[0] is not None:
-                return row[0], row[1]
-        except psycopg.Error:
-            pass
-    inner = f"(SELECT {expr} AS e FROM {lt.relation})"
+                return DataRange(row[0], row[1], True)
+            note = "the file has no statistics for it"
+        except psycopg.Error as exc:
+            note = "Parquet statistics could not be read: " + " ".join(str(exc).split())[:120]
+    # TODO(#10): cap the cost of this full scan with the cost check (it reads the whole timestamp column).
+    e = pct(expr)
     cast_e = f"e AT TIME ZONE {zone}" if naive else "e::timestamptz"
-    row = db.read(f"SELECT min({cast_e})::timestamptz, max({cast_e})::timestamptz FROM {inner}").rows[0]
-    return (row[0], row[1]) if row[0] is not None else None
+    row = db.read(f"SELECT min({cast_e})::timestamptz, max({cast_e})::timestamptz FROM (SELECT {e} AS e FROM {lt.relation})", {}).rows[0]
+    return DataRange(row[0], row[1], False, note) if row[0] is not None else None
 
 
-def covers_text(rng: tuple[datetime, datetime] | None, tr: TimeRange) -> str:
+def covers_text(rng: DataRange | None, tr: TimeRange) -> str:
     if rng is None:
         return "the log table has no timestamps I could read"
-    return f"the data covers {tr.fmt(rng[0])} to {tr.fmt(rng[1])} {tr.tz}"
+    return f"the data covers {tr.fmt(rng.first)} to {tr.fmt(rng.last)} {tr.tz}"
 
 
 def seen_values(
@@ -238,7 +251,7 @@ def diagnose_empty(
     time_sql, time_params = time_clause(lt, tr, known_columns)
     if tr.bounded:
         rng = data_range(db, lt, known_columns)
-        outside = rng is not None and ((tr.end is not None and tr.end <= rng[0]) or (tr.start is not None and tr.start > rng[1]))
+        outside = rng is not None and ((tr.end is not None and tr.end <= rng.first) or (tr.start is not None and tr.start > rng.last))
         if outside or rng is None:
             return [f"No entries from {tr.describe()}: {covers_text(rng, tr)}."]
         any_row = db.read(f"SELECT 1 FROM {lt.relation} WHERE {time_sql} LIMIT 1", time_params).rows
@@ -263,17 +276,3 @@ def diagnose_empty(
         )
     return lines
 
-
-__all__ = [
-    "Filters",
-    "MissingRole",
-    "TimeRange",
-    "build_where",
-    "covers_text",
-    "data_range",
-    "diagnose_empty",
-    "parse_time_range",
-    "role_expr",
-    "seen_values",
-    "time_clause",
-]

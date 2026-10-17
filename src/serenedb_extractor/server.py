@@ -71,11 +71,11 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         source: str,
         roles: dict[str, str | None] | None = None,
         line_format: str | None = None,
-        timezone: str = "UTC",
+        timezone: str | None = None,
         build_filter_index: bool = False,
         build_search_index: bool = False,
     ) -> str:
-        """Set up a log table over a source, read in place, with confirmed field roles. Re-running with roles corrects the roles only."""
+        """Set up a log table over a source, read in place, with confirmed field roles. Re-running with roles or timezone corrects only those. timezone (IANA name, default UTC) is how timestamps without a zone are read."""
         return await runner.run_tool(
             setup_tools.setup_log_table,
             name=name,

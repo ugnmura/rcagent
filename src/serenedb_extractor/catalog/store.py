@@ -76,6 +76,11 @@ class CatalogStore:
         params.update(name=name, now=datetime.now(UTC).replace(tzinfo=None))
         self.db.write(f"UPDATE extractor.log_tables SET {sets}, roles_updated_at = %(now)s WHERE name = %(name)s", params)
 
+    def set_timezone(self, name: str, timezone: str) -> None:
+        self.db.write(
+            "UPDATE extractor.log_tables SET timezone = %(tz)s WHERE name = %(name)s", {"tz": timezone, "name": name}
+        )
+
     def template_count(self, name: str) -> int:
         return int(
             self.db.read("SELECT count(*) FROM extractor.templates WHERE log_table = %(n)s", {"n": name}).scalar()

@@ -24,7 +24,23 @@ CANDIDATES: dict[str, tuple[str, ...]] = {
     "trace": ("traceid", "trace_id", "request_id", "req_id"),
 }
 _SIMPLE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_QUOTED = re.compile(r'^"((?:[^"]|"")+)"$')
 _JSON_PATH = re.compile(r"^(?P<col>\"(?:[^\"]|\"\")+\"|[^\s\"']+)\s*->>\s*'(?P<lit>(?:[^']|'')*)'$")
+_ROLE_ORDER = ("timestamp", "message", "level", "service", "host", "component", "trace", "order")
+
+
+def unquote_ident(text: str) -> str:
+    """`"a""b"` -> `a"b`; text that is not a quoted identifier is returned unchanged."""
+    m = _QUOTED.match(text)
+    return m.group(1).replace('""', '"') if m else text
+
+
+def resolve_column(name: str, columns: Mapping[str, str]) -> str | None:
+    """The column called `name`: exact match first, then a unique case-insensitive one."""
+    if name in columns:
+        return name
+    ci = [c for c in columns if c.lower() == name.lower()]
+    return ci[0] if len(ci) == 1 else None
 
 
 def is_temporal(type_name: str) -> bool:
@@ -51,9 +67,16 @@ def _pick(columns: Sequence[tuple[str, str]], names: tuple[str, ...], taken: set
 
 
 def propose_roles(
-    columns: Sequence[tuple[str, str]], samples: Mapping[str, Sequence[str]]
+    columns: Sequence[tuple[str, str]],
+    samples: Mapping[str, Sequence[str]],
+    given: Mapping[str, str | None] | None = None,
 ) -> tuple[FieldRoles, dict[str, str]]:
-    """Propose roles from column names, types and sample values; evidence explains each pick."""
+    """Propose roles from column names, types and sample values; evidence explains each pick.
+
+    `given` holds validated, storable expressions from the caller; they win over the proposal
+    (None clears a role), and a given message means the message need not be guessable.
+    """
+    given = given or {}
     cols = [(c, t) for c, t in columns if c not in HELPER_COLUMNS]
     taken: set[str] = set()
     picked: dict[str, str] = {}
@@ -64,13 +87,13 @@ def propose_roles(
             taken.add(col)
             picked[role] = col
             evidence[role] = f"column name '{col}'"
-    if "message" not in picked:
+    if "message" not in picked and not given.get("message"):
         text_cols = [c for c, t in cols if is_text(t) and c not in taken]
         if text_cols:
             widest = max(text_cols, key=lambda c: max((len(v) for v in samples.get(c, [])), default=0))
             picked["message"] = widest
             evidence["message"] = f"widest text column '{widest}'"
-    if "message" not in picked:
+    if "message" not in picked and not given.get("message"):
         raise UserFacingError(
             "I could not find a text column to use as the log message. Name one with roles "
             "(for example roles={'message': 'text_column'})."
@@ -82,15 +105,11 @@ def propose_roles(
         samp = list(dict.fromkeys(v for v in samples.get(col, []) if v))[:3]
         if samp:
             evidence[role] += "; e.g. " + ", ".join(repr(s) for s in samp)
-    roles = FieldRoles(**{r: quote_ident(c) for r, c in picked.items()})
-    return roles, evidence
-
-
-def _resolve_column(name: str, columns: Mapping[str, str]) -> str | None:
-    if name in columns:
-        return name
-    lower = [c for c in columns if c.lower() == name.lower()]
-    return lower[0] if len(lower) == 1 else None
+    stored: dict[str, str | None] = {r: quote_ident(c) for r, c in picked.items()}
+    for role, expr in given.items():
+        stored[role] = expr
+        evidence[role] = "given by you" if expr is not None else "removed by you"
+    return FieldRoles(**{"message": "", **stored}), evidence  # type: ignore[arg-type]
 
 
 def validate_role_expr(expr: str, columns: Mapping[str, str]) -> str:
@@ -102,15 +121,13 @@ def validate_role_expr(expr: str, columns: Mapping[str, str]) -> str:
     )
     if not text:
         raise bad
-    unquoted = text[1:-1].replace('""', '"') if len(text) > 1 and text[0] == text[-1] == '"' else text
-    col = _resolve_column(unquoted, columns)
+    col = resolve_column(unquote_ident(text), columns)
     if col is not None:
         return quote_ident(col)
     m = _JSON_PATH.match(text)
     if m:
         raw = m.group("col")
-        name = raw[1:-1].replace('""', '"') if raw.startswith('"') else raw
-        col = _resolve_column(name, columns)
+        col = resolve_column(unquote_ident(raw), columns)
         if col is not None:
             return f"{quote_ident(col)} ->> '{m.group('lit')}'"
     raise bad
@@ -140,13 +157,17 @@ def display_role(expr: str | None) -> str:
         return "absent"
 
     def unq(m: re.Match[str]) -> str:
-        name = m.group(1).replace('""', '"')
+        name = unquote_ident(m.group(0))
         return name if _SIMPLE.match(name) else m.group(0)
 
-    return re.sub(r'^"((?:[^"]|"")+)"', unq, expr)
+    return re.sub(r'^"(?:[^"]|"")+"', unq, expr)
+
+
+def role_lines(roles: FieldRoles, indent: str = "  ") -> list[str]:
+    """One line per role, absent ones listed as absent."""
+    return [f"{indent}{r}: {display_role(getattr(roles, r))}" for r in _ROLE_ORDER]
 
 
 def role_column(expr: str) -> str | None:
     """The plain column a role refers to (None for a JSON path)."""
-    m = re.fullmatch(r'"((?:[^"]|"")+)"', expr)
-    return m.group(1).replace('""', '"') if m else None
+    return unquote_ident(expr) if _QUOTED.match(expr) else None

@@ -10,13 +10,12 @@ from serenedb_extractor.db import validate_name
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.query.filters import get_zone
 from serenedb_extractor.setup.paths import ResolvedSource, resolve_source
-from serenedb_extractor.setup.roles import HELPER_COLUMNS, propose_roles, validate_roles
-from serenedb_extractor.setup.sniff import SourceInfo, human_bytes, relation_columns, sample_values, sniff
-from serenedb_extractor.tools.describe import role_lines
+from serenedb_extractor.setup.roles import HELPER_COLUMNS, propose_roles, role_lines, validate_roles
+from serenedb_extractor.setup.sniff import SourceInfo, human_bytes, readable, relation_columns, sample_values, sniff
 
 RAW_TEXT_UNAVAILABLE = (
-    "This is a raw text log (plain lines rather than structured fields). Setting up and inspecting "
-    "raw text logs isn't available yet; structured Parquet and JSON sources and existing tables work now."
+    "This looks like a raw text log (plain lines rather than structured fields), and raw text setup isn't "
+    "available yet; structured Parquet and JSON sources and existing tables work now."
 )
 
 
@@ -39,7 +38,7 @@ def inspect_source(
     ctx: AppContext, source: str, format_hint: str | None = None, line_format: str | None = None
 ) -> str:
     rs = _structured(source, ctx, format_hint)
-    info = sniff(ctx.db, rs, source)
+    info = sniff(ctx.db, rs, source)  # reports SereneDB errors in plain language
     columns = [(c, t) for c, t in info.columns if c not in HELPER_COLUMNS]
     roles, evidence = propose_roles(info.columns, sample_values(info))
     lines = [
@@ -51,7 +50,7 @@ def inspect_source(
     ]
     size = []
     if info.row_count is not None:
-        size.append(f"{info.row_count:,} rows")
+        size.append(f"{info.row_count:,} entries")
     if info.num_files:
         size.append(f"{info.num_files} file(s)")
     if info.size_bytes is not None:
@@ -88,26 +87,33 @@ def _existing(ctx: AppContext, name: str) -> LogTable | None:
         return None
 
 
-def _rerun(ctx: AppContext, lt: LogTable, source: str, roles: dict[str, Any] | None) -> str:
+def _rerun(ctx: AppContext, lt: LogTable, source: str, roles: dict[str, Any] | None, timezone: str | None) -> str:
     if source.strip() != lt.source:
         raise UserFacingError(
-            f"Log table '{lt.name}' already exists for {lt.source}. Re-running setup only corrects field roles; "
-            "pick another name for a different source."
+            f"Log table '{lt.name}' already exists for {lt.source}. Re-running setup only corrects field roles "
+            "and the time zone; pick another name for a different source."
         )
-    header = fmt.how_measured("catalog update only; no data was read")
-    if not roles:
-        return header + f"\nLog table '{lt.name}' is already set up; nothing changed. Pass roles={{...}} to correct field roles."
-    cols = dict(relation_columns(ctx.db, lt.relation, lt.source))
-    wanted = validate_roles(roles, cols)
-    changed = [r for r, v in wanted.items() if getattr(lt.roles, r) != v]
-    if not changed:
-        return header + f"\nLog table '{lt.name}': field roles already as requested; nothing changed."
-    new_roles = _merge(lt.roles, wanted)
-    ctx.store.update_roles(lt.name, new_roles)
-    return "\n".join(
-        [header, f"Log table '{lt.name}': updated field roles: {', '.join(changed)}. Nothing else changed.", "field roles now:"]
-        + role_lines(new_roles, "  ")
-    )
+    if timezone is not None:
+        get_zone(timezone)
+    changes: list[str] = []
+    new_roles = lt.roles
+    if roles:
+        with readable(lt.source):
+            cols = dict(relation_columns(ctx.db, lt.relation, lt.source))
+        wanted = validate_roles(roles, cols)
+        changed = [r for r, v in wanted.items() if getattr(lt.roles, r) != v]
+        if changed:
+            new_roles = _merge(lt.roles, wanted)
+            ctx.store.update_roles(lt.name, new_roles)
+            changes.append(f"updated field roles: {', '.join(changed)}")
+    if timezone is not None and timezone != lt.timezone:
+        ctx.store.set_timezone(lt.name, timezone)
+        changes.append(f"updated time zone: {timezone}")
+    header = fmt.how_measured("log table settings updated; no data was read")
+    if not changes:
+        return header + f"\nLog table '{lt.name}' is already set up and nothing changed. Pass roles={{...}} or timezone to correct them."
+    out = [header, f"Log table '{lt.name}': {'; '.join(changes)}. Nothing else changed.", "field roles now:"]
+    return "\n".join(out + role_lines(new_roles, "  "))
 
 
 def setup_log_table(
@@ -116,52 +122,49 @@ def setup_log_table(
     source: str,
     roles: dict[str, Any] | None = None,
     line_format: str | None = None,
-    timezone: str = "UTC",
+    timezone: str | None = None,
     build_filter_index: bool = False,
     build_search_index: bool = False,
 ) -> str:
-    try:
-        validate_name(name)
-    except ValueError as exc:
-        raise UserFacingError(str(exc)) from None
+    validate_name(name)
     existing = _existing(ctx, name)
     if existing is not None:
-        return _rerun(ctx, existing, source, roles)
-    get_zone(timezone)
+        return _rerun(ctx, existing, source, roles, timezone)
+    zone = timezone or "UTC"
+    get_zone(zone)
     rs = _structured(source, ctx, None)
     info = sniff(ctx.db, rs, source)
-    proposed, _ = propose_roles(info.columns, sample_values(info))
-    final = proposed
-    if roles:
-        wanted = validate_roles(roles, dict(info.columns))
-        final = _merge(proposed, wanted)
-    relation = _create_relation(ctx, name, info)
-    now = datetime.now(UTC).replace(tzinfo=None)
-    lt = LogTable(
-        name=name,
-        source=source.strip(),
-        source_format=rs.kind,
-        mode="in_place",
-        relation=relation,
-        roles=final,
-        filter_index_name=None,
-        search_index_name=None,
-        row_count=_row_count(ctx, info, relation),
-        timezone=timezone,
-        created_at=now,
-        roles_updated_at=now,
-    )
-    try:
-        ctx.store.create_log_table(lt)
-    except BaseException:
-        if rs.kind != "table":
-            ctx.db.write(f"DROP VIEW IF EXISTS {relation}")
-        raise
+    given = validate_roles(roles, dict(info.columns)) if roles else None
+    final, _ = propose_roles(info.columns, sample_values(info), given)
+    with readable(source, rs.remote):
+        relation = _create_relation(ctx, name, info)
+        now = datetime.now(UTC).replace(tzinfo=None)
+        lt = LogTable(
+            name=name,
+            source=source.strip(),
+            source_format=rs.kind,
+            mode="in_place",
+            relation=relation,
+            roles=final,
+            filter_index_name=None,
+            search_index_name=None,
+            row_count=_row_count(ctx, info, relation),
+            timezone=zone,
+            created_at=now,
+            roles_updated_at=now,
+        )
+        try:
+            ctx.store.create_log_table(lt)
+        except Exception:
+            if rs.kind != "table":
+                ctx.db.write(f"DROP VIEW IF EXISTS {relation}", {})
+            raise
     lines = [
-        fmt.how_measured("catalog entry created; only the source's metadata and 5 sample entries were read"),
+        fmt.how_measured("log table registered; only the source's metadata and 5 sample entries were read"),
         f"Set up log table '{name}': {_where_read(rs)}."
         + (f" View {relation} reads the source directly." if rs.kind != "table" else ""),
-        f"rows: {lt.row_count:,}" if lt.row_count is not None else "rows: not counted",
+        f"entries: {lt.row_count:,}" if lt.row_count is not None else "entries: not counted",
+        f"time zone for naive timestamps: {zone}",
         "field roles:",
         *role_lines(final, "  "),
         "The template catalog starts empty.",
@@ -177,11 +180,11 @@ def _create_relation(ctx: AppContext, name: str, info: SourceInfo) -> str:
     if info.resolved.kind == "table":
         return info.from_sql
     relation = f"extractor.lt_{name}"
-    ctx.db.write(f"CREATE OR REPLACE VIEW {relation} AS SELECT * FROM {info.from_sql}")
+    ctx.db.write(f"CREATE OR REPLACE VIEW {relation} AS SELECT * FROM {info.from_sql}", {})
     return relation
 
 
 def _row_count(ctx: AppContext, info: SourceInfo, relation: str) -> int | None:
     if info.row_count is not None:
         return int(info.row_count)
-    return int(ctx.db.read(f"SELECT count(*) FROM {relation}").scalar())
+    return int(ctx.db.read(f"SELECT count(*) FROM {relation}", {}).scalar())

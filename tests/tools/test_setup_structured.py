@@ -51,7 +51,7 @@ async def test_setup_and_describe(mcp, fx_path):
     out = await call(mcp, "describe_logs", log_table="fx")
     assert "in place" in out and "host: absent" in out and "context scopes: trace, service, everything" in out
     assert "sampled — rare values may be missing" in out and "ERROR" in out
-    assert "rows: 5,000" in out and "indexes: none" in out and "2026-03-01 00:00:00 to 2026-03-02" in out
+    assert "entries: 5,000" in out and "indexes: none" in out and "2026-03-01 00:00:00 to 2026-03-02" in out
 
 
 async def test_setup_creates_view_not_copy(mcp, fx_path, database):
@@ -126,7 +126,7 @@ async def test_remote_raw_rejected(mcp):
 
 async def test_local_raw_text_not_available_yet(mcp):
     out = await call(mcp, "setup_log_table", name="app", source="/logs/app.log")
-    assert "raw text" in out and "isn't available yet" in out
+    assert "raw text setup isn't available yet" in out
 
 
 async def test_filter_on_absent_role(mcp, fx_lt):
@@ -160,7 +160,7 @@ async def test_existing_table_source(mcp, database):
     out = await call(mcp, "setup_log_table", name="tbl", source="public.app_logs")
     assert "existing table" in out
     desc = await call(mcp, "describe_logs", log_table="tbl")
-    assert "WARN" in desc and "rows: 1" in desc
+    assert "WARN" in desc and "entries: 1" in desc
     database.write("DROP TABLE public.app_logs")
 
 
@@ -214,3 +214,84 @@ async def test_nanosecond_timestamp_column_time_range(mcp, db_url):
     out = await call(mcp, "describe_logs", log_table="otel", start="2026-03-01T00:10:00", end="2026-03-01T00:20:00")
     assert "entries in 2026-03-01 00:10:00 to 2026-03-01 00:20:00 UTC: 10" in out
     assert "error (10)" in out and "2026-03-01 00:00:00 to 2026-03-01 00:59:00" in out
+
+
+async def test_percent_and_quote_in_path(mcp, db_url):
+    path = container_parquet(db_url, "we'ird%s%d", FX)
+    out = await call(mcp, "inspect_source", source=path)
+    assert "level: level" in out
+    assert "entries: 5,000" in await call(mcp, "setup_log_table", name="odd", source=path)
+    desc = await call(mcp, "describe_logs", log_table="odd")
+    assert "time range: 2026-03-01 00:00:00 to" in desc and "from Parquet statistics" in desc and "ERROR" in desc
+    out = await call(mcp, "describe_logs", log_table="odd", start="2026-03-01", end="2026-03-02")
+    assert "ERROR" in out
+    out = await call(mcp, "describe_logs", log_table="odd", find_values={"role_or_column": "service", "like": "100%"})
+    assert "no values like '100%' in service" in out
+
+
+async def test_percent_and_quote_in_json_path_role(mcp, db_url):
+    with psycopg.connect(db_url, autocommit=True) as c:
+        c.execute(  # type: ignore[call-overload]
+            "COPY (SELECT TIMESTAMPTZ '2026-03-01 00:00:00+00' + i * INTERVAL '1 minute' AS ts, "
+            "'INFO' AS level, 'hello ' || i::VARCHAR AS message, '{\"a\'\'b%c\":\"cart\"}'::JSON AS attrs "
+            "FROM range(5) t(i)) TO '/tmp/pct.json' (FORMAT JSON)"
+        )
+    await call(mcp, "setup_log_table", name="pct", source="/tmp/pct.json")
+    role = "attrs ->> 'a''b%c'"
+    out = await call(mcp, "setup_log_table", name="pct", source="/tmp/pct.json", roles={"service": role})
+    assert "updated field roles: service" in out
+    desc = await call(mcp, "describe_logs", log_table="pct", start="2026-03-01", end="2026-03-02")
+    assert "service: attrs ->> 'a''b%c'" in desc and "cart (5)" in desc
+    out = await call(mcp, "describe_logs", log_table="pct", find_values={"role_or_column": "service", "like": "car"})
+    assert "cart (5)" in out
+
+
+async def test_message_role_given_when_it_cannot_be_guessed(mcp, db_url):
+    path = container_parquet(db_url, "nomsg", "SELECT now() AS ts, 5 AS num, 7 AS other")
+    assert "message" in (await call(mcp, "setup_log_table", name="nm", source=path)).lower()
+    assert "no log table named 'nm'" in await call(mcp, "describe_logs", log_table="nm")
+    out = await call(mcp, "setup_log_table", name="nm", source=path, roles={"message": "num"})
+    assert "message: num" in out
+    assert "message: num" in await call(mcp, "describe_logs", log_table="nm")
+
+
+async def test_bad_name_is_plain(mcp, fx_path):
+    out = await call(mcp, "setup_log_table", name="Bad Name", source=fx_path)
+    assert "not a usable name" in out and "went wrong" not in out
+
+
+async def test_sereneDB_error_is_plain_and_next_call_works(mcp, fx_path):
+    for tool_args in (("inspect_source", {}), ("setup_log_table", {"name": "gone"})):
+        out = await call(mcp, tool_args[0], source="/tmp/does-not-exist-123.parquet", **tool_args[1])
+        assert out.startswith("SereneDB could not read") and "Could not reach" not in out and "went wrong" not in out
+        assert "level: level" in await call(mcp, "inspect_source", source=fx_path)
+
+
+async def test_time_range_label_says_how_it_was_found(mcp, fx_lt, db_url):
+    assert "(from Parquet statistics)" in await call(mcp, "describe_logs", log_table="fx")
+    with psycopg.connect(db_url, autocommit=True) as c:
+        c.execute(  # type: ignore[call-overload]
+            "COPY (SELECT TIMESTAMPTZ '2026-03-01 00:00:00+00' + i * INTERVAL '1 minute' AS ts, 'hi' AS message "
+            "FROM range(5) t(i)) TO '/tmp/lbl.json' (FORMAT JSON)"
+        )
+    await call(mcp, "setup_log_table", name="lbl", source="/tmp/lbl.json")
+    out = await call(mcp, "describe_logs", log_table="lbl")
+    assert "(from a scan of the timestamp column)" in out and "(from Parquet statistics)" not in out
+
+
+async def test_rerun_updates_time_zone(mcp, fx_lt):
+    out = await call(mcp, "setup_log_table", name="fx", source=fx_lt, timezone="Asia/Tokyo")
+    assert "updated time zone: Asia/Tokyo" in out and "updated field roles" not in out
+    out = await call(mcp, "setup_log_table", name="fx", source=fx_lt)
+    assert "nothing changed" in out
+    out = await call(mcp, "setup_log_table", name="fx", source=fx_lt, timezone="Nowhere/Land")
+    assert "time zone" in out and "Nowhere/Land" in out
+
+
+async def test_user_text_says_entries_not_rows(mcp, fx_path):
+    for out in (
+        await call(mcp, "inspect_source", source=fx_path),
+        await call(mcp, "setup_log_table", name="fx", source=fx_path),
+        await call(mcp, "describe_logs", log_table="fx"),
+    ):
+        assert "rows" not in out.replace("row groups", "") and "catalog entry" not in out

@@ -45,8 +45,18 @@ class ResolvedSource:
     remote: bool = False
 
 
+def pct(sql: str) -> str:
+    """Make text that goes into a parameterised query safe for psycopg: `%` becomes `%%`.
+
+    Every query this package builds is sent with a params dict (possibly empty), so literals
+    and role expressions interpolated into the SQL text must pass through here (or sql_literal).
+    """
+    return sql.replace("%", "%%")
+
+
 def sql_literal(text: str) -> str:
-    return "'" + text.replace("'", "''") + "'"
+    """A single-quoted SQL string literal, safe for `'` and `%`."""
+    return pct("'" + text.replace("'", "''") + "'")
 
 
 def is_remote(source: str) -> bool:
