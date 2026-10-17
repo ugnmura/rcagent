@@ -247,46 +247,84 @@ def covers_text(rng: DataRange | None, tr: TimeRange) -> str:
     return f"the data covers {tr.fmt(rng.first)} to {tr.fmt(rng.last)} {tr.tz}"
 
 
-def seen_values(
-    db: Database, lt: LogTable, expr: str, where: str, params: dict[str, Any], limit: int = 8
-) -> tuple[list[str], bool]:
-    rows = db.read(
-        f"SELECT v, c FROM (SELECT ({expr})::varchar AS v, count(*) AS c FROM {lt.relation} WHERE {where} "
-        f"GROUP BY 1) ORDER BY c DESC, v LIMIT {limit + 1}",
-        params,
-    ).rows
-    vals = [str(r[0]) for r in rows if r[0] is not None]
-    return vals[:limit], len(rows) > limit
+# A diagnosis only explains an answer already given; it must never take long or replace that answer.
+DIAGNOSE_TIMEOUT_S = 10.0
+
+
+class _Unchecked(Exception):
+    """A diagnostic check was skipped (too expensive) or ran out of time; the text says which."""
+
+
+def _diag_read(db: Database, lt: LogTable, tr: TimeRange, columns: list[str], sql: str, params: dict[str, Any]) -> list[Any]:
+    """Rows of one diagnostic query, run only when an exact read of `columns` fits the cost check,
+    with a short timeout. Raises _Unchecked with the reason otherwise."""
+    from serenedb_extractor.db import QueryTimeout
+    from serenedb_extractor.query import cost
+
+    stats, decision = cost.check(db, lt, tr, columns)
+    if decision.status != "run" or not decision.plan.exact:
+        raise _Unchecked(f"that would need {cost.cost_text(cost.exact_plan(stats, columns))}")
+    try:
+        return db.read(
+            sql, params, timeout_s=min(DIAGNOSE_TIMEOUT_S, db.settings.default_timeout_s),
+            what=f"checking why nothing matched in log table {lt.name}",
+        ).rows
+    except QueryTimeout:
+        raise _Unchecked("the check ran out of time") from None
 
 
 def diagnose_empty(
     db: Database, lt: LogTable, tr: TimeRange, f: Filters, known_columns: dict[str, str]
 ) -> list[str]:
-    """Plain-language lines saying which part of the query matched nothing."""
+    """Plain-language lines saying which part of the query matched nothing. Every check is cost-checked
+    and short; a check that can't run says so instead, and never fails the answer it explains."""
+    from serenedb_extractor.db import QueryTimeout
+    from serenedb_extractor.query.stats import role_columns
+
     lines: list[str] = []
     time_sql, time_params = time_clause(lt, tr, known_columns)
+    ts_cols = role_columns(lt.roles.timestamp) if tr.bounded else []
     if tr.bounded:
         try:
             rng = data_range(db, lt, known_columns)
         except ScanTooExpensive as exc:
             return [f"No entries from {tr.describe()}; whether the data covers that period was not checked: {exc}."]
+        except QueryTimeout:
+            return [f"No entries from {tr.describe()}; whether the data covers that period was not checked (the check ran out of time)."]
         outside = rng is not None and ((tr.end is not None and tr.end <= rng.first) or (tr.start is not None and tr.start > rng.last))
         if outside or rng is None:
             return [f"No entries from {tr.describe()}: {covers_text(rng, tr)}."]
-        any_row = db.read(f"SELECT 1 FROM {lt.relation} WHERE {time_sql} LIMIT 1", time_params).rows
-        if not any_row:
-            return [f"No entries from {tr.describe()} (inside the data's span, but that period is empty): {covers_text(rng, tr)}."]
+        try:
+            any_row = _diag_read(db, lt, tr, ts_cols, f"SELECT 1 FROM {lt.relation} WHERE {time_sql} LIMIT 1", time_params)
+            if not any_row:
+                return [f"No entries from {tr.describe()} (inside the data's span, but that period is empty): {covers_text(rng, tr)}."]
+        except _Unchecked as why:
+            lines.append(f"Whether {tr.describe()} has any entries wasn't checked ({why}).")
     each_ok = True
     for i, (key, wanted) in enumerate(f.items()):
         expr = _filter_expr(lt, key, known_columns)
         clause, p = _value_clause(expr, wanted, f"d{i}")
-        hit = db.read(f"SELECT 1 FROM {lt.relation} WHERE {time_sql} AND {clause} LIMIT 1", {**time_params, **p}).rows
+        cols = ts_cols + role_columns(expr)
+        try:
+            hit = _diag_read(db, lt, tr, cols, f"SELECT 1 FROM {lt.relation} WHERE {time_sql} AND {clause} LIMIT 1", {**time_params, **p})
+        except _Unchecked as why:
+            each_ok = False
+            lines.append(f"Whether {key}{_shown(wanted)} matches anything wasn't checked ({why}).")
+            continue
         if hit:
             continue
         each_ok = False
-        vals, more = seen_values(db, lt, expr, time_sql, time_params)
-        seen = ", ".join(vals) + (", …" if more else "")
-        lines.append(f"{key}{_shown(wanted)} matched nothing" + (f" (seen: {seen})" if vals else "") + ".")
+        try:
+            seen_sql = (
+                f"SELECT v, c FROM (SELECT ({expr})::varchar AS v, count(*) AS c FROM {lt.relation} WHERE {time_sql} "
+                "GROUP BY 1) ORDER BY c DESC, v LIMIT 9"
+            )
+            rows = _diag_read(db, lt, tr, cols, seen_sql, time_params)
+            vals = [str(r[0]) for r in rows if r[0] is not None]
+            seen = ", ".join(vals[:8]) + (", …" if len(rows) > 8 else "")
+            lines.append(f"{key}{_shown(wanted)} matched nothing" + (f" (seen: {seen})" if vals else "") + ".")
+        except _Unchecked as why:
+            lines.append(f"{key}{_shown(wanted)} matched nothing (the values seen weren't listed: {why}).")
     if each_ok and f.items():
         lines.append(
             "Each filter matches entries on its own, but no entry matches all of them together"
@@ -294,4 +332,3 @@ def diagnose_empty(
             + "."
         )
     return lines
-
