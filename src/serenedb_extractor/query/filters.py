@@ -183,6 +183,8 @@ def build_where(
 
 
 def _shown(wanted: str | list[str]) -> str:
+    if isinstance(wanted, list) and len(wanted) == 1:
+        wanted = wanted[0]
     return "in (" + ", ".join(f"'{w}'" for w in wanted) + ")" if isinstance(wanted, list) else f"='{wanted}'"
 
 

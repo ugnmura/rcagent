@@ -15,6 +15,7 @@ from serenedb_extractor import format as fmt
 from serenedb_extractor.config import ConfigError, Settings
 from serenedb_extractor.context import AppContext
 from serenedb_extractor.tools import describe, setup_tools
+from serenedb_extractor.tools import survey as survey_tool
 
 SINGLE_ROLE_NOTE = (
     "Note: only a reader URL was configured, so SereneDB is not enforcing read-only limits "
@@ -103,6 +104,32 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
             start=start,
             end=end,
             timezone=timezone,
+        )
+
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))
+    async def survey(
+        log_table: str,
+        start: str | None = None,
+        end: str | None = None,
+        filters: dict[str, Any] | None = None,
+        exclude: list[str] | None = None,
+        sample_size: int | None = None,
+        limit: int | None = None,
+        timezone: str = "UTC",
+        confirmed_cost: str | None = None,
+    ) -> str:
+        """First look at a log table: the most common message templates with estimated counts, shares, top services/components and an example each. Saves templates to the catalog (new ones are flagged NEW; IDs are stable). filters={"level": "ERROR"} narrow it first; start/end bound the period."""
+        return await runner.run_tool(
+            survey_tool.survey,
+            log_table=log_table,
+            start=start,
+            end=end,
+            filters=filters,
+            exclude=exclude,
+            sample_size=sample_size,
+            limit=limit,
+            timezone=timezone,
+            confirmed_cost=confirmed_cost,
         )
 
 

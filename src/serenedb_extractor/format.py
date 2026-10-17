@@ -1,7 +1,9 @@
 """Result formatting shared by every tool."""
 
 import logging
+import math
 import re
+from dataclasses import dataclass
 from typing import TypeVar
 
 from serenedb_extractor.errors import UserFacingError
@@ -59,3 +61,50 @@ def plain_error(exc: BaseException, tool: str = "the tool") -> str:
         return _one_line(str(exc))
     logging.getLogger("serenedb_extractor").error("unexpected failure in %s", tool, exc_info=exc)
     return f"Something went wrong while running {tool}; details were logged."
+
+
+MIN_HITS = 10
+
+
+@dataclass(frozen=True)
+class Measured:
+    """A number with how it was obtained; estimates never render as bare numbers."""
+
+    value: float
+    exact: bool
+    sample_size: int | None = None
+    hits: int | None = None
+    margin_rel: float | None = None
+
+
+def estimate(hits: int, sample_size: int, population: int) -> Measured:
+    """Scale `hits` sampled matches up to `population`; the 95% relative margin is 1.96*sqrt((1-p)/(n*p))."""
+    if hits <= 0 or sample_size <= 0:
+        return Measured(0.0, False, sample_size, hits, None)
+    p = hits / sample_size
+    margin = 1.96 * math.sqrt((1 - p) / (sample_size * p))
+    return Measured(p * population, False, sample_size, hits, margin if hits >= MIN_HITS else None)
+
+
+def _sig3(value: float) -> int:
+    if value < 1000:
+        return round(value)
+    digits = int(math.log10(value)) + 1
+    return int(round(value, 3 - digits))
+
+
+def _sample_label(n: int) -> str:
+    return f"{n // 1000}k" if n >= 1000 and n % 1000 == 0 else f"{n:,}"
+
+
+def _margin_label(margin: float) -> str:
+    pct = margin * 100
+    return f"{pct:.0f}" if pct >= 1 else (f"{pct:.1f}" if pct >= 0.1 else "<0.1")
+
+
+def render(m: Measured) -> str:
+    if m.exact:
+        return f"{round(m.value):,} (exact)"
+    if m.margin_rel is None:
+        return f"too rare to estimate reliably: {m.hits or 0} sampled hits"
+    return f"≈{_sig3(m.value):,} (estimated from a {_sample_label(m.sample_size or 0)} sample, ±{_margin_label(m.margin_rel)}%)"
