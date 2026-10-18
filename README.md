@@ -1,44 +1,208 @@
 # serenedb-extractor
 
-An MCP server that lets an AI assistant (Claude Code, or any MCP client) answer questions about large
-logs in plain language: "what failed and why", "what keeps going wrong", "what should we worry about".
+An MCP server that turns log data into answers for three people who ask about the same logs:
 
-It points [SereneDB](https://serenedb.com) at your logs (local files, HTTP/S3 Parquet or JSON, or an
-existing table), groups entries that are the same message with different values into **templates**
-(`timeout after 3021ms` and `timeout after 45ms` are one problem), pulls out their **parameters**,
-follows them over time and shows what happened around individual **occurrences**. Cheap sampled
-estimates come first; exact counts follow where they are affordable, and anything expensive is
-predicted and asked about before it runs. Estimates are always labelled as estimates.
+- an **engineer** investigating an error: what failed, in which component, what happened just before and after,
+  a possible cause and the next check;
+- a **team lead** looking at recurring problems: how often, which components and teams, the trend, and what to
+  investigate first;
+- a **manager** deciding what to prioritise: a short, ranked list of observed risks with an owner and a next
+  action each.
 
-It is a **prototype**. SereneDB itself is not installed or run by this package: you run it in Docker.
+[SereneDB](https://serenedb.com) does the searching and the counting. The AI assistant (Claude Code, or any MCP
+client) picks the tools, reads the evidence they return and explains it in plain language. Every number in an
+answer cites the query that produced it.
 
-## Quick start
+```
+question ──▶ agent picks tools ──▶ SereneDB searches / counts ──▶ evidence [Q7] ──▶ answer + recommendation
+             (descriptions say       (full text, exact counts,      (queries, filters,      (facts, hypotheses,
+              when to use each)       trends, nearby events)          truncation, margins)    next steps per role)
+```
 
-1. Run SereneDB (see [Running SereneDB in Docker](#running-serenedb-in-docker)).
-2. Create the reader and writer roles and a dedicated database for the extractor, as in
-   [Reader and writer roles](#reader-and-writer-roles). Note that the reader's grant has to be **re-run after each new
-   log table**. (For a quick local try with your own logs, you can skip this and use one URL; see
-   [single-role mode](#single-role-mode).)
-3. Put the passwords in a password file rather than in the URLs (see [Passwords](#passwords)), then add the server to
-   Claude Code. **The package is not published yet**, so run it from a checkout of this repository:
+It is a prototype built for the *Making Sense of Logs* challenge (National AI Hackathon 2026, SereneDB track).
 
-   ```sh
-   claude mcp add serenedb-extractor \
-     -e SERENEDB_READER_URL=postgresql://extractor_reader@localhost:7890/logs_extractor \
-     -e SERENEDB_WRITER_URL=postgresql://extractor_writer@localhost:7890/logs_extractor \
-     -e LOGS_HOST_DIR=$HOME/logs -e LOGS_CONTAINER_DIR=/logs \
-     -- uv run --directory /path/to/serenedb-extractor serenedb-extractor
-   ```
+- **Worked investigation:** [docs/worked-investigation.md](docs/worked-investigation.md) answers one question
+  per role on the base corpus, citing every number. The full tool calls, results and queries are in
+  [docs/worked-investigation-transcript.md](docs/worked-investigation-transcript.md).
+- **How the parts fit:** [CONTEXT.md](CONTEXT.md) (glossary) and [docs/adr/](docs/adr/) (decisions).
 
-   Once the package is published, the last line becomes `-- uvx serenedb-extractor`. The minimum is one URL:
-   `claude mcp add serenedb-extractor -e SERENEDB_READER_URL=… -- uv run --directory /path/to/serenedb-extractor serenedb-extractor`.
-4. In Claude Code, `/mcp` should list `serenedb-extractor` with its tools and the three prompts. Ask something like
-   "set up the logs in ~/logs/app/*.parquet and tell me what's failing", or start from a prompt:
-   `/mcp__serenedb-extractor__engineer`, `/mcp__serenedb-extractor__team-lead` or `/mcp__serenedb-extractor__manager`.
+## Quick start (from a clean checkout)
 
-The server speaks MCP over stdio and is started by the client; there is nothing to keep running besides SereneDB.
+You need Docker, [uv](https://docs.astral.sh/uv/) and Claude Code.
 
-### Passwords
+```sh
+git clone https://github.com/ugnmura/serenedb-extractor && cd serenedb-extractor
+uv sync
+
+# 1. SereneDB, with a folder for logs mounted read-only (drop --platform on an x86-64 host)
+mkdir -p ~/logs
+docker run -d --name serenedb --platform linux/amd64 -e SERENEDB_HOST_AUTH_METHOD=trust \
+  -p 127.0.0.1:7890:7890 -v ~/logs:/logs:ro \
+  serenedb/serenedb@sha256:6d41ac6577e797289158786a2015ba8fbd6875feadb5c491518e166c011058c9
+
+# 2. the base corpus: downloads BGL + OpenStack from Zenodo (~60 MB), converts to Parquet (~30 s),
+#    sets up the log tables `bgl` and `openstack` read in place (~1 s)
+export SERENEDB_READER_URL=postgresql://postgres@localhost:7890/postgres
+export LOGS_HOST_DIR=~/logs LOGS_CONTAINER_DIR=/logs
+uv run python scripts/load_base_corpus.py
+
+# 3. connect Claude Code to the server
+claude mcp add serenedb-extractor \
+  -e SERENEDB_READER_URL=$SERENEDB_READER_URL -e SERENEDB_ALLOW_SQL=1 \
+  -e LOGS_HOST_DIR=$HOME/logs -e LOGS_CONTAINER_DIR=/logs \
+  -- uv run --directory "$PWD" serenedb-extractor
+```
+
+Then start `claude` in this folder and ask, as each role:
+
+```text
+/engineer What failed on BGL on 11 June 2005, and what happened just before?
+/team-lead Which problems keep recurring across BGL and OpenStack, and what should we look at first?
+/manager What should we prioritise from these logs?
+```
+
+`/engineer`, `/team-lead` and `/manager` are project slash commands (`.claude/commands/`). Outside this folder
+the same role prompts are served by the MCP server as `/mcp__serenedb-extractor__engineer` (and `team-lead`,
+`manager`). You can also just ask in your own words. `/mcp` lists the server with its 15 tools and 3 prompts.
+
+This quick start runs SereneDB with no passwords on 127.0.0.1 and one connection for everything ("single-role
+mode"). For anything shared, use a reader and a writer role and keep passwords out of URLs: see
+[Reader and writer roles](#reader-and-writer-roles) and [Passwords](#passwords).
+
+No mount? Pass `--docker-cp serenedb` to the loader: it copies the two Parquet files into the container
+(`/data/loghub`) and sets the tables up from there.
+
+## The base corpus and the loader
+
+`scripts/load_base_corpus.py` is the loader. It downloads, converts and sets up; every step is skipped when
+its output already exists, and `--force` redoes it.
+
+| log table | source | entries | span | columns (roles) |
+|---|---|---|---|---|
+| `bgl` | Loghub BGL (Blue Gene/L supercomputer) | 4,747,963 | 2005-06-03 to 2006-01-04 | `ts` (timestamp), `level`, `component`, `node` (host), `event_type`, `alert_label` (BGL's alert category, NULL for non-alerts), `message`, `entry_id` (line number, order) |
+| `openstack` | Loghub OpenStack (nova-api / -compute / -scheduler) | 207,636 | 2017-05-14 to 2017-05-17, with gaps | `ts`, `level`, `component`, `service`, `request_id` (trace), `tenant_id`, `user_id`, `instance_id`, `client_ip`, `http_method`, `http_path`, `status`, `response_bytes`, `latency_s`, `anomaly_instance` (one of the 4 labelled anomalous VMs), `source_file`, `message` |
+
+Parsing notes:
+- A traceback in OpenStack is logged as many lines with the same time, process and component. The loader
+  joins those lines into one entry, so a stack trace counts once (207,820 raw lines → 207,636 entries).
+- A few hundred malformed BGL lines (a missing node name, stray text) are parsed by anchoring on the event
+  type. Lines that still don't parse are kept with only their message, so whole-corpus counts stay complete.
+- Row groups hold 50,000 entries, so sampled estimates can spread across the whole period.
+
+Data licence: Loghub is research-use only and needs a citation: Zhu et al., *Loghub: A Large Collection of
+System Log Datasets for AI-driven Log Analytics*, ISSRE 2023. For BGL, also Oliner & Stearley, DSN 2007.
+
+## Team ownership
+
+`count_logs`, `search_logs`, `survey`, `trend` and `locate_occurrences` can group and filter by **team**. Team
+is a derived field: a log table gets one when ownership rules cover its components (or services). The rules are
+a fictional platform organisation, shipped in
+[`src/serenedb_extractor/data/ownership.csv`](src/serenedb_extractor/data/ownership.csv) and loaded into
+`extractor.ownership` on first start:
+
+| team | owns (BGL component / OpenStack component / TextBench service) |
+|---|---|
+| Node OS | BGL `KERNEL`: compute-node kernel, memory and cache faults, interrupts, core dumps |
+| HPC Applications | BGL `APP`: user jobs and the I/O daemon (ciod) |
+| Control System | BGL `MMCS`, `BGLMASTER`, `CMCS` |
+| Hardware Reliability | BGL `HARDWARE`, `MONITOR`, `DISCOVERY` |
+| Interconnect | BGL `LINKCARD`, `SERV_NET` |
+| Cloud API | OpenStack `nova.osapi_compute.*`, `nova.api.*`, `nova.metadata.*` |
+| Compute Service | OpenStack `nova.compute.*`, `nova.conductor.*`, `oslo_service.*` |
+| Virtualization | OpenStack `nova.virt.*` |
+| Scheduling | OpenStack `nova.scheduler.*` |
+| Identity & Access | OpenStack `keystonemiddleware.*` |
+| Storefront, Checkout & Payments, Fulfilment, Catalog & Recommendations, Platform | TextBench (OpenTelemetry demo) services |
+
+A rule is `(log_table pattern, role, value pattern, team)` with SQL `LIKE` patterns, and the most specific
+pattern wins. Every BGL and OpenStack entry maps to a team. Entries no rule covers are in team "Unassigned".
+To change the mapping, edit `extractor.ownership` (your edits are kept) or the CSV before the first start.
+
+## Tools
+
+The agent chooses tools from their descriptions, which all follow one pattern: what the tool does, when to
+use it, its inputs and what it returns. The server instructions add a "which tool for which question" guide.
+Every result starts with **How this was measured** (exact or estimated, period, filters, sample, index,
+time zone). It says when a list is cut ("showing 25 of 31,482 groups"), and it ends with an **evidence
+footer** (see below).
+
+| tool | use it for | main inputs | returns |
+|---|---|---|---|
+| `describe_logs` | orientation: tables, fields, time range, value spellings; **start here** | `log_table`, `find_values={"level": "err"}` | per table: field roles (incl. team), entry count, time range, context scopes, top values (exact when affordable) |
+| `count_logs` | **aggregation**: how many, per team / component / level / day, over one or **all** log tables | `group_by` (≤3 of team, component, level, host, service, any column, `time:<n>m\|h\|d`), `filters`, `text`, `start`/`end` | per table the total and each group's count and share; a combined line for shared values; exact unless marked |
+| `search_logs` | **full-text search**: the actual entries matching words and/or filters in a time window | `text`, `fuzzy`, `filters`, `start`/`end`, `order`, `limit` | total matches, then up to 50 entries (time, fields, team, message, template tag, occurrence ID); says when cut |
+| `get_context` | nearby events before and after one entry | `occurrence` (from search/locate), `scope` (same trace / host / everything), `window_minutes`, `before`/`after` | the entries in time order, the occurrence marked → |
+| `survey` | which kinds of messages (templates) occur, with counts | `filters`, `start`/`end`, `exclude`, `limit` | templates ranked by count with share, components, teams and an example; exact or a stated sample |
+| `locate_occurrences` | exact counts of chosen templates by where and when | `templates` (T-ids), `group_by` (team, host, `time:1h` …) | per template the total and per-group counts with example occurrence IDs |
+| `trend` | rising, falling, new or persistent: a period against the one before | `start`, `end`, `templates`, `bucket` hour\|day, `exact` | per template the counts per bucket, change, presence, components and teams; refuses to call anything new across gaps |
+| `extract_params` | the values inside a template (nodes, status codes, latencies) | `template`, `by` | top values per parameter; min / p50 / p95 / max for numbers |
+| `show_evidence` | the queries and results behind any earlier answer | `ids` (Q-handles) | the tool call, every query with its time and row count, the result |
+| `inspect_source` | look at a new source before setting it up | `source` | columns, samples, size, proposed roles |
+| `setup_log_table` | register a source (Parquet/JSON read in place, raw text copied) | `name`, `source` (several files: `part_{000..009}.parquet`), `roles` | roles, entries, files, size, setup time, index estimates |
+| `create_index` / `drop_index` | build an index for repeated questions; remove it after the investigation | `log_table`, `kind` filter\|search, `dry_run` | size and build time (estimated with `dry_run`) |
+| `rename_parameter` | a clearer name for a template parameter | `template`, `old_name`, `new_name` | the template |
+| `run_sql` | last resort: one read-only SQL statement (e.g. latency percentiles) | `sql`, `limit` | rows, cut to 50; cost-checked first |
+
+Shared inputs: `start`/`end` are ISO times (end exclusive) in `timezone` (default UTC). `filters` is
+`{"role or column": value or [values]}`. When a step would read too much, it answers **TOO EXPENSIVE** with the
+predicted cost and options; `confirmed_cost` runs it once the user agrees.
+
+## Roles: different questions, evidence and actions
+
+The three prompts (`/engineer`, `/team-lead`, `/manager`, and the MCP prompts of the same names) change what
+is gathered and what is recommended, not only how long the answer is:
+
+| | engineer | team lead | manager |
+|---|---|---|---|
+| asks | what failed, where, what happened just before and after | what recurs, how often, which teams, trend | what deserves attention first |
+| evidence | quoted messages, one node's or request's timeline, nearby events (`search_logs`, `get_context`) | exact counts by team and level, trends against the preceding period, spread over hosts (`count_logs`, `survey`, `trend`, `locate_occurrences`) | severity by team, trend, persistence, spread, volume (`count_logs`, `trend`) |
+| detail | template IDs and queries on request | template IDs at most | descriptions only |
+| recommends | one concrete next diagnostic check and what each outcome means | what to investigate first, assigned to the owning team, plus runners-up | 3-5 ranked risks, each with an owning team and a next action; a closing line on what the logs don't measure |
+
+All three share the answer rules: plain language; a `[Q]` citation after every measured number; measured
+facts, hypotheses and unknowns kept apart and labelled; estimates always given with their margin; entries
+are not incidents; nothing invented (no impact, downtime or cost unless the logs measure it); and an
+**Evidence** section at the end with the queries.
+
+## Evidence: every number traceable to a query
+
+Every tool result ends with a footer like this:
+
+```text
+Evidence [Q46]: the queries that produced this result. Cite [Q46] next to numbers taken from it; show_evidence(['Q46']) gives every query in full and the result again.
+  Q46.5 (0.08 s, 16 row(s)): SELECT k0, k1, count(*) AS n FROM (SELECT 1 AS one, coalesce(((CASE WHEN ("component")::varchar ILIKE 'KERNEL' THEN 'Node OS' …
+  plus 8 metadata lookups (columns, Parquet statistics) to plan the cost (show_evidence lists them)
+```
+
+The server records every query a tool call ran (with its parameters filled in, its time and row count),
+together with the call's arguments and result, in `extractor.evidence` under a handle (`Q46`). Answers cite
+the handle next to each number, and `show_evidence` returns the record for checking. Failed calls keep their
+evidence too, so a timeout shows which query ran for how long.
+
+## Large datasets: TextBench (remote Parquet, 1 billion rows per file)
+
+Point setup at the URL; nothing is downloaded:
+
+```text
+set up https://public-pme.s3.eu-west-3.amazonaws.com/text_bench/part_000.parquet as a log table called textbench
+```
+
+Several files are one log table: `…/text_bench/part_{000..009}.parquet` covers the first five hours (10 files,
+10 billion rows). Roles are proposed from the OpenTelemetry column names (`Timestamp`, `Body`,
+`SeverityText`, `ServiceName`, `TraceId`), and teams come from `ServiceName` through the ownership table.
+
+How setup stays fast on a remote source:
+- it reads only metadata: the Parquet footer (row count, row groups, sizes) and 5 sample entries of the plain
+  columns, leaving out the large attribute maps;
+- it estimates index sizes from the Parquet column sizes, without the trial index build it uses for local
+  sources (a trial would pull a million entries over the network);
+- its one-off metadata reads may run up to the maximum query time instead of the 60 s default;
+- the result reports how long setup took.
+
+After setup, every tool checks the predicted cost first. A big scope is answered from a **block sample** of
+whole row groups (said so, with a margin), or the tool asks before reading more.
+
+## Passwords
 
 Anything passed as `-e …URL=postgresql://user:password@…` ends up in your shell history and in Claude Code's MCP
 configuration in plain text. The extractor connects through libpq (via psycopg), so leave the password out of the URL
@@ -54,35 +218,6 @@ and use libpq's own mechanisms instead:
 - or a connection service file (`~/.pg_service.conf`, or `PGSERVICEFILE`) with a section per role, and URLs like
   `postgresql:///?service=extractor_reader`.
 
-## What you get
-
-**Tools** (the assistant uses these; you never need to name them):
-
-| tool | what it does |
-|---|---|
-| `inspect_source` | look at a file, URL or table without changing anything: columns, samples, proposed field roles |
-| `setup_log_table` | set up a log table over a source with confirmed field roles (timestamp, message, level, service, …) |
-| `create_index` | build a filter or search index, or estimate its size and build time (`dry_run`) |
-| `describe_logs` | the log tables, their roles, time range and top values; look up how a value is spelled |
-| `survey` | first look: the most common templates with estimated counts, shares, top services and an example each |
-| `locate_occurrences` | exact counts of chosen templates, grouped by any field or time bucket, with example occurrences |
-| `extract_params` | one template's parameter values: top values, and min/p50/p95/max for numbers |
-| `trend` | templates over a period compared with the preceding period: per hour/day, change, presence, components |
-| `get_context` | the entries just before and after one occurrence (same trace, else same service and host) |
-| `search_logs` | find entries by fields and/or message text |
-| `run_sql` | read-only SQL escape hatch over the extractor's tables (restricted; see [Known limits](#known-limits)) |
-| `rename_parameter` | give a template parameter a better name, permanently |
-
-**Prompts** (no arguments; the assistant infers the log table, period and focus from the conversation and asks
-for what's missing):
-
-- `engineer` — what failed, where, what happened just before and after, a possible cause (marked as a hypothesis) and the next check.
-- `team-lead` — which problems recur over a period, how often, how that changed, which components, what to investigate first.
-- `manager` — 3–5 prioritized items (severity, then trend, persistence, spread, volume), each with a next action, and
-  a closing line on what the logs do not measure (customer impact, downtime, cost).
-
-The server also sends instructions on connect: start by describing the logs, check value spellings, survey before
-investigating, never present an estimate as exact, never invent impact, respect cost questions.
 
 ## Running SereneDB in Docker
 
@@ -261,4 +396,11 @@ This is a prototype:
   process; several server processes writing the same catalog at the same time are not supported.
 - **Timings under emulation are not representative.** Size and time estimates and test timings measured with the
   amd64 image on an arm64 machine are slower than on native hardware.
-- Ownership of services or components is not tracked; who owns what is left to the reader.
+- **The ownership table is fictional** and keyed by log table name patterns (`bgl%`, `openstack%`, `textbench%`);
+  a log table with another name has no team until rules are added to `extractor.ownership`.
+- **Evidence records grow without limit** in `extractor.evidence` (one row per tool call); clear the table when it
+  gets large.
+- **Gap detection needs an affordable scan of the timestamp column.** When even that is too expensive (a huge
+  remote source over a long period), `trend` says gaps were not checked.
+- **The remote TextBench path was exercised over HTTP from a local server** (one file and a two-file
+  `part_{000..001}` source); its timings against the real S3 bucket were not measured in this version.
