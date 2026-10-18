@@ -129,7 +129,7 @@ def test_a_statement_read_in_a_zone_sets_it_and_resets_it_after(monkeypatch):
     d = Database(Settings.from_env({"SERENEDB_READER_URL": "postgresql://r@h/x"}))
     d.read("SELECT 1", zone="America/Los_Angeles")
     d.read("SELECT 2")
-    assert seen == ["SET TimeZone = 'America/Los_Angeles'", "SELECT 1", "RESET TimeZone", "SELECT 2"]
+    assert seen == [*dbmod.SESSION_SETTINGS, "SET TimeZone = 'America/Los_Angeles'", "SELECT 1", "RESET TimeZone", "SELECT 2"]
 
 
 def test_the_zone_is_reset_even_when_the_statement_fails(monkeypatch):
@@ -148,7 +148,7 @@ def test_the_zone_is_reset_even_when_the_statement_fails(monkeypatch):
         d.read("SELECT 1", zone="America/Los_Angeles")
     except dbmod.PermissionRefused:
         pass
-    assert seen == ["SET TimeZone = 'America/Los_Angeles'", "SELECT 1", "RESET TimeZone"]
+    assert seen == [*dbmod.SESSION_SETTINGS, "SET TimeZone = 'America/Los_Angeles'", "SELECT 1", "RESET TimeZone"]
 
 
 def test_preceding_period_keeps_local_midnight_across_a_dst_change():
