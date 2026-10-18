@@ -1,6 +1,6 @@
 <div align="center">
 
-# serenedb-extractor
+# RCAgent
 
 <h3>Ask your logs in plain words. Every number in the answer links to the SQL that produced it.</h3>
 
@@ -10,7 +10,7 @@
 
 </div>
 
-An MCP server that lets Claude investigate millions of log lines for three people: an **engineer** chasing an
+RCAgent (RCA plus agent) is an MCP server that lets Claude investigate millions of log lines for three people: an **engineer** chasing an
 error, a **team lead** looking for recurring problems, and a **manager** deciding what comes first. SereneDB does
 the searching and counting. Claude explains the results.
 
@@ -67,7 +67,7 @@ result. BARO is not a like-for-like contestant. Details: [docs/EVALUATION.md](do
 ## How it works
 
 <p align="center">
-  <img src="docs/img/flow.svg" alt="You ask Claude a question. Claude calls a serenedb-extractor tool, and the tool runs SQL in SereneDB. Counts come back with an evidence ID (Q46), Claude answers citing it, and every query is saved so you can check any number." width="100%">
+  <img src="docs/img/flow.svg" alt="You ask Claude a question. Claude calls an RCAgent tool, and the tool runs SQL in SereneDB. Counts come back with an evidence ID (Q46), Claude answers citing it, and every query is saved so you can check any number." width="100%">
 </p>
 
 Claude sees query results, never raw logs. Each query is saved as `Q<n>`, and `show_evidence` shows its SQL.
@@ -82,7 +82,7 @@ template keeps a stable ID (`T1`, `T2`, …) that later tools accept.
 You need Docker, [uv](https://docs.astral.sh/uv/) and Claude Code or Codex.
 
 ```sh
-git clone https://github.com/ugnmura/serenedb-extractor && cd serenedb-extractor
+git clone https://github.com/ugnmura/RCAgent && cd RCAgent
 ./scripts/up.sh            # or ./scripts/up.sh --sample: the first 50,000 lines of each log, in seconds
 ```
 
@@ -109,16 +109,16 @@ export LOGS_HOST_DIR=~/logs LOGS_CONTAINER_DIR=/logs
 uv run python scripts/load_base_corpus.py
 
 # 3a. connect Claude Code (in this folder .mcp.json already does it; from anywhere else:)
-claude mcp add serenedb-extractor \
+claude mcp add rcagent \
   -e SERENEDB_READER_URL=$SERENEDB_READER_URL -e SERENEDB_ALLOW_SQL=1 \
   -e LOGS_HOST_DIR=$HOME/logs -e LOGS_CONTAINER_DIR=/logs \
-  -- uv run --directory "$PWD" serenedb-extractor
+  -- uv run --directory "$PWD" rcagent
 
 # 3b. or connect Codex
-codex mcp add serenedb-extractor \
+codex mcp add rcagent \
   --env SERENEDB_READER_URL=$SERENEDB_READER_URL --env SERENEDB_ALLOW_SQL=1 \
   --env LOGS_HOST_DIR=$HOME/logs --env LOGS_CONTAINER_DIR=/logs \
-  -- uv run --directory "$PWD" serenedb-extractor
+  -- uv run --directory "$PWD" rcagent
 ```
 
 Then run `claude` in this folder and ask (the role commands live in `.claude/commands/`):

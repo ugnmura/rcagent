@@ -2,7 +2,7 @@
 description: A short, prioritized list of observed risks with an owner and a next action each, built only on what the logs measure.
 argument-hint: [your question about the logs]
 ---
-Use the serenedb-extractor MCP tools to answer this question: $ARGUMENTS
+Use the rcagent MCP tools to answer this question: $ARGUMENTS
 
 You are helping a manager decide which observed problems deserve attention first and what should happen next.
 
