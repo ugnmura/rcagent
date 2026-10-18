@@ -163,26 +163,85 @@ export const BenchCostShot: React.FC<{frames: number; benchmarks: Benchmarks}> =
 
 // ------------------------------------------------------------------ shot 3: root cause on microservices (RCAEval)
 
-/** One big number (right root cause, first guess), the top-three share under it, and the source in small type. */
+/** Caps line with wide tracking: the shot's subtitle and the comparison's header. */
+const Kicker: React.FC<{style?: React.CSSProperties; children: React.ReactNode}> = ({style, children}) => (
+	<div style={{fontSize: 30, fontWeight: 700, letterSpacing: '0.3em', color: color.muted, textTransform: 'uppercase', whiteSpace: 'nowrap', ...style}}>{children}</div>
+);
+
+const RCA_X = 980;
+const TRACK_W = 520;
+
+/** One comparison row: name, a track whose fill grows while its percent counts up, and the cost per answer under it. */
+const RcaRow: React.FC<{label: string; value: number; usdPer?: number; top: number; t: number; gold?: boolean}> = ({label, value, usdPer, top, t, gold}) => {
+	const grow = ramp(t, 8, 8 + GROW, ease);
+	return (
+		<div style={{position: 'absolute', left: RCA_X, top, width: 900, opacity: ramp(t, 0, FADE)}}>
+			<div style={{fontSize: 34, fontWeight: 700, color: gold ? color.accent : color.text}}>{label}</div>
+			<div style={{position: 'relative', marginTop: 14, width: TRACK_W, height: 44, borderRadius: 8, background: color.panel}}>
+				<div style={{width: (TRACK_W * value * grow) / 100, height: '100%', borderRadius: 8, background: gold ? color.accent : BAR_GREY}} />
+				<div style={{position: 'absolute', left: TRACK_W + 24, top: -6, fontSize: 44, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: gold ? color.accent : color.text}}>
+					{Math.round(value * grow)}%
+				</div>
+			</div>
+			{usdPer === undefined ? null : (
+				<div style={{marginTop: 12, fontSize: 28, color: color.muted, opacity: ramp(t, 8 + GROW, 8 + GROW + FADE)}}>
+					{usd(usdPer)} {benchContent.perAnswer}
+				</div>
+			)}
+		</div>
+	);
+};
+
+/** The headline number counts up on the left; on the right the 48-case comparison grows row by row, ours last in gold. */
 export const BenchRcaShot: React.FC<{frames: number; benchmarks: Benchmarks}> = ({frames, benchmarks: b}) => {
 	const frame = useCurrentFrame();
 	const r = b.rca;
 	if (!r) return null;
-	const second = Math.round(frames * 0.12);
+	const t = benchContent.rca;
+	const count = ramp(frame, 10, 10 + 36, ease);
+	const rowsAt = Math.min(Math.round(frames * 0.3), 90);
+	const rowGap = Math.min(Math.round(frames * 0.12), 36);
+	const rows = [
+		...(r.baro_pct === undefined ? [] : [{label: t.baro, value: r.baro_pct}]),
+		{label: t.logsOnly, value: r.logs_only_pct, usdPer: r.logs_only_usd},
+		{label: t.withMetrics, value: r.with_metrics_pct, usdPer: r.with_metrics_usd, gold: true},
+	];
+	const rowTop = (i: number) => 410 + (i + 3 - rows.length) * 140 + (i === rows.length - 1 ? 40 : 0);
 	return (
 		<AbsoluteFill style={{fontFamily: font.sans}}>
 			{r.final ? null : <PlaceholderTag />}
-			<Title opacity={ramp(frame, 0, FADE)}>{r.title.toUpperCase()}</Title>
-			<div style={{position: 'absolute', top: 280, width: '100%', textAlign: 'center', opacity: ramp(frame, 6, 6 + FADE)}}>
-				<div style={{fontSize: 200, fontWeight: 800, lineHeight: 1, letterSpacing: -5, fontVariantNumeric: 'tabular-nums', color: color.accent}}>{pct(r.ac1_pct)}</div>
-				<div style={{fontSize: 44, color: color.text, marginTop: 24}}>{benchContent.rca.ac1}</div>
+			<div style={{position: 'absolute', top: 92, width: '100%', textAlign: 'center', opacity: ramp(frame, 0, FADE)}}>
+				<div style={{fontSize: 76, fontWeight: 800, letterSpacing: -1.5, color: color.text}}>{t.title}</div>
+				<Kicker style={{marginTop: 22, fontSize: 34}}>{t.subtitle}</Kicker>
 			</div>
-			<div style={{position: 'absolute', top: 600, width: '100%', textAlign: 'center', fontSize: 38, color: color.muted, fontVariantNumeric: 'tabular-nums', opacity: ramp(frame, second, second + FADE)}}>
-				<span style={{color: color.text, fontWeight: 800}}>{pct(r.ac3_pct)}</span> {benchContent.rca.ac3}
+			<div style={{position: 'absolute', left: 90, width: 800, top: 330, textAlign: 'center'}}>
+				<div
+					style={{
+						fontSize: 210,
+						fontWeight: 800,
+						lineHeight: 1,
+						letterSpacing: -6,
+						fontVariantNumeric: 'tabular-nums',
+						color: color.accent,
+						opacity: ramp(frame, 6, 6 + FADE),
+						transform: `scale(${0.92 + 0.08 * count})`,
+					}}
+				>
+					{pct(r.ac1_pct * count)}
+				</div>
+				<div style={{fontSize: 46, color: color.text, marginTop: 40, opacity: ramp(frame, 30, 30 + FADE)}}>{t.ac1}</div>
+				<div style={{fontSize: 40, color: color.muted, marginTop: 24, fontVariantNumeric: 'tabular-nums', opacity: ramp(frame, 46, 46 + FADE)}}>
+					<span style={{color: color.text, fontWeight: 800}}>{pct(r.ac3_pct)}</span> {t.ac3}
+				</div>
+				<div style={{fontSize: 28, color: color.muted, marginTop: 36, opacity: ramp(frame, 58, 58 + FADE)}}>{t.setup}</div>
 			</div>
-			<Footer opacity={ramp(frame, 0, FADE)} size={28}>
-				{r.source}
-			</Footer>
+			<Kicker style={{position: 'absolute', left: RCA_X, top: 344, fontSize: 26, letterSpacing: '0.22em', opacity: ramp(frame, rowsAt - 12, rowsAt - 12 + FADE)}}>{t.compareTitle}</Kicker>
+			{rows.map((row, i) => (
+				<RcaRow key={row.label} {...row} top={rowTop(i)} t={frame - (rowsAt + i * rowGap)} />
+			))}
+			<div style={{position: 'absolute', left: 96, top: 960, fontSize: 26, color: color.muted, opacity: ramp(frame, rowsAt + rows.length * rowGap, rowsAt + rows.length * rowGap + FADE)}}>
+				{t.source}
+			</div>
 		</AbsoluteFill>
 	);
 };

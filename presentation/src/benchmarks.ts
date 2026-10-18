@@ -23,6 +23,8 @@ export type Rca = {
 	source: string;
 	ac1_pct: number;
 	ac3_pct: number;
+	/** BARO, RCAEval's own baseline (no LLM), on the same 48-case test set as the two rows below. */
+	baro_pct?: number;
 	logs_only_pct: number;
 	with_metrics_pct: number;
 	logs_only_usd: number;

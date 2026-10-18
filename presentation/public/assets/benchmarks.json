@@ -51,6 +51,7 @@
     "source": "RCAEval (Pham et al., WWW 2025) · held-out RE2 + RE3-SS: 116 cases · 3 runs each · Claude Sonnet",
     "ac1_pct": 96.3,
     "ac3_pct": 99.1,
+    "baro_pct": 23,
     "logs_only_pct": 56,
     "with_metrics_pct": 100,
     "logs_only_usd": 0.54,

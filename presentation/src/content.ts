@@ -283,7 +283,7 @@ export const manager = {
 
 // ---------------------------------------------------------------- 5 evidence (slide 5)
 export const evidence = {
-	title: 'Why you can trust the numbers',
+	title: 'Evidence',
 	// Handle as named in the script. The regenerated transcript numbers this call Q127 (step 23); a live session
 	// assigns its own handle, so handoff 5 replaces "Q46" with the one in the recording.
 	handle: 'Q46',
@@ -322,7 +322,18 @@ export const benchmarks = {
 	costTitle: 'Cost per answer',
 	andTop: 'with the top score:',
 	perAnswer: 'per answer',
-	rca: {ac1: 'right root cause, first guess', ac3: 'in the top three', logsOnly: 'logs only', withMetrics: 'with metric + trace tools'},
+	rca: {
+		title: 'Root cause in microservices',
+		subtitle: 'RCAEval · logs, metrics and traces',
+		ac1: 'right root cause, first guess',
+		ac3: 'in the top three',
+		setup: '116 held-out incidents (RE2 + RE3-SS) · 3 runs each',
+		compareTitle: 'First guess right · 48-case test set',
+		baro: 'BARO (RCAEval baseline, no LLM)',
+		logsOnly: 'Logs only',
+		withMetrics: 'With metric + trace tools',
+		source: 'RCAEval (Pham et al., WWW 2025) · Claude Sonnet · the test set is at its ceiling: 100% means parity with the best',
+	},
 	cues: [
 		'How did we get here? Same sealed questions, graded blind, at every step.',
 		'We started small: seven fixed tools.',
