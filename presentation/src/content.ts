@@ -121,7 +121,7 @@ export const reveal = {
 			{id: 'T83', text: 'program interrupt: <*> <*>'},
 		],
 		title: 'Templating',
-		poweredBy: 'Drain3 + SereneDB regex · ultrafast',
+		poweredBy: 'Drain3 + SereneDB regex',
 		// Loghub-2.0 (github.com/logpai/loghub-2.0), BGL row: 4,631,261 annotated logs, 320 templates
 		headline: '4.6 million lines → 320 templates',
 		note: 'Blue Gene/L log from Loghub',
@@ -319,13 +319,13 @@ export const benchmarks = {
 	andTop: 'with the top score:',
 	perAnswer: 'per answer',
 	rca: {ac1: 'right root cause, first guess', ac3: 'in the top three', logsOnly: 'logs only', withMetrics: 'with metric + trace tools'},
-	cheaper: 'cheaper per answer than',
+	cheaper: 'cheaper than',
 	cues: [
 		'How did we get here? Same sealed questions, graded blind, at every step.',
 		'We started small: seven fixed tools.',
-		'Then more tools: eighteen. A better score, but every answer cost twice as much.',
-		'Then Drain3: it finds the log templates when a question comes in, and Claude gets eight core tools plus run_sql.',
-		'The best score, and the cheapest answer: three times cheaper.',
+		'Then more tools: eighteen. No better score, and every answer cost almost twice as much.',
+		'Then Drain3: it finds the log templates when a question comes in, and Claude can also run SQL.',
+		'The best score, and the cheapest answer: about four times cheaper than eighteen tools.',
 		'And it is not only logs. On 116 held-out microservice incidents it names the right root cause first 96 percent of the time.',
 	],
 };

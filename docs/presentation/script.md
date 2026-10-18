@@ -64,9 +64,10 @@ time as you name them (pipeline, score, "+N pts"), about 4 s apart; then cost pe
 the same order. Numbers in the video come from `benchmarks.json`; say the final ones.*
 
 > How did we get here? Same sealed questions, graded blind, at every step. We started small: seven fixed tools.
-> Then more tools: eighteen. A better score, but every answer cost twice as much. Then Drain3: it finds the log
-> templates when a question comes in, and Claude gets eight core tools plus run_sql. The best score, and the
-> cheapest answer: three times cheaper. *[TODO: final scores, costs and the multiple.]*
+> Then more tools: eighteen. No better score, and every answer cost almost twice as much. Then Drain3: it finds
+> the log templates when a question comes in, and Claude can also run SQL. The best score, and the cheapest
+> answer: about four times cheaper than eighteen tools. *(Final, night run 2: 93.5% / $0.26 · 92.9% / $0.46 ·
+> 96.9% / $0.12 per answer.)*
 >
 > And it is not only logs. With metric and trace tools, on 116 held-out microservice incidents from RCAEval, it
 > names the right root cause first 96 percent of the time, and in the top three 99 percent.

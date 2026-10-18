@@ -163,7 +163,7 @@ export const FactShot: React.FC<{done?: boolean}> = ({done}) => {
 export const TemplatesShot: React.FC<{done?: boolean}> = ({done}) => {
 	const frame = useCurrentFrame();
 	const {fps} = useVideoConfig();
-	const {raw, cards, title, poweredBy, headline, note, source} = reveal.templates;
+	const {raw, cards, title, poweredBy, headline, source} = reveal.templates;
 	const mask = done ? 1 : ramp(frame, 26, 44);
 	const fold = done ? 1 : ramp(frame, 56, 86, ease);
 	const big = done ? 1 : spring({frame: frame - 96, fps, config: {damping: 200}, durationInFrames: 20});
@@ -218,7 +218,6 @@ export const TemplatesShot: React.FC<{done?: boolean}> = ({done}) => {
 			})}
 			<div style={{position: 'absolute', left: LX, top: top + 120, opacity: big, transform: `translateY(${(1 - big) * 20}px)`}}>
 				<div style={{fontSize: 76, fontWeight: 800, color: color.text, letterSpacing: -1, lineHeight: 1.1, width: 860}}>{headline}</div>
-				<div style={{fontSize: 30, color: color.muted, marginTop: 18}}>{note}</div>
 			</div>
 			<div style={{position: 'absolute', left: LX, bottom: 120, fontFamily: font.mono, fontSize: 24, color: color.muted, opacity: done ? 1 : ramp(frame, 70, 84)}}>
 				{source}
@@ -228,7 +227,8 @@ export const TemplatesShot: React.FC<{done?: boolean}> = ({done}) => {
 };
 
 // The README "How it works" diagram (docs/img/flow.svg on main), redrawn in its dark-mode colours and built step by step.
-const FD = {fg: '#e6edf3', mut: '#9198a1', ln: '#e6edf3', box: '#151b23', boxLine: '#3d444d', ev: '#d29922', evt: '#e3b341', evBox: '#2e2a1a', evBoxLine: '#9e6a03'};
+// Colours from the theme: flat panels with the line border, gold only for the evidence path, on the warm dark fill.
+const FD = {fg: color.text, mut: color.muted, ln: color.text, box: color.panel, boxLine: color.line, ev: color.accent, evt: color.accent, evBox: '#2a2215', evBoxLine: color.accent};
 const FD_BOXES = [
 	{x: 20, name: 'You'},
 	{x: 340, name: 'Claude'},
@@ -276,7 +276,7 @@ export const FlowDiagramShot: React.FC<{done?: boolean}> = ({done}) => {
 					const s = pop(boxAt(i));
 					return (
 						<g key={b.name} opacity={s} transform={`translate(${b.x + 90} 88) scale(${0.85 + 0.15 * s}) translate(${-b.x - 90} -88)`}>
-							<rect x={b.x} y={40} width={180} height={96} rx={10} fill={FD.box} stroke={i === 3 ? FD.ev : FD.boxLine} strokeWidth={i === 3 ? 2.2 : 1.5} />
+							<rect x={b.x} y={40} width={180} height={96} rx={10} fill={FD.box} stroke={FD.boxLine} strokeWidth={1.4} />
 							<text x={b.x + 90} y={95} textAnchor="middle" fill={FD.fg} fontSize={22} fontWeight={700}>
 								{b.name}
 							</text>
@@ -312,8 +312,8 @@ export const FlowDiagramShot: React.FC<{done?: boolean}> = ({done}) => {
 				})}
 				{/* templating (Drain3 + SereneDB regex) sits with the MCP tools */}
 				<g opacity={pop(tmplAt)}>
-					<line x1={750} y1={40} x2={750} y2={-14} stroke={FD.ev} strokeWidth={1.8} strokeDasharray="5 4" />
-					<rect x={660} y={-66} width={180} height={52} rx={8} fill={FD.evBox} stroke={FD.evBoxLine} strokeWidth={1.4} />
+					<line x1={750} y1={40} x2={750} y2={-14} stroke={FD.boxLine} strokeWidth={1.8} strokeDasharray="5 4" />
+					<rect x={660} y={-66} width={180} height={52} rx={8} fill={FD.box} stroke={FD.boxLine} strokeWidth={1.4} />
 					<text x={750} y={-33} textAnchor="middle" fill={FD.fg} fontSize={20} fontWeight={700}>
 						Templating
 					</text>
@@ -324,7 +324,7 @@ export const FlowDiagramShot: React.FC<{done?: boolean}> = ({done}) => {
 
 				</g>
 				<g opacity={pop(saveAt + 10)}>
-					<rect x={560} y={220} width={380} height={76} rx={10} fill={FD.evBox} stroke={FD.evBoxLine} strokeWidth={1.5} />
+					<rect x={560} y={220} width={380} height={76} rx={10} fill={FD.evBox} stroke={FD.evBoxLine} strokeWidth={1.4} />
 					<text x={750} y={265} textAnchor="middle" fill={FD.fg} fontSize={20} fontWeight={700}>
 						Evidence <tspan fontFamily={mono}>Q46</tspan>
 					</text>

@@ -378,12 +378,8 @@ export const BenchShot: React.FC<{done?: boolean; benchmarks: Benchmarks | null;
 										whiteSpace: 'nowrap',
 										overflow: 'hidden',
 										color: d.ours ? '#030405' : color.text,
-										background: complete
-											? d.ours
-												? color.accent
-												: '#3b4450'
-											: `repeating-linear-gradient(135deg, ${d.ours ? 'rgba(245,165,36,0.35)' : 'rgba(110,120,135,0.3)'} 0 14px, transparent 14px 28px)`,
-										border: complete ? 'none' : `3px solid ${d.ours ? color.accent : color.line}`,
+										background: complete ? (d.ours ? color.accent : '#3b4450') : 'transparent',
+										border: complete ? 'none' : `3px dashed ${d.ours ? color.accent : color.line}`,
 									}}
 								>
 									{complete ? `${d.score_pct}% · $${d.usd_per_answer}` : ''}

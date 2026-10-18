@@ -7,8 +7,7 @@ import {BlackFades, easeOut, FilmFacecam, Grain, ramp, SoftPlaceholder, Vignette
 import {color, font} from './theme';
 import {FPS} from './timeline';
 
-const INK = '#030405';
-/** The terminal panel: 16:9, centred, with room around it for the background to read as a stage. */
+/** The terminal panel: 16:9 on the flat dark background, a 2 px line border, no shadow. */
 /** Shifted up-left so the corner facecam (bottom right) never covers the recording, even at the end of the push-in. */
 const PANEL = {w: 1440, h: 810, radius: 22, dx: -80, dy: -40};
 const FADE_FRAMES = 10;
@@ -68,7 +67,7 @@ export const DemoScene: React.FC<{assets: ResolvedAssets; frames: number}> = ({a
 	// The screen settles once and then stays still: no push-in, so the recording reads like a real screen.
 	const scale = interpolate(s, [0, 1], [0.9, 1]);
 	return (
-		<AbsoluteFill style={{background: `radial-gradient(ellipse 80% 75% at 50% 45%, #1a2130 0%, #0b0f16 55%, ${INK} 100%)`}}>
+		<AbsoluteFill style={{backgroundColor: color.bg}}>
 			<AbsoluteFill style={{justifyContent: 'center', alignItems: 'center'}}>
 				<div
 					style={{
@@ -77,8 +76,7 @@ export const DemoScene: React.FC<{assets: ResolvedAssets; frames: number}> = ({a
 						borderRadius: PANEL.radius,
 						overflow: 'hidden',
 						background: '#0b0e13',
-						border: `1px solid ${color.line}`,
-						boxShadow: '0 30px 80px rgba(0,0,0,0.55), 0 8px 24px rgba(0,0,0,0.4)',
+						border: `2px solid ${color.line}`,
 						opacity: s,
 						transform: `translate(${PANEL.dx}px, ${PANEL.dy}px) scale(${scale})`,
 					}}

@@ -1,6 +1,6 @@
 {
-  "final": false,
-  "footnote": "PLACEHOLDER numbers, benchmarks still running · Claude Opus · 30 sealed questions · 5 runs each · blind rubric grader",
+  "final": true,
+  "footnote": "Claude Opus 5.5 · 30 sealed questions (our own) on Loghub BGL + OpenStack logs · 5 runs each · graded blind by Claude Sonnet",
   "questions": 30,
   "runs": 5,
   "designs": [
@@ -13,8 +13,8 @@
       "added": "7 fixed tools",
       "detail": "a small set of fixed query tools",
       "short": "7 fixed tools",
-      "score_pct": 88.4,
-      "usd_per_answer": 0.14,
+      "score_pct": 93.5,
+      "usd_per_answer": 0.259,
       "ours": false
     },
     {
@@ -26,8 +26,8 @@
       "added": "18 fixed tools",
       "detail": "11 more fixed query tools",
       "short": "18 fixed tools",
-      "score_pct": 93.5,
-      "usd_per_answer": 0.27,
+      "score_pct": 92.9,
+      "usd_per_answer": 0.459,
       "ours": false
     },
     {
@@ -41,21 +41,22 @@
       "detail": "Drain3 templates per question · 8 core tools + run_sql",
       "short": "Drain3 + SQL",
       "score_pct": 96.9,
-      "usd_per_answer": 0.09,
+      "usd_per_answer": 0.117,
       "ours": true
     }
   ],
   "rca": {
     "final": true,
-    "title": "Root cause on microservices",
-    "source": "RCAEval held-out set: 116 cases · 3 runs each · Claude Sonnet",
+    "title": "RCAEval: root cause in microservices",
+    "source": "RCAEval (Pham et al., WWW 2025) · held-out RE2 + RE3-SS: 116 cases · 3 runs each · Claude Sonnet",
     "ac1_pct": 96.3,
     "ac3_pct": 99.1,
     "logs_only_pct": 56,
     "with_metrics_pct": 100,
     "logs_only_usd": 0.54,
     "with_metrics_usd": 0.3,
-    "compare_note": "48-case test set",
+    "compare_note": "RCAEval 48-case test set",
     "report": "OrFrederick/serenedb-bench bench/R-OrFrederick@6038e41 results/rca/REPORT-2026-10-18.md"
-  }
+  },
+  "source": "OrFrederick/serenedb-bench bench/R-OrFrederick@6038e41 REPORT.md (night run 2, status final), headline rows 'S1 blind rubric' and 'S5 USD per answer'; 7 fixed tools = v2 @1cc16ac, 18 fixed tools = v1 @539c9ea, Drain3 + SQL = extractor @6cad141"
 }

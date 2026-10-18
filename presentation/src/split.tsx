@@ -216,7 +216,6 @@ const Card: React.FC<{i: number; role: SplitRole; pose: Pose; T: SplitTimes; fac
 				borderRadius: 24,
 				background: interpolateColors(focus, [0, 1], [CARD_BG, CARD_BG_LIT]),
 				border: `2px solid ${interpolateColors(focus, [0, 1], [color.line, color.accent])}`,
-				boxShadow: `0 ${8 + 12 * focus}px ${24 + 24 * focus}px rgba(0,0,0,${0.3 + 0.15 * focus})`,
 				opacity: Math.min(1, enter * 1.4) * clamp01(pose.dim),
 				transform: `translateY(${(1 - enter) * 40}px) scale(${pose.s})`,
 				overflow: 'hidden',
