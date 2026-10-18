@@ -3,7 +3,7 @@
 // "script" = docs/presentation/script.md. Benchmark numbers come only from public/assets/benchmarks.json.
 // Subtitle cues are the script's quotes, word for word, cut into readable pieces.
 
-export const REPO_URL = 'github.com/ugnmura/serenedb-extractor';
+export const PROJECT_NAME = 'RCAgent';
 
 // ---------------------------------------------------------------- presenters
 export type PresenterId = 'A' | 'B' | 'C';

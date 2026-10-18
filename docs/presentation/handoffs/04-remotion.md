@@ -24,7 +24,7 @@ length (see the asset contract in [README.md](README.md)).
 | 1b | Reveal | facecam full screen, then "152,229 fatal entries · one node · one evening", then the flow line (question → agent picks tool → SereneDB searches / counts → evidence → answer) | `s1-reveal.mp4` | the take |
 | 2 | Three roles (split) | three columns (Engineer / Team lead / Manager) fly in right away on B's first sentence and build **at the same time**, each question → the role's tool calls → a one-line answer + next step; then all three lit ("One log. Three answers.") with a quick evidence beat: `Q46` → "152,734 = 152,734". No step-by-step examples, no separate evidence scene. B's facecam in a corner | `s2-roles.mp4` (B, one take) | the take (about 30 s) |
 | 3 | Benchmarks | slide 4: "Same questions, graded blind", one bar per design, ours highlighted, score and cost on each bar, footnote | `s6-benchmarks.mp4` | the take |
-| 4 | Close | facecam full screen; end card with the repository URL `github.com/ugnmura/serenedb-extractor` for the last `END_CARD_SECONDS` | `s7-close.mp4` (while it is missing: `s7-close-a/b/c.mp4` back to back) | the take(s) |
+| 4 | Close | facecam full screen; end card with the project name `RCAgent` for the last `END_CARD_SECONDS` | `s7-close.mp4` (while it is missing: `s7-close-a/b/c.mp4` back to back) | the take(s) |
 | 5 | Star gag | star button with a click, gold burst and sound effects | sound effects | fixed, `STAR_SECONDS` (6 s) |
 
 The split is one scene on one take, `s2-roles.mp4` (presenter B); its length is that take's length. The three

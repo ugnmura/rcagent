@@ -1,4 +1,4 @@
-// Scene 2b: the live demo. A real Claude Code session with the serenedb-extractor MCP server (demo.mp4, already cut and
+// Scene 2b: the live demo. A real Claude Code session with the RCAgent MCP server (demo.mp4, already cut and
 // sped up, muted) shown like a screen inside the film, narrated by presenter B's take (s-demo.mp4) in the corner.
 import React from 'react';
 import {AbsoluteFill, Freeze, interpolate, OffthreadVideo, Sequence, spring, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
@@ -86,7 +86,7 @@ export const DemoScene: React.FC<{assets: ResolvedAssets; frames: number}> = ({a
 					) : (
 						<SoftPlaceholder
 							assetKey="demo"
-							note="live demo · Claude Code + serenedb-extractor"
+							note="live demo · Claude Code + RCAgent"
 							style={{width: '100%', height: '100%', borderRadius: 'inherit'}}
 						/>
 					)}

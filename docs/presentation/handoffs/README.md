@@ -36,7 +36,7 @@ exists, the project shows a labelled placeholder of the target length.
 | file | content | format | length |
 |---|---|---|---|
 | `dialog.mp3` | the five dialog lines, with pauses and a phone ring at the start | MP3, 44.1 kHz | 18–24 s |
-| `demo.mp4` | live demo between the split and the benchmarks: a real Claude Code session using the serenedb-extractor MCP server, cut and sped up by whoever records it (handoff 2); played muted | 1920×1080, H.264, no audio needed | any length ≤ the `s-demo.mp4` take (last frame holds if shorter) |
+| `demo.mp4` | live demo between the split and the benchmarks: a real Claude Code session using the RCAgent MCP server, cut and sped up by whoever records it (handoff 2); played muted | 1920×1080, H.264, no audio needed | any length ≤ the `s-demo.mp4` take (last frame holds if shorter) |
 | `s-demo.mp4` | facecam with voice: B narrates the live demo (handoff 3) | 1080p or 720p, H.264 + AAC | ≈ 15–25 s; sets the demo scene length |
 | `s1-reveal.mp4`, `s2-roles.mp4`, `s6-benchmarks.mp4`, `s7-close.mp4` | facecam with voice, one file per script section: A reveal ≤ 40 s, B the whole split ≈ 30 s, C benchmarks ≤ 15 s, all three close ≤ 25 s (handoff 3; there is no s3–s5) | 1080p or 720p, H.264 + AAC | as spoken |
 | `s7-close-a/b/c.mp4` | the close split per presenter, used only when `s7-close.mp4` is missing | same | ≤ 8 s each |
