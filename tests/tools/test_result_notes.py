@@ -9,12 +9,12 @@ from datetime import UTC, datetime
 import pytest
 import pytest_asyncio
 
-from serenedb_extractor import format as fmt
-from serenedb_extractor.context import AppContext
-from serenedb_extractor.query.filters import TimeRange
-from serenedb_extractor.tools.aggregate import _partial_buckets
-from serenedb_extractor.tools.investigate import tie_note
-from serenedb_extractor.tools.trend import _series_lines
+from rcagent import format as fmt
+from rcagent.context import AppContext
+from rcagent.query.filters import TimeRange
+from rcagent.tools.aggregate import _partial_buckets
+from rcagent.tools.investigate import tie_note
+from rcagent.tools.trend import _series_lines
 from tests.conftest import Client, _client, _reset_schema, _settings, call, container_parquet, id_of
 
 NOISE = [

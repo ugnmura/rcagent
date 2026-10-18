@@ -2,9 +2,9 @@
 
 import re
 
-from serenedb_extractor.instructions import ANSWER_RULES, SERVER_INSTRUCTIONS
-from serenedb_extractor.prompts import ENGINEER_PROMPT, MANAGER_PROMPT, PROMPTS as REGISTERED, TEAM_LEAD_PROMPT
-from serenedb_extractor.telemetry import tool_annotations
+from rcagent.instructions import ANSWER_RULES, SERVER_INSTRUCTIONS
+from rcagent.prompts import ENGINEER_PROMPT, MANAGER_PROMPT, PROMPTS as REGISTERED, TEAM_LEAD_PROMPT
+from rcagent.telemetry import tool_annotations
 from tests.conftest import Client
 
 PROMPTS = {"engineer": ENGINEER_PROMPT, "team-lead": TEAM_LEAD_PROMPT, "manager": MANAGER_PROMPT}
@@ -101,7 +101,7 @@ def test_one_shared_set_of_answer_rules():
 def test_block_sample_caveat_matches_tool_wording():
     from pathlib import Path
 
-    from serenedb_extractor.tools import investigate, lookup
+    from rcagent.tools import investigate, lookup
 
     tool_text = "".join(Path(m.__file__ or "").read_text() for m in (investigate, lookup))
     assert "block sample" in tool_text

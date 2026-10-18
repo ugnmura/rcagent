@@ -14,9 +14,9 @@ from pathlib import Path
 from mcp.shared.memory import create_connected_server_and_client_session
 from worked_investigation import Session
 
-from serenedb_extractor.config import Settings
-from serenedb_extractor.context import AppContext
-from serenedb_extractor.server import build_server
+from rcagent.config import Settings
+from rcagent.context import AppContext
+from rcagent.server import build_server
 
 OUT = Path(__file__).resolve().parents[1] / "docs" / "keystone-503-transcript.md"
 

@@ -5,7 +5,7 @@ import re
 
 import pytest
 
-from serenedb_extractor import format as fmt
+from rcagent import format as fmt
 from tests.conftest import call, container_parquet, id_of
 from tests.fixtures.data import FX
 
@@ -14,7 +14,7 @@ def test_limit_and_note():
     assert fmt.limit_and_note(None, 50, 500) == (50, None)
     import pytest
 
-    from serenedb_extractor.errors import UserFacingError
+    from rcagent.errors import UserFacingError
 
     with pytest.raises(UserFacingError):
         fmt.limit_and_note(0, 50, 500)

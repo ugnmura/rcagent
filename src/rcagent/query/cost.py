@@ -1,0 +1,264 @@
+"""The cost check: predict a query's bytes and seconds before it runs, walk the cheaper ladder
+(spec section 8), and ask when nothing fits. `decide` is pure: metadata in, decision out.
+
+Ladder: (1) columns served by an index cost nothing; (2) callers pass only the columns the query
+reads (fixed-word prefilters are the caller's job: they shrink what the regex sees, not the bytes);
+(3) exact over budget -> an estimate from a block sample sized to `sample_target`; (4) that sample
+halved down to 1/8 of its size, margin wider and said so. The first rung that fits runs; if none
+does, the answer is an ask with the predicted cost and a confirmation token. The scope (period,
+filters) is never narrowed here: that would change the question.
+"""
+
+import math
+import re
+from collections.abc import Collection, Mapping
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING, Literal
+
+from rcagent import format as fmt
+from rcagent.query.stats import WHOLE, GroupStat, ScopeStats, collect
+from rcagent.setup.sniff import human_bytes
+
+if TYPE_CHECKING:
+    from rcagent.catalog.models import LogTable
+    from rcagent.db import Database
+    from rcagent.query.filters import TimeRange
+
+# Claude's call; the benchmark (spec section 14, layer D) tunes these. Remote reads vary a lot
+# between cold and warm runs (spike section 8), so the remote figure is deliberately low.
+THROUGHPUT_BYTES_PER_S = {"remote": 100e6, "local": 500e6}
+BUDGET_SECONDS = 30.0
+CONFIRM_TOLERANCE = 2.0  # a confirmation still holds while the fresh plan is within 2x of it
+TIMEOUT_MARGIN = 2.0  # a confirmed run may take twice its prediction before it is cancelled
+HALVINGS = (1, 2, 4, 8)
+ASKED_HOW = "cost predicted from the source's metadata only; no log entries were read"
+
+_UNITS = {"B": 1.0, "KB": 1e3, "MB": 1e6, "GB": 1e9, "TB": 1e12, "PB": 1e15}
+_TOKEN = re.compile(r"^~?\s*([0-9]+(?:\.[0-9]+)?)\s*(B|KB|MB|GB|TB|PB)$", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class Plan:
+    exact: bool
+    sampling: str | None  # None: every entry in scope is read; "blocks": whole in-range row groups
+    sample_rows: int | None  # rows of the chosen row groups (None for an exact plan)
+    bytes: float
+    seconds: float
+    notes: tuple[str, ...] = ()
+    confirmed: bool = False  # running because the user approved its cost
+    groups: tuple[GroupStat, ...] = field(default_factory=tuple)  # the chosen in-range row groups
+    population_rows: int = 0  # rows of all in-range row groups (an upper bound when the range cuts one)
+    rows_exact: bool = True  # False: population_rows is only that upper bound ("up to M entries")
+
+    @property
+    def fraction(self) -> float:
+        """Share of the in-range row groups' rows that the sample holds."""
+        if not self.sampling or not self.population_rows:
+            return 1.0
+        return (self.sample_rows or 0) / self.population_rows
+
+    def cost_token(self) -> str:
+        """What the user approves: the predicted bytes, short and readable (e.g. 2.1TB)."""
+        return human_bytes(self.bytes).replace(" ", "")
+
+
+@dataclass(frozen=True)
+class Decision:
+    status: Literal["run", "ask"]
+    plan: Plan
+    message: str = ""
+
+
+def parse_token(token: str) -> float | None:
+    m = _TOKEN.match(token.strip())
+    if not m:
+        return None
+    return float(m.group(1)) * _UNITS[m.group(2).upper()]
+
+
+def _within(approved: float, fresh: float) -> bool:
+    a, f = max(approved, 1.0), max(fresh, 1.0)
+    return max(a / f, f / a) <= CONFIRM_TOLERANCE
+
+
+def cost_text(plan: Plan) -> str:
+    return f"~{human_bytes(plan.bytes)} read, {fmt.duration(plan.seconds)}"
+
+
+def seconds_for(stats: ScopeStats, nbytes: float) -> float:
+    """How long reading `nbytes` from this scope's source takes at the assumed throughput."""
+    return nbytes / THROUGHPUT_BYTES_PER_S["remote" if stats.remote else "local"]
+
+
+def run_timeout(plan: Plan, default_s: float, max_s: float) -> float:
+    """A confirmed run gets a timeout covering its estimate (with margin), clamped to the maximum."""
+    if plan.confirmed:
+        return min(max_s, max(default_s, TIMEOUT_MARGIN * plan.seconds))
+    return min(default_s, max_s)
+
+
+def _group_bytes(groups: tuple[GroupStat, ...], columns: list[str]) -> float:
+    return float(sum(g.bytes_by_column.get(c, 0) for g in groups for c in columns if c != WHOLE))
+
+
+def exact_plan(stats: ScopeStats, columns: list[str], indexed: Collection[str] = ()) -> Plan:
+    """The plan that reads every entry in scope: what an exact answer costs, whatever `decide` chose.
+    A "would need" text for a skipped exact scan quotes this, never a sample's cost."""
+    read = [c for c in columns if c not in indexed]
+    # Everything the query reads is served by an index (and nothing else is touched): it costs nothing.
+    nbytes = float(stats.bytes_for(read)) if read or not columns else 0.0
+    return Plan(
+        exact=True,
+        sampling=None,
+        sample_rows=None,
+        bytes=nbytes,
+        seconds=seconds_for(stats, nbytes),
+        population_rows=stats.rows_in_range,
+        rows_exact=stats.rows_exact,
+    )
+
+
+def decide(
+    stats: ScopeStats,
+    columns: list[str],
+    want_exact: bool,
+    sample_target: int,
+    confirmed_cost: str | None,
+    budget_s: float | None = None,
+    indexed: Collection[str] = (),
+    max_s: float | None = None,
+    index_hints: Mapping[str, str] | None = None,
+    ask_options: list[str] | None = None,
+    upper_bound: bool = False,
+) -> Decision:
+    """`columns`: what the query reads, once per scan (a column two scans read is listed twice).
+    `max_s`: the server's maximum query time; a plan predicted beyond it is never offered.
+    `ask_options`: the ask's options besides "run it anyway" (default: narrow the scope, build an index),
+    for callers whose scope can't be narrowed that way. `upper_bound`: the exact cost is only a bound
+    (worded "up to ~X")."""
+    budget = BUDGET_SECONDS if budget_s is None else budget_s  # read now, so it can be tuned/patched
+    speed = THROUGHPUT_BYTES_PER_S["remote" if stats.remote else "local"]
+    read = [c for c in columns if c not in indexed]
+    exact = exact_plan(stats, columns, indexed)
+    too_long = max_s is not None and exact.seconds > max_s
+    problem = ""
+    if confirmed_cost:
+        approved = parse_token(confirmed_cost)
+        if approved is None:
+            problem = f"'{confirmed_cost}' isn't a cost confirmation from this tool, so nothing was run."
+        elif not _within(approved, exact.bytes):
+            problem = (
+                f"The confirmed cost ({confirmed_cost}) does not match this query any more "
+                f"(it now needs {cost_text(exact)}), so it was not run."
+            )
+        elif not too_long:
+            note = f"running as confirmed: {cost_text(exact)}."
+            return Decision("run", replace(exact, confirmed=True, notes=(note,)))
+    small = stats.rows_in_range <= sample_target
+    if exact.seconds <= budget and (want_exact or small):
+        if problem:  # a confirmation that confirms nothing: it was not needed, but say it was not understood
+            note = f"confirmed_cost={confirmed_cost} was not needed and was ignored: this fits the time budget."
+            return Decision("run", replace(exact, notes=(note,)))
+        return Decision("run", exact)
+    tried: list[Plan] = []
+    groups = stats.groups if stats.can_sample else ()
+    if len(groups) >= 2:  # one row group (or a sample of all of them) is a full read, not a sample (R39)
+        base = max(2, math.ceil(stats.rows_in_range / max(sample_target, 1)))
+        for div in HALVINGS:
+            chosen = groups[:: base * div]  # always at least one in-range group
+            if len(chosen) >= len(groups):
+                continue
+            b = _group_bytes(chosen, read)
+            plan = Plan(
+                exact=False,
+                sampling="blocks",
+                sample_rows=sum(g.rows for g in chosen),
+                bytes=b,
+                seconds=b / speed,
+                groups=chosen,
+                population_rows=stats.rows_in_range,
+                rows_exact=stats.rows_exact,
+            )
+            tried.append(plan)
+            if plan.seconds <= budget:
+                notes = [
+                    f"an exact count would read ~{human_bytes(exact.bytes)} ({fmt.duration(exact.seconds)}), "
+                    "so this is estimated from a sample"
+                    if want_exact
+                    else "estimated from a sample"
+                ]
+                if div > 1:
+                    notes.append(f"the sample is 1/{div} of the usual size to stay within the time budget, so the margin is wider")
+                return Decision("run", replace(plan, notes=tuple(notes)))
+    if exact.seconds <= budget:  # an estimate was wanted but no sample is cheaper: the exact answer fits
+        return Decision("run", exact)
+    return Decision(
+        "ask",
+        exact,
+        _ask(stats, exact, tried, budget, max_s if too_long else None, problem, index_hints or {}, ask_options, upper_bound),
+    )
+
+
+def _ask(
+    stats: ScopeStats,
+    exact: Plan,
+    tried: list[Plan],
+    budget: float,
+    beyond_max: float | None,
+    problem: str,
+    index_hints: Mapping[str, str],
+    ask_options: list[str] | None = None,
+    upper_bound: bool = False,
+) -> str:
+    amount = f"reads up to ~{human_bytes(exact.bytes)}, {fmt.duration(exact.seconds)}" if upper_bound else f"needs {cost_text(exact)}"
+    reason = f"{amount} (the budget for one query is {fmt.duration(budget)})"
+    if tried:
+        cheapest = min(tried, key=lambda p: p.bytes)
+        reason += f"; even an estimate from a sample would need {cost_text(cheapest)}"
+    options = list(ask_options) if ask_options is not None else ["narrow it: a shorter period (start/end) or filters such as level or service"]
+    kind = "search" if not stats.has_search_index else ("filter" if not stats.has_filter_index else None)
+    if kind is not None and ask_options is None:  # the size is named when an estimate was made earlier (create_index dry_run, setup)
+        hint = index_hints.get(kind)
+        options.append(
+            f"build a {kind} index ({hint}; create_index builds it, create_index with dry_run re-estimates)"
+            if hint
+            else f"build a {kind} index (create_index with dry_run shows its size)"
+        )
+    if beyond_max is not None:
+        reason += (
+            f"; that is more than the server's maximum query time ({fmt.seconds_label(beyond_max)} s), "
+            "so it can't be run as one query"
+        )
+    else:
+        options.insert(0, f"run it anyway: repeat the same call with confirmed_cost={exact.cost_token()}")
+    if not options:
+        options.append("none that reads less: this source can only be read whole for this request")
+    out = fmt.refusal(reason, options)
+    return (problem + "\n" + out) if problem else out
+
+
+def check(
+    db: "Database",
+    lt: "LogTable",
+    tr: "TimeRange",
+    columns: list[str],
+    confirmed_cost: str | None = None,
+    want_exact: bool = True,
+    indexed: Collection[str] = (),
+    index_hints: Mapping[str, str] | None = None,
+) -> tuple[ScopeStats, Decision]:
+    """Collect the scope's metadata and decide, with the server's sample size and maximum query time.
+    `indexed`: columns the caller really reads from an index relation, which cost nothing.
+    `index_hints`: kind -> "≈X GB, ~N min to build" for the refusal's index option (from the estimate cache)."""
+    stats = collect(db, lt, tr)
+    s = db.settings
+    return stats, decide(
+        stats,
+        columns,
+        want_exact,
+        s.sample_size,
+        confirmed_cost,
+        indexed=indexed,
+        max_s=s.max_timeout_s,
+        index_hints=index_hints,
+    )

@@ -11,8 +11,8 @@ import pyarrow.parquet as pq
 import pytest
 import pytest_asyncio
 
-from serenedb_extractor.context import AppContext
-from serenedb_extractor.setup.rawlog import LINE_FORMATS, detect_line_format, parse_entries
+from rcagent.context import AppContext
+from rcagent.setup.rawlog import LINE_FORMATS, detect_line_format, parse_entries
 from tests.conftest import _client, _reset_schema, _settings, call
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
@@ -401,8 +401,8 @@ async def test_mounted_read_is_exact_and_numbered_like_the_host_reader(mcp_mount
 
 
 def test_large_input_states_memory_limits_mounted_or_not():
-    from serenedb_extractor.setup.localfiles import large_input_notes
-    from serenedb_extractor.setup.paths import ResolvedSource
+    from rcagent.setup.localfiles import large_input_notes
+    from rcagent.setup.paths import ResolvedSource
 
     outside = large_input_notes(ResolvedSource("raw_text", "/x.log", None, 1_100_000_000))
     mounted = large_input_notes(ResolvedSource("raw_text", "/c/x.log", "/h/x.log", 1_100_000_000))
@@ -471,10 +471,10 @@ async def test_mounted_gzip_matches_the_host_reader(mcp_mounted, mcp, db_url, tm
 
 @db
 async def test_mounted_head_drops_a_cut_last_line(mcp_mounted, db_url, database):  # noqa: ARG001
-    from serenedb_extractor.catalog.store import CatalogStore
-    from serenedb_extractor.db import Database
-    from serenedb_extractor.setup.paths import resolve_source
-    from serenedb_extractor.setup.rawcopy import HEAD_CHARS, raw_head
+    from rcagent.catalog.store import CatalogStore
+    from rcagent.db import Database
+    from rcagent.setup.paths import resolve_source
+    from rcagent.setup.rawcopy import HEAD_CHARS, raw_head
 
     for ext, comp in (("log", ""), ("log.gz", ", COMPRESSION gzip")):
         with psycopg.connect(db_url, autocommit=True) as conn:

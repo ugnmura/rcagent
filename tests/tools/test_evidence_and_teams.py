@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from serenedb_extractor import ownership
-from serenedb_extractor.setup.paths import expand_files
+from rcagent import ownership
+from rcagent.setup.paths import expand_files
 from tests.conftest import call, call_raw
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
@@ -150,7 +150,7 @@ def test_brace_ranges_expand_to_files():
 
 
 async def test_describe_samples_top_values_when_counting_is_expensive(mcp, corpus, monkeypatch):
-    from serenedb_extractor.query import cost
+    from rcagent.query import cost
 
     monkeypatch.setattr(cost, "BUDGET_SECONDS", 0.0)
     out = await call(mcp, "describe_logs", log_table="bgl")
@@ -206,7 +206,7 @@ async def test_input_checks_and_one_line_entries(mcp, corpus):
 
 
 def test_entry_text_keeps_one_line():
-    from serenedb_extractor import format as fmt
+    from rcagent import format as fmt
 
     assert fmt.entry_text("Traceback\n  File x\r\n  boom") == "Traceback ⏎   File x ⏎   boom"
 

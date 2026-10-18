@@ -3,7 +3,7 @@
 import importlib.util
 from pathlib import Path
 
-from serenedb_extractor.prompts import PROMPTS
+from rcagent.prompts import PROMPTS
 
 ROOT = Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location("gen_commands", ROOT / "scripts" / "gen_commands.py")

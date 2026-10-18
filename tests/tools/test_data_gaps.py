@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from serenedb_extractor.prompts import ENGINEER_PROMPT
+from rcagent.prompts import ENGINEER_PROMPT
 from tests.conftest import call, container_parquet, id_of
 
 pytestmark = pytest.mark.db

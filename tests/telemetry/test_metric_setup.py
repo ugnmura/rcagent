@@ -1,7 +1,7 @@
 import pytest
 
-from serenedb_extractor.telemetry.common import epoch_us_sql, tables_with_prefix
-from serenedb_extractor.telemetry.registry import TelemetryStore
+from rcagent.telemetry.common import epoch_us_sql, tables_with_prefix
+from rcagent.telemetry.registry import TelemetryStore
 from tests.conftest import call, container_parquet
 from tests.telemetry import fixtures as fx
 
@@ -32,7 +32,7 @@ async def test_registered_and_found_by_prefix(mcp, metrics_path, database):
 
     class Ctx:
         db = database
-        from serenedb_extractor.catalog.store import CatalogStore
+        from rcagent.catalog.store import CatalogStore
 
         store = CatalogStore(database)
 

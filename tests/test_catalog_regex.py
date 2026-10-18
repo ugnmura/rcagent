@@ -2,8 +2,8 @@
 Python `re` (they disagree on syntax such as POSIX classes, so a merge or a suggestion could differ
 from what the SQL counts)."""
 
-from serenedb_extractor.catalog.models import Template
-from serenedb_extractor.catalog.store import CatalogStore
+from rcagent.catalog.models import Template
+from rcagent.catalog.store import CatalogStore
 
 POSIX = "^[[:alpha:]]+ failed$"  # RE2: letters then " failed"; Python re: a nested set (FutureWarning)
 
@@ -13,7 +13,7 @@ def _t(tid: str, regex: str, template: str = "x") -> Template:
 
 
 def test_full_match_uses_re2_semantics():
-    from serenedb_extractor.catalog.store import full_match
+    from rcagent.catalog.store import full_match
 
     assert full_match(POSIX, "login failed")
     assert not full_match(POSIX, "login 3 failed")

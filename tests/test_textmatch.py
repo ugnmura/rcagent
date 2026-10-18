@@ -3,8 +3,8 @@ text with an s, a superset that ILIKE then narrows), so search_logs and count_lo
 
 import pytest
 
-from serenedb_extractor.query.templatematch import _like_pattern
-from serenedb_extractor.query.textmatch import NOT_EXACT, contains_sql, prefilter_regex
+from rcagent.query.templatematch import _like_pattern
+from rcagent.query.textmatch import NOT_EXACT, contains_sql, prefilter_regex
 
 MESSAGES = [
     "error", "ERROR", "Error: x", "an eRRor here", "errors", "err or", "no match", "", None,

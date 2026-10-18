@@ -2,8 +2,8 @@ import re
 
 import pytest
 
-from serenedb_extractor.catalog.models import Param
-from serenedb_extractor.templating.regex import compile_template
+from rcagent.catalog.models import Param
+from rcagent.templating.regex import compile_template
 
 
 def names(template: str) -> list[str]:
@@ -146,7 +146,7 @@ EDGE_LINES = ["disk full on 3 ", " disk full on 3", "disk full on 3\n", "\tdisk 
 def test_merged_template_matches_entries_with_edge_whitespace():
     import re2  # type: ignore[import-untyped]
 
-    from serenedb_extractor.templating.drain import MaskedGroup, merge_groups
+    from rcagent.templating.drain import MaskedGroup, merge_groups
 
     (m,) = merge_groups(
         [MaskedGroup("disk full on <NUM> ", 2, "disk full on 3 ", None, None), MaskedGroup("disk full on <NUM>", 1, "disk full on 4", None, None)]

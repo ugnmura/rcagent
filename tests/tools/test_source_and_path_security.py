@@ -7,11 +7,11 @@ from pathlib import Path
 import psycopg
 import pytest
 
-from serenedb_extractor.config import Settings
-from serenedb_extractor.errors import UserFacingError
-from serenedb_extractor.ownership import Rule, parse_csv
-from serenedb_extractor.setup.paths import resolve_source
-from serenedb_extractor.tools.ownership_tools import _csv_input, _export, _rule_from
+from rcagent.config import Settings
+from rcagent.errors import UserFacingError
+from rcagent.ownership import Rule, parse_csv
+from rcagent.setup.paths import resolve_source
+from rcagent.tools.ownership_tools import _csv_input, _export, _rule_from
 from tests.conftest import call
 
 db = pytest.mark.db
@@ -246,8 +246,8 @@ async def test_export_through_the_tool_takes_overwrite(mcp, tmp_path: Path):
 def test_a_wildcard_that_could_match_a_hidden_folder_is_refused():
     import pytest
 
-    from serenedb_extractor.errors import UserFacingError
-    from serenedb_extractor.setup.paths import check_private_path
+    from rcagent.errors import UserFacingError
+    from rcagent.setup.paths import check_private_path
 
     for p in ("/Users/me/*ssh/id.log", "/Users/me/?aws/x.csv", "/Users/me/[.]x/y.log", "/Users/me/x/[.]y.log"):
         with pytest.raises(UserFacingError, match="hidden|only in the file name|start with a wildcard"):
@@ -268,8 +268,8 @@ async def test_export_through_a_linked_folder_is_checked_after_the_link(mcp, tmp
 def test_wildcards_only_in_the_file_name():
     import pytest
 
-    from serenedb_extractor.errors import UserFacingError
-    from serenedb_extractor.setup.paths import check_private_path
+    from rcagent.errors import UserFacingError
+    from rcagent.setup.paths import check_private_path
 
     with pytest.raises(UserFacingError, match="only in the file name"):
         check_private_path("/Users/me/lo*/x.log", "/Users/me/lo*/x.log")
@@ -279,9 +279,9 @@ def test_wildcards_only_in_the_file_name():
 def test_final_round_path_rules():
     import pytest
 
-    from serenedb_extractor.config import Settings
-    from serenedb_extractor.errors import UserFacingError
-    from serenedb_extractor.setup.paths import check_private_path, resolve_source
+    from rcagent.config import Settings
+    from rcagent.errors import UserFacingError
+    from rcagent.setup.paths import check_private_path, resolve_source
 
     s = Settings.from_env({"SERENEDB_READER_URL": "postgresql://x@localhost/db"})
     with pytest.raises(UserFacingError, match="scheme"):
@@ -298,8 +298,8 @@ def test_final_round_path_rules():
 def test_rule_fields_and_export_cells_are_safe():
     import pytest
 
-    from serenedb_extractor import ownership
-    from serenedb_extractor.errors import UserFacingError
+    from rcagent import ownership
+    from rcagent.errors import UserFacingError
 
     for bad in ("STJ\nPROBE", "A‮B", "x​y"):
         with pytest.raises(UserFacingError):

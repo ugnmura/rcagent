@@ -29,11 +29,11 @@ write-up in [docs/worked-investigation.md](worked-investigation.md).
 
 | Brief requirement | Where it is met |
 |---|---|
-| An agent answers at least one question for each of the three roles, with relevant evidence, an appropriate level of detail and a next step suited to that role | [Worked investigation: one corpus, three roles](../README.md#worked-investigation-one-corpus-three-roles) (README) and [docs/worked-investigation.md](worked-investigation.md) sections 1 to 3 (engineer, team lead, manager). Role workflows in [src/serenedb_extractor/prompts.py](../src/serenedb_extractor/prompts.py), served as MCP prompts and as `/engineer`, `/team-lead`, `/manager` |
+| An agent answers at least one question for each of the three roles, with relevant evidence, an appropriate level of detail and a next step suited to that role | [Worked investigation: one corpus, three roles](../README.md#worked-investigation-one-corpus-three-roles) (README) and [docs/worked-investigation.md](worked-investigation.md) sections 1 to 3 (engineer, team lead, manager). Role workflows in [src/rcagent/prompts.py](../src/rcagent/prompts.py), served as MCP prompts and as `/engineer`, `/team-lead`, `/manager` |
 | Uses both retrieval and aggregation on BGL and OpenStack. At least one answer uses full-text search | `search_logs` (text search with time and field filters) and `get_context` (nearby events) in the engineer answer. See [Tools](#tools) |
 | At least one aggregation over the whole base corpus, such as counts by dataset or mapped team. State the data scope and any filters | `count_logs` with no `log_tables` counts every log table, by team, component or level, in the team-lead and manager answers. Every result starts with "How this was measured" (period, filters, exact or sampled) |
 | Practical recommendations supported by the findings: what to check or fix first and why | "Next check" (engineer), "Investigate first" (team lead) and the ranked risks with owner and action (manager), in the [README](../README.md#worked-investigation-one-corpus-three-roles) and [docs/worked-investigation.md](worked-investigation.md) |
-| Exposes search and summary capabilities as tools whose descriptions explain purpose, inputs and outputs | [Tools](#tools). The docstrings in [src/serenedb_extractor/server.py](../src/serenedb_extractor/server.py) follow "Use when / Inputs / Returns" |
+| Exposes search and summary capabilities as tools whose descriptions explain purpose, inputs and outputs | [Tools](#tools). The docstrings in [src/rcagent/server.py](../src/rcagent/server.py) follow "Use when / Inputs / Returns" |
 | Shows its work: executed queries and results behind every claim. Hypotheses and limitations labelled | [Evidence](#evidence-records) (`[Qn]` handles, `show_evidence`). Full queries and results in [docs/worked-investigation-transcript.md](worked-investigation-transcript.md). "Possible cause (hypothesis, not established by the logs)" and "What the data does and does not establish" in the worked investigation (README and docs) |
 | Search returns a limited set of entries, aggregation returns calculated counts or trends, and truncation is indicated | Default limits per tool, exact totals with "showing N of M" and a "cut" marker, `trend` per period. See [Tools](#tools) |
 | Runs from a clean checkout: connect to SereneDB, load the base data, start the agent workflow | [Quick start](../README.md#quick-start) and [The base corpus and the loader](#the-base-corpus-and-the-loader) |
@@ -210,7 +210,7 @@ derived: a log table has it when ownership rules cover its components (or servic
 
 **The shipped rules are a stand-in.** We did not have the challenge's own team-ownership table, so a fresh database
 starts with a fictional platform organisation we wrote,
-[`src/serenedb_extractor/data/ownership.csv`](../src/serenedb_extractor/data/ownership.csv). Answers and
+[`src/rcagent/data/ownership.csv`](../src/rcagent/data/ownership.csv). Answers and
 `describe_logs` say when a team comes from the stand-in. Replace it with the supplied table (see below).
 
 | team | owns (BGL component / OpenStack component / TextBench service) |

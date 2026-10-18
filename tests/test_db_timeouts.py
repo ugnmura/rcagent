@@ -5,9 +5,9 @@ from typing import Any
 
 import psycopg
 
-from serenedb_extractor import db as dbmod
-from serenedb_extractor.config import Settings
-from serenedb_extractor.db import Database
+from rcagent import db as dbmod
+from rcagent.config import Settings
+from rcagent.db import Database
 
 
 def _db() -> Database:

@@ -4,9 +4,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from serenedb_extractor.catalog.models import CandidateTemplate
-from serenedb_extractor.catalog.store import CatalogStore
-from serenedb_extractor.templating.regex import compile_template
+from rcagent.catalog.models import CandidateTemplate
+from rcagent.catalog.store import CatalogStore
+from rcagent.templating.regex import compile_template
 from tests.conftest import call, container_parquet, id_of, ids_in
 from tests.fixtures.data import FX
 
@@ -148,7 +148,7 @@ FROM range(10) t(i) ORDER BY i
 async def test_survey_first_and_last_seen_on_a_nanosecond_timestamp(mcp, db_url, database):
     from datetime import datetime
 
-    from serenedb_extractor.catalog.store import CatalogStore
+    from rcagent.catalog.store import CatalogStore
 
     path = container_parquet(db_url, "survey_ns", NS)
     setup = await call(mcp, "setup_log_table", name="ns", source=path)

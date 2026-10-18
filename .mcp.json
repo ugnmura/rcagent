@@ -1,8 +1,8 @@
 {
   "mcpServers": {
-    "serenedb-extractor": {
+    "rcagent": {
       "command": "uv",
-      "args": ["run", "--directory", ".", "serenedb-extractor"],
+      "args": ["run", "--directory", ".", "rcagent"],
       "env": {
         "SERENEDB_READER_URL": "${SERENEDB_READER_URL:-postgresql://postgres@localhost:7890/postgres}",
         "SERENEDB_WRITER_URL": "${SERENEDB_WRITER_URL:-}",

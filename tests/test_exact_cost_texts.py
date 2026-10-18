@@ -5,12 +5,12 @@ from datetime import UTC, datetime
 
 import pytest
 
-from serenedb_extractor.catalog.models import FieldRoles, LogTable
-from serenedb_extractor.config import Settings
-from serenedb_extractor.query import cost, coverage, filters
-from serenedb_extractor.query.filters import ScanTooExpensive, TimeRange
-from serenedb_extractor.query.stats import GroupStat, ScopeStats
-from serenedb_extractor.tools import describe
+from rcagent.catalog.models import FieldRoles, LogTable
+from rcagent.config import Settings
+from rcagent.query import cost, coverage, filters
+from rcagent.query.filters import ScanTooExpensive, TimeRange
+from rcagent.query.stats import GroupStat, ScopeStats
+from rcagent.tools import describe
 
 GB = 1_000_000_000
 STATS = ScopeStats(

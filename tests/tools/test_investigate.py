@@ -4,10 +4,10 @@ import re
 
 import pytest
 
-from serenedb_extractor.catalog.models import FieldRoles, LogTable
-from serenedb_extractor.errors import UserFacingError
-from serenedb_extractor.query import cost
-from serenedb_extractor.tools.investigate import parse_group_by
+from rcagent.catalog.models import FieldRoles, LogTable
+from rcagent.errors import UserFacingError
+from rcagent.query import cost
+from rcagent.tools.investigate import parse_group_by
 from tests.conftest import call, container_parquet, id_of
 from tests.fixtures.data import FX
 from tests.fixtures.data_t13 import BIG
@@ -128,9 +128,9 @@ async def big_surveyed(mcp, db_url):
 
 
 def _force_sampling(monkeypatch, database):
-    from serenedb_extractor.catalog.store import CatalogStore
-    from serenedb_extractor.query.filters import TimeRange
-    from serenedb_extractor.query.stats import collect
+    from rcagent.catalog.store import CatalogStore
+    from rcagent.query.filters import TimeRange
+    from rcagent.query.stats import collect
 
     lt = CatalogStore(database).get_log_table("big")
     exact_bytes = collect(database, lt, TimeRange()).bytes_for(["message", "ts", "message", "ts"])
@@ -148,9 +148,9 @@ async def test_estimate_fallback_labelled(mcp, big_surveyed, database, monkeypat
 
 
 def test_prefilter_ands_all_fixed_words():
-    from serenedb_extractor.catalog.models import Template
-    from serenedb_extractor.templating.regex import compile_template
-    from serenedb_extractor.tools.investigate import _prefilter
+    from rcagent.catalog.models import Template
+    from rcagent.templating.regex import compile_template
+    from rcagent.tools.investigate import _prefilter
 
     text = "timeout after <NUM>ms calling payments"
     c = compile_template(text)
@@ -196,8 +196,8 @@ async def test_edge_whitespace_entries_are_counted_and_excluded(mcp, db_url):
 # tagging and counting still match entries with trailing whitespace, and a survey writes the
 # rebuilt regex back.
 async def test_old_style_catalog_regex_still_matches_edge_whitespace(mcp, db_url, database):
-    from serenedb_extractor.templating.masking import EDGE_WHITESPACE
-    from serenedb_extractor.templating.regex import compile_template
+    from rcagent.templating.masking import EDGE_WHITESPACE
+    from rcagent.templating.regex import compile_template
 
     path = container_parquet(db_url, "edge_ws_old", EDGE_WS)
     await call(mcp, "setup_log_table", name="edgeold", source=path)

@@ -1,6 +1,6 @@
 import pytest
 
-from serenedb_extractor.templating.words import (
+from rcagent.templating.words import (
     collapse_lists,
     constant_word,
     list_covering,

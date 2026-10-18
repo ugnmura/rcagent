@@ -145,7 +145,7 @@ async def build_catalog(
     env = {**os.environ, "SERENEDB_READER_URL": dsn}
     env.pop("SERENEDB_WRITER_URL", None)
     params = StdioServerParameters(
-        command="uv", args=["run", "--directory", repo, "serenedb-extractor"], env=env
+        command="uv", args=["run", "--directory", repo, "rcagent"], env=env
     )
     errlog = sys.stderr if verbose else open(os.devnull, "w")  # noqa: SIM115, ASYNC230
     async with stdio_client(params, errlog=errlog) as (r, w), ClientSession(r, w) as s:

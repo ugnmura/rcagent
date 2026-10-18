@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from serenedb_extractor.errors import UserFacingError
-from serenedb_extractor.ownership import Rule, parse_csv
-from serenedb_extractor.tools.ownership_tools import _csv_input, _export
+from rcagent.errors import UserFacingError
+from rcagent.ownership import Rule, parse_csv
+from rcagent.tools.ownership_tools import _csv_input, _export
 from tests.conftest import call
 from tests.tools.test_ownership_tools import corpus  # noqa: F401 (fixture)
 

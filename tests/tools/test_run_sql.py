@@ -2,12 +2,12 @@
 
 import pytest
 
-from serenedb_extractor.config import Settings
-from serenedb_extractor.context import AppContext
-from serenedb_extractor.errors import UserFacingError
-from serenedb_extractor.query import cost
-from serenedb_extractor.query.guard import SqlRejected, check_read_only
-from serenedb_extractor.tools.sql import execute_user_sql
+from rcagent.config import Settings
+from rcagent.context import AppContext
+from rcagent.errors import UserFacingError
+from rcagent.query import cost
+from rcagent.query.guard import SqlRejected, check_read_only
+from rcagent.tools.sql import execute_user_sql
 from tests.conftest import _client, call, container_parquet, token_of
 from tests.fixtures.data import FX
 
@@ -297,7 +297,7 @@ def test_reg_prefix_names_that_are_not_types_still_work():
 def test_refusals_name_the_real_reason():
     import pytest
 
-    from serenedb_extractor.query.guard import SqlRejected, check_read_only
+    from rcagent.query.guard import SqlRejected, check_read_only
 
     with pytest.raises(SqlRejected, match="one statement at a time"):
         check_read_only("SELECT 1; DROP TABLE extractor.lt_x")
@@ -310,7 +310,7 @@ def test_refusals_name_the_real_reason():
 def test_nested_growing_string_functions_are_refused():
     import pytest
 
-    from serenedb_extractor.query.guard import SqlRejected, check_read_only
+    from rcagent.query.guard import SqlRejected, check_read_only
 
     with pytest.raises(SqlRejected, match="nest at most one"):
         check_read_only("SELECT replace(replace(message, 'a', 'aaaa'), 'a', 'aaaa') FROM extractor.lt_x")
@@ -323,7 +323,7 @@ def test_nested_growing_string_functions_are_refused():
 def test_growing_functions_are_limited_across_the_statement():
     import pytest
 
-    from serenedb_extractor.query.guard import SqlRejected, check_read_only
+    from rcagent.query.guard import SqlRejected, check_read_only
 
     with pytest.raises(SqlRejected, match="at most 2"):
         check_read_only(
@@ -337,7 +337,7 @@ def test_growing_functions_are_limited_across_the_statement():
 def test_concatenation_and_literal_limits():
     import pytest
 
-    from serenedb_extractor.query.guard import SqlRejected, check_read_only
+    from rcagent.query.guard import SqlRejected, check_read_only
 
     check_read_only("SELECT level || ' ' || component || ': ' || message FROM extractor.lt_x")
     with pytest.raises(SqlRejected, match="at most 6"):
@@ -349,7 +349,7 @@ def test_concatenation_and_literal_limits():
 def test_explain_is_checked_like_its_query():
     import pytest
 
-    from serenedb_extractor.query.guard import SqlRejected, check_read_only
+    from rcagent.query.guard import SqlRejected, check_read_only
 
     for q in (
         "EXPLAIN SELECT 1 AS x WHERE length(repeat('x', 200000000)) = 0",

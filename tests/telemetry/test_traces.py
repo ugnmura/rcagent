@@ -2,8 +2,8 @@ import re
 
 import pytest
 
-from serenedb_extractor.telemetry.registry import TelemetryStore
-from serenedb_extractor.telemetry.trace_setup import numeric_status_scheme
+from rcagent.telemetry.registry import TelemetryStore
+from rcagent.telemetry.trace_setup import numeric_status_scheme
 from tests.conftest import call, container_parquet
 from tests.telemetry import fixtures as fx
 

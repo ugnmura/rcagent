@@ -8,7 +8,7 @@ import re
 import psycopg
 import pytest
 
-from serenedb_extractor.query import stats
+from rcagent.query import stats
 from tests.conftest import call, call_raw
 
 pytestmark = pytest.mark.db
@@ -125,10 +125,10 @@ async def test_columns_and_metadata_are_reused_until_the_file_changes(mcp, group
 
 def test_row_groups_without_statistics_are_never_ruled_out():
     """A row group without timestamp statistics may hold anything: the listing reads on (here: the whole scope)."""
-    from serenedb_extractor.catalog.models import FieldRoles, LogTable
-    from serenedb_extractor.db import Rows
-    from serenedb_extractor.query.stats import GroupStat
-    from serenedb_extractor.tools import lookup
+    from rcagent.catalog.models import FieldRoles, LogTable
+    from rcagent.db import Rows
+    from rcagent.query.stats import GroupStat
+    from rcagent.tools import lookup
 
     sent: list[str] = []
 

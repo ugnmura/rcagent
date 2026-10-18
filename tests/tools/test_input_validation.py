@@ -8,15 +8,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from serenedb_extractor.catalog.models import FieldRoles, LogTable
-from serenedb_extractor.catalog.store import CatalogStore
-from serenedb_extractor.errors import UserFacingError
-from serenedb_extractor.query.filters import MAX_FILTER_VALUES, Filters
-from serenedb_extractor.query.guard import SqlRejected, check_read_only
-from serenedb_extractor.query.occurrence import decode_occurrence
-from serenedb_extractor.setup.indexes import spec
-from serenedb_extractor.tools.lookup import FUZZY_NEEDS_INDEX
-from serenedb_extractor.tools.sql import _timeout
+from rcagent.catalog.models import FieldRoles, LogTable
+from rcagent.catalog.store import CatalogStore
+from rcagent.errors import UserFacingError
+from rcagent.query.filters import MAX_FILTER_VALUES, Filters
+from rcagent.query.guard import SqlRejected, check_read_only
+from rcagent.query.occurrence import decode_occurrence
+from rcagent.setup.indexes import spec
+from rcagent.tools.lookup import FUZZY_NEEDS_INDEX
+from rcagent.tools.sql import _timeout
 from tests.conftest import call, container_parquet
 from tests.fixtures.data import FX
 

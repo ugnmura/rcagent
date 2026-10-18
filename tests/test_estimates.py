@@ -1,6 +1,6 @@
 import math
 
-from serenedb_extractor.format import Measured, estimate, render
+from rcagent.format import Measured, estimate, render
 
 
 def test_estimate_margin_formula():

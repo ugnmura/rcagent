@@ -1,14 +1,14 @@
 import pytest
 
-from serenedb_extractor.errors import UserFacingError
-from serenedb_extractor.telemetry.common import (
+from rcagent.errors import UserFacingError
+from rcagent.telemetry.common import (
     check_prefix,
     coverage_lines,
     fmt_us,
     guess_epoch_unit,
     parse_window,
 )
-from serenedb_extractor.telemetry.stats import change
+from rcagent.telemetry.stats import change
 
 
 def test_step_change_is_scaled_by_mad():

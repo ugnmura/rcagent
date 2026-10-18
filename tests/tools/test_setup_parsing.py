@@ -8,12 +8,12 @@ from pathlib import Path
 import psycopg
 import pytest
 
-from serenedb_extractor.config import Settings
-from serenedb_extractor.errors import UserFacingError
-from serenedb_extractor.setup.paths import resolve_source
-from serenedb_extractor.setup.rawlog import parse_entries
-from serenedb_extractor.setup.roles import propose_roles, struct_fields
-from serenedb_extractor.tools.describe import top_value_lines
+from rcagent.config import Settings
+from rcagent.errors import UserFacingError
+from rcagent.setup.paths import resolve_source
+from rcagent.setup.rawlog import parse_entries
+from rcagent.setup.roles import propose_roles, struct_fields
+from rcagent.tools.describe import top_value_lines
 from tests.conftest import call
 
 db = pytest.mark.db

@@ -2,8 +2,8 @@
 
 import pytest
 
-from serenedb_extractor.query import cost
-from serenedb_extractor.tools import lookup
+from rcagent.query import cost
+from rcagent.tools import lookup
 from tests.conftest import call, container_parquet, first_occurrence, token_of
 from tests.fixtures.data import FX
 
@@ -41,10 +41,10 @@ async def fxrg_lt(mcp, db_url):
 
 def _search_seconds(database, name: str, start=None, end=None, text=None) -> float:
     """What search_logs predicts for an exact run, at the current throughput."""
-    from serenedb_extractor.catalog.store import CatalogStore
-    from serenedb_extractor.query.filters import Filters, parse_time_range
-    from serenedb_extractor.query.stats import collect
-    from serenedb_extractor.tools.describe import known_columns
+    from rcagent.catalog.store import CatalogStore
+    from rcagent.query.filters import Filters, parse_time_range
+    from rcagent.query.stats import collect
+    from rcagent.tools.describe import known_columns
 
     lt = CatalogStore(database).get_log_table(name)
     tr = parse_time_range(start, end)
@@ -78,8 +78,8 @@ async def test_search_filters_order_and_cut(mcp, fx_lt):
 
 
 async def test_search_occurrence_id_finds_the_entry_again(mcp, fx_lt, database):
-    from serenedb_extractor.catalog.store import CatalogStore
-    from serenedb_extractor.query.occurrence import decode_occurrence
+    from rcagent.catalog.store import CatalogStore
+    from rcagent.query.occurrence import decode_occurrence
 
     out = await call(mcp, "search_logs", log_table="fx", text="disk full", limit=1)
     occ = first_occurrence(out)
@@ -187,8 +187,8 @@ async def test_search_copied_table_uses_entry_ids(mcp, tmp_path, database):
     import shutil
     from pathlib import Path
 
-    from serenedb_extractor.catalog.store import CatalogStore
-    from serenedb_extractor.query.occurrence import decode_occurrence
+    from rcagent.catalog.store import CatalogStore
+    from rcagent.query.occurrence import decode_occurrence
 
     src = Path(__file__).resolve().parent.parent / "fixtures" / "generic_with_stacktrace.log"
     path = tmp_path / "app.log"
@@ -203,9 +203,9 @@ async def test_search_copied_table_uses_entry_ids(mcp, tmp_path, database):
 
 
 async def test_collect_prices_only_row_groups_in_the_range(mcp, fxrg_lt, database):
-    from serenedb_extractor.catalog.store import CatalogStore
-    from serenedb_extractor.query.filters import parse_time_range
-    from serenedb_extractor.query.stats import collect
+    from rcagent.catalog.store import CatalogStore
+    from rcagent.query.filters import parse_time_range
+    from rcagent.query.stats import collect
 
     lt = CatalogStore(database).get_log_table("fxrg")
     whole = collect(database, lt, parse_time_range(None, None))
@@ -229,8 +229,8 @@ def test_foreign_cancel_is_not_called_a_timeout(database):
 
     import psycopg
 
-    from serenedb_extractor.db import QueryTimeout
-    from serenedb_extractor.errors import UserFacingError
+    from rcagent.db import QueryTimeout
+    from rcagent.errors import UserFacingError
 
     pid = database.read("SELECT pg_backend_pid()", {}).scalar()
     url = database.settings.reader_url
@@ -252,7 +252,7 @@ def test_foreign_cancel_is_not_called_a_timeout(database):
 def test_failed_cancel_falls_back_to_closing_and_is_a_timeout(database, monkeypatch):
     import psycopg
 
-    from serenedb_extractor.db import QueryTimeout
+    from rcagent.db import QueryTimeout
 
     def broken(self, timeout=None):
         raise psycopg.OperationalError("cancel refused")

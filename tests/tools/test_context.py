@@ -79,15 +79,15 @@ async def test_survey_and_get_context_both_registered(mcp_no_db):
 
 
 def _template(tid: str, regex: str):
-    from serenedb_extractor.catalog.models import Template
+    from rcagent.catalog.models import Template
 
     return Template("t", tid, tid, regex, [], "", None, None, None, None)
 
 
 def test_tags_trailing_whitespace_and_first_match():
-    from serenedb_extractor.query.tags import tag_entries
+    from rcagent.query.tags import tag_entries
 
-    from serenedb_extractor.templating.regex import compile_template
+    from rcagent.templating.regex import compile_template
 
     # The template's own regex allows edge whitespace (C1); tagging has no special case of its own.
     ts = [_template("T1", compile_template("disk full on <*>").regex), _template("T2", r".*")]
@@ -95,7 +95,7 @@ def test_tags_trailing_whitespace_and_first_match():
 
 
 def test_tags_bad_regex_is_logged_not_silent(caplog):
-    from serenedb_extractor.query.tags import tag_entries
+    from rcagent.query.tags import tag_entries
 
     with caplog.at_level("WARNING"):
         assert tag_entries([_template("T9", "(unclosed"), _template("T2", "x")], ["x"]) == ["T2"]
@@ -105,7 +105,7 @@ def test_tags_bad_regex_is_logged_not_silent(caplog):
 def test_tags_linear_time_on_long_line_with_adjacent_placeholders():
     import time
 
-    from serenedb_extractor.query.tags import tag_entries
+    from rcagent.query.tags import tag_entries
 
     t = _template("T1", r"(\S+)(\S+)(\S+)(\S+)(\S+)x")
     start = time.monotonic()
@@ -137,10 +137,10 @@ async def rg_lt(mcp, db_url):
 def _budget_one_group(monkeypatch, database):
     """A budget of 1.5 row groups of the shown columns (10 s; well under the 600 s maximum): a full
     scan doesn't fit, one row group does."""
-    from serenedb_extractor.catalog.store import CatalogStore
-    from serenedb_extractor.query import cost
-    from serenedb_extractor.query.filters import TimeRange
-    from serenedb_extractor.query.stats import collect
+    from rcagent.catalog.store import CatalogStore
+    from rcagent.query import cost
+    from rcagent.query.filters import TimeRange
+    from rcagent.query.stats import collect
 
     lt = CatalogStore(database).get_log_table("rg")
     st = collect(database, lt, TimeRange())
@@ -182,10 +182,10 @@ async def glob_lt(mcp, db_url):
 
 
 async def test_lookup_and_window_both_over_budget_take_one_token(mcp, glob_lt, database, monkeypatch):
-    from serenedb_extractor.catalog.store import CatalogStore
-    from serenedb_extractor.query import cost
-    from serenedb_extractor.query.filters import TimeRange
-    from serenedb_extractor.query.stats import collect
+    from rcagent.catalog.store import CatalogStore
+    from rcagent.query import cost
+    from rcagent.query.filters import TimeRange
+    from rcagent.query.stats import collect
 
     lt = CatalogStore(database).get_log_table("globctx")
     full = collect(database, lt, TimeRange()).bytes_for(["ts", "message", "service"])
