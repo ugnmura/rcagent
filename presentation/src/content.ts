@@ -318,7 +318,7 @@ export type SplitFact = {text: string; count?: string; ring?: boolean; tone?: 'a
 export type SplitRole = {role: string; icon: 'probe' | 'loop' | 'bars'; question: string; answer: SplitFact; facts: SplitFact[]};
 const persist = teamLead.persistent; // WI §2 [step 21]: 22 of 31 days, not falling
 export const split = {
-	header: {ask: 'One log. Three questions.', answer: 'One log. Three answers.'},
+	header: {ask: 'Three people ask about the same logs', answer: 'Each of them gets a different answer'},
 	roles: [
 		{
 			role: 'Engineer',
@@ -345,12 +345,12 @@ export const split = {
 		{
 			role: 'Manager',
 			icon: 'bars',
-			question: 'What first?',
+			question: 'What should we fix first?',
 			answer: {text: `#1 job launches +${manager.cards[0].counter}%`, count: `+${manager.cards[0].counter}%`}, // WI §3 item 1
 			facts: [
-				{text: `${manager.cards.length} ranked risks, each owned`, count: String(manager.cards.length)}, // WI §3
+				{text: `${manager.cards.length} ranked risks, each with an owner`, count: String(manager.cards.length)}, // WI §3
 				{text: `#1 job launches +${manager.cards[0].counter}%`, count: `+${manager.cards[0].counter}%`}, // WI §3 item 1
-				{text: 'No invented downtime or cost', tone: 'muted'},
+				{text: 'No made-up downtime or cost figures', tone: 'muted'},
 			],
 		},
 	] as SplitRole[],
