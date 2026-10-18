@@ -331,6 +331,19 @@ export const benchmarks = {
 	],
 };
 
+// ---------------------------------------------------------------- optional features (slide before the close)
+// The most important rows of the README's "Optional features" table, numbers as measured there.
+export const features = {
+	title: 'Beyond the required workflow',
+	items: [
+		{name: 'Polished MCP server', what: '26 tools, role prompts /engineer /team-lead /manager', stat: '96.9% on 30 held-out questions'},
+		{name: 'Huge datasets', what: 'TextBench read in place from S3, nothing downloaded', stat: '1B rows searched in 2.32 s'},
+		{name: 'Agent-managed indexes', what: 'create_index with a dry-run estimate, drop_index after', stat: 'repays itself after ~5 searches'},
+		{name: 'Logs, metrics and traces', what: 'one moment across all three, per service', stat: 'root cause first in 96.3% of 348 trials'},
+		{name: 'Access control', what: 'read-only reader role, writer owns only its schema', stat: 'enforced by SereneDB itself'},
+	],
+};
+
 // ---------------------------------------------------------------- 7 close (slide 7)
 export const close = {
 	title: 'Back to that phone call',

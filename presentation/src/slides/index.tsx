@@ -5,7 +5,7 @@ import {SlideFrame, type Mode} from '../components';
 import {DONE_TIMES, SplitBoard} from '../split';
 import {FactShot, FlowDiagramShot, TemplatesShot, TitleCaption} from '../shots';
 import {BenchShot, CitationShot, LogoPair, SnapShot} from '../shots2';
-import {close, coldOpen, demo, evidence, intro, PROJECT_NAME, reveal} from '../content';
+import {close, coldOpen, demo, evidence, features, intro, PROJECT_NAME, reveal} from '../content';
 import {color, font} from '../theme';
 
 const Mono: React.FC<{children: React.ReactNode; style?: React.CSSProperties}> = ({children, style}) => (
@@ -113,7 +113,7 @@ export const SlideDemo: React.FC<{mode: Mode}> = () => (
 	</AbsoluteFill>
 );
 
-// ------------------------------------------------------------------ slides 8–10 (evidence, benchmarks, close)
+// ------------------------------------------------------------------ slides 9–12 (evidence, benchmarks, features, close)
 // Each page is the final, fully built state of its video shots, with a title for reading on its own.
 
 const Region: React.FC<{style: React.CSSProperties; children: React.ReactNode}> = ({style, children}) => (
@@ -139,6 +139,22 @@ export const Slide6: React.FC<{mode: Mode; benchmarks: Benchmarks | null}> = ({b
 	</AbsoluteFill>
 );
 
+// The README's most important optional features, one row each with its measured number.
+export const SlideFeatures: React.FC<{mode: Mode}> = ({mode}) => (
+	<SlideFrame mode={mode} title={features.title}>
+		<div style={{flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 44}}>
+			{features.items.map((f) => (
+				<div key={f.name} style={{display: 'flex', alignItems: 'baseline', gap: 40}}>
+					<div style={{width: 600, flexShrink: 0, fontSize: 46, fontWeight: 700}}>{f.name}</div>
+					<div style={{flex: 1, fontSize: 32, color: color.muted, lineHeight: 1.3}}>{f.what}</div>
+					<div style={{width: 560, flexShrink: 0, fontSize: 34, fontWeight: 700, color: color.accent, textAlign: 'right'}}>{f.stat}</div>
+				</div>
+			))}
+		</div>
+		<Brand />
+	</SlideFrame>
+);
+
 export const Slide7: React.FC<{mode: Mode}> = ({mode}) => (
 	<SlideFrame mode={mode} title={close.title}>
 		<div style={{flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 26}}>
@@ -157,6 +173,6 @@ export const Slide7: React.FC<{mode: Mode}> = ({mode}) => (
 	</SlideFrame>
 );
 
-export const SLIDES = [SlideTitle, SlideCall, SlideCounter, SlideFact, SlideTemplating, SlideHowItWorks, SlideSplit, SlideDemo, Slide5, Slide6, Slide7] as const;
+export const SLIDES = [SlideTitle, SlideCall, SlideCounter, SlideFact, SlideTemplating, SlideHowItWorks, SlideSplit, SlideDemo, Slide5, Slide6, SlideFeatures, Slide7] as const;
 
 export const Blank: React.FC = () => <AbsoluteFill style={{backgroundColor: color.bg}} />;
