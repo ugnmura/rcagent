@@ -25,8 +25,11 @@ Drop files into `public/assets/` under the exact names of the asset contract
 | `s1-reveal.mp4` … `s7-close.mp4` | facecam + narration audio | scenes 1b–7 |
 | `engineer.mp4`, `team-lead.mp4`, `manager.mp4` | screen recordings (muted) | nothing; they fill the slot after the slide |
 | `benchmarks.json` | slide 6 numbers | – |
+| `music.mp3` (optional) | music bed under the whole talk: loops, low, ducked under every voice, fades in and out | nothing |
 
 A missing file shows a pink, labelled **PLACEHOLDER** of its target length, so everything renders with no assets.
+The one exception is `music.mp3`: missing means silence, with no placeholder. Its levels (`MUSIC_VOLUME`: open
+and ducked) are in `src/music.tsx`.
 A file that exists but cannot be read fails the check and the render.
 
 ## Preview, check, render
@@ -36,7 +39,17 @@ npm run studio   # Remotion Studio: compositions Talk and Slide1..Slide7
 npm run check    # type-check, then print each scene's length and the total (fails over 4:59)
 npm run render   # out/video.mp4
 npm run slides   # out/slides/SlideN.png and out/slides.pdf
+node scripts/stills.mjs name:frame ...   # single frames of the talk as out/name.png
 ```
+
+## Look (film style)
+
+Scenes 1a, 1b and 2 are in film style: one idea per shot (one big number or a phrase of at most six words), slow
+push-in on every shot, hard cuts on beats, fades to black between acts, film grain and vignette, letterbox bars
+(2.39:1) in the cold open, a chapter card before each role. Narration subtitles are off there; only the AI
+dialog of the cold open keeps subtitles (in the bottom letterbox bar), because those voices have no facecam.
+Primitives live in `src/film.tsx`, shots in `src/shots.tsx`, the scenes in `src/scenes.tsx`. The slides PDF
+renders each page from the final, fully built state of its shots. Scenes 3–7 still use the earlier slide look.
 
 ## Tune (handoff 5)
 
