@@ -140,6 +140,11 @@ def resolve_source(source: str, settings: Settings, format: str | None = None) -
         if hint is None:
             raise UserFacingError(f"Unknown format '{format}'. Use parquet, json, csv, table or raw_text.")
     remote = is_remote(src)
+    if not remote and re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", src) and not re.match(r"^[A-Za-z]:[\\/]", src):
+        raise UserFacingError(
+            f"{src} starts with a scheme ({src.split(':', 1)[0]}:) that is not a supported remote source; give a plain "
+            "file path, or an http(s), s3, gs, az, r2 or hf URL."
+        )
     looks_like_path = remote or "/" in src or src.startswith(".") or _kind_from_name(src) is not None
     kind = hint or _kind_from_name(src.split("?", 1)[0] if remote else src)
     if kind is None:
@@ -161,6 +166,13 @@ def resolve_source(source: str, settings: Settings, format: str | None = None) -
     local = host_path or db_path  # outside the mount the path is a file on this machine, if it exists
     if os.path.isfile(local):
         size = os.path.getsize(local)
+    elif host_path is None and settings.source_dirs and not any(
+        db_path == d or db_path.startswith(d + "/") for d in settings.source_dirs
+    ):
+        raise UserFacingError(
+            f"{src} is not read: SereneDB reads files in place only from {', '.join(settings.source_dirs)} "
+            "(SERENEDB_SOURCE_DIRS)."
+        )
     elif host_path is None and _local_matches(db_path):
         raise UserFacingError(
             f"{src} names several files on this machine. SereneDB can't see this machine's files, and only a single "
@@ -258,7 +270,12 @@ def check_private_path(path: str, source: str, *, verb: str = "read") -> None:
         for f in expand_files(cand):
             parts = [p for p in posixpath.normpath(f).split("/") if p not in ("", ".", "..")]
             # A part starting with a wildcard could match a hidden name (*ssh matches .ssh): treat it as hidden.
-            hidden = next((p for p in parts if p.startswith((".", "*", "?", "["))), None)
+            # A folder starting with a wildcard is refused earlier; the file name may start with * or ? (e.g. *.csv)
+            # but not with "[", which could spell out a dot.
+            hidden = next(
+                (p for i, p in enumerate(parts) if p.startswith(".") or (p.startswith("[") and i == len(parts) - 1)),
+                None,
+            )
             if hidden:
                 raise UserFacingError(
                     f"{source.strip()} is not {verb}: it is in a hidden folder or is a hidden file ({hidden}). Hidden "

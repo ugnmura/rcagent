@@ -233,6 +233,7 @@ def _check(sql: str) -> Checked:
     inner = _split_explain(root)
     explain = inner is not None
     if inner is not None:
+        _check_tokens(inner)  # the tokenizer saw EXPLAIN's query as one string: check the query itself too
         root = _parse(inner)
         text = inner.rstrip(";").strip()
     if not isinstance(root, (*_QUERY_ROOTS, exp.Subquery)):

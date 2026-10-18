@@ -52,10 +52,12 @@ CHANGES_DDL = """CREATE TABLE IF NOT EXISTS extractor.ownership_changes (
 
 _CACHE_S = 30.0
 MAX_NAME_CHARS = 80
-_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+# Control characters, line and paragraph separators, and invisible format characters (zero-width, text-direction
+# overrides) that make a name display differently from what it is.
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]")
 
 
-def clean_name(value: str, what: str = "team") -> str:
+def clean_name(value: str, what: str = "team", max_chars: int | None = None) -> str:
     """A team (or area) name as stored: stripped, on one line, at most 80 characters. Line breaks and other
     control characters would break the exported CSV and every listing, so they are refused, as is a longer name."""
     text = value.strip()
@@ -63,9 +65,10 @@ def clean_name(value: str, what: str = "team") -> str:
         raise UserFacingError(
             f"The {what} name {text[:40]!r} contains a line break or another control character; give it on one line."
         )
-    if len(text) > MAX_NAME_CHARS:
+    limit = max_chars or MAX_NAME_CHARS
+    if len(text) > limit:
         raise UserFacingError(
-            f"The {what} name '{text[:40]}...' is {len(text)} characters long; at most {MAX_NAME_CHARS} are allowed."
+            f"The {what} name '{text[:40]}...' is {len(text)} characters long; at most {limit} are allowed."
         )
     return text
 
@@ -274,6 +277,7 @@ def parse_csv(text: str, log_table: str | None, role: str | None, source: str) -
             continue
         try:
             team, area = clean_name(team), clean_name(get(area_h), "area") or None
+            table, value = clean_name(table, "log table", 200), clean_name(value, "component", 200)
         except UserFacingError as exc:
             raise UserFacingError(f"Line {n} of the CSV: {exc}") from None
         rules.append(Rule(table, r_role, value, team, area, source))
@@ -285,12 +289,17 @@ def parse_csv(text: str, log_table: str | None, role: str | None, source: str) -
     return rules, notes
 
 
+def _cell(value: str) -> str:
+    """A CSV cell a spreadsheet will not run as a formula: a leading = + - @ gets a ' in front."""
+    return "'" + value if value[:1] in ("=", "+", "-", "@") else value
+
+
 def to_csv(rules: list[Rule]) -> str:
     out = io.StringIO()
     w = csv.writer(out, lineterminator="\n")
     w.writerow([*CSV_COLUMNS, "source"])
     for r in sorted(rules, key=lambda r: (r.log_table, r.role, r.team, r.pattern)):
-        w.writerow([r.log_table, r.role, r.pattern, r.team, r.area or "", r.source or ""])
+        w.writerow([_cell(v) for v in (r.log_table, r.role, r.pattern, r.team, r.area or "", r.source or "")])
     return out.getvalue()
 
 

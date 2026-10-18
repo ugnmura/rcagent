@@ -344,3 +344,18 @@ def test_concatenation_and_literal_limits():
         check_read_only("SELECT " + " || ".join(["message"] * 8) + " FROM extractor.lt_x")
     with pytest.raises(SqlRejected, match="longer than 1000"):
         check_read_only("SELECT '" + "x" * 1200 + "' FROM extractor.lt_x")
+
+
+def test_explain_is_checked_like_its_query():
+    import pytest
+
+    from serenedb_extractor.query.guard import SqlRejected, check_read_only
+
+    for q in (
+        "EXPLAIN SELECT 1 AS x WHERE length(repeat('x', 200000000)) = 0",
+        "EXPLAIN SELECT 1 AS x WHERE current_setting('threads')::int > 1000",
+        "EXPLAIN SELECT replace(replace(message, 'a', 'b'), 'b', 'c') FROM extractor.lt_x",
+    ):
+        with pytest.raises(SqlRejected):
+            check_read_only(q)
+    check_read_only("EXPLAIN SELECT count(*) FROM extractor.lt_x")

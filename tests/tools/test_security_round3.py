@@ -249,7 +249,7 @@ def test_a_wildcard_that_could_match_a_hidden_folder_is_refused():
     from serenedb_extractor.errors import UserFacingError
     from serenedb_extractor.setup.paths import check_private_path
 
-    for p in ("/Users/me/*ssh/id.log", "/Users/me/?aws/x.csv", "/Users/me/[.]x/y.log", "/Users/me/x/*.log"):
+    for p in ("/Users/me/*ssh/id.log", "/Users/me/?aws/x.csv", "/Users/me/[.]x/y.log", "/Users/me/x/[.]y.log"):
         with pytest.raises(UserFacingError, match="hidden|only in the file name"):
             check_private_path(p, p)
 
@@ -274,3 +274,33 @@ def test_wildcards_only_in_the_file_name():
     with pytest.raises(UserFacingError, match="only in the file name"):
         check_private_path("/Users/me/lo*/x.log", "/Users/me/lo*/x.log")
     check_private_path("/data/loghub/part_*.parquet", "/data/loghub/part_*.parquet")
+
+
+def test_final_round_path_rules():
+    import pytest
+
+    from serenedb_extractor.config import Settings
+    from serenedb_extractor.errors import UserFacingError
+    from serenedb_extractor.setup.paths import check_private_path, resolve_source
+
+    s = Settings.from_env({"SERENEDB_READER_URL": "postgresql://x@localhost/db"})
+    with pytest.raises(UserFacingError, match="scheme"):
+        resolve_source("file:///etc/x.csv", s)
+    check_private_path("/logs/*.csv", "/logs/*.csv")  # a wildcard file name is fine
+    limited = Settings.from_env({"SERENEDB_READER_URL": "postgresql://x@localhost/db", "SERENEDB_SOURCE_DIRS": "/data/logs"})
+    with pytest.raises(UserFacingError, match="SERENEDB_SOURCE_DIRS"):
+        resolve_source("/tmp/elsewhere_r3.csv", limited)
+    assert resolve_source("/data/logs/a_r3.csv", limited).db_path == "/data/logs/a_r3.csv"
+
+
+def test_rule_fields_and_export_cells_are_safe():
+    import pytest
+
+    from serenedb_extractor import ownership
+    from serenedb_extractor.errors import UserFacingError
+
+    for bad in ("STJ\nPROBE", "A‮B", "x​y"):
+        with pytest.raises(UserFacingError):
+            ownership.clean_name(bad, "component", 200)
+    out = ownership.to_csv([ownership.Rule("bgl", "component", "KERNEL", '=HYPERLINK("x")')])
+    assert "'=HYPERLINK" in out

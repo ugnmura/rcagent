@@ -303,6 +303,8 @@ def _csv_input(csv_path: str | None, csv_text: str | None) -> tuple[str, str]:
             )
         return csv_text or "", "pasted CSV"
     path = Path(csv_path or "").expanduser()
+    if not path.is_absolute():
+        raise UserFacingError(f"Give the full path of the CSV file (e.g. /Users/me/teams.csv), not '{csv_path}'.")
     if not path.name.lower().endswith(IMPORT_EXT):
         raise UserFacingError(
             f"{csv_path} is not read: an ownership table is read only from a file ending in "
@@ -344,7 +346,7 @@ def _rule_from(d: dict[str, Any], log_table: str | None, role: str | None, sourc
             "Give one rule per component, e.g. rules=[{\"log_table\": \"bgl\", \"component\": \"APP\", \"team\": \"X\"}, ...]."
         )
     value_key = next((k for k in ("pattern", "value", "component", "service") if low.get(k)), None)
-    table = str(low.get("log_table") or low.get("dataset") or log_table or "").strip()
+    table = own.clean_name(str(low.get("log_table") or low.get("dataset") or log_table or ""), "log table", 200)
     r_role = str(low.get("role") or (value_key if value_key in own.OWNER_ROLES else None) or role or "component").lower()
     team = own.clean_name(str(low.get("team") or low.get("owner") or ""))
     if not table or value_key is None or (need_team and not team):
@@ -353,7 +355,7 @@ def _rule_from(d: dict[str, Any], log_table: str | None, role: str | None, sourc
     if r_role not in own.OWNER_ROLES:
         raise UserFacingError(f"role must be one of {', '.join(own.OWNER_ROLES)}; got '{r_role}'.")
     area = own.clean_name(str(low.get("area") or low.get("description") or ""), "area") or None
-    return Rule(table, r_role, str(low[value_key]).strip(), team, area, source)
+    return Rule(table, r_role, own.clean_name(str(low[value_key]), value_key, 200), team, area, source)
 
 
 def _change_lines(change: own.Change) -> list[str]:
