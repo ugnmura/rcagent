@@ -158,6 +158,52 @@ def _coverage(rng: DataRange | None, checked: bool, a: datetime, b: datetime, tr
     return Coverage("partial", f"{span}, only part of {what}")
 
 
+def _seen_buckets(
+    db: Any, lt: LogTable, cols: dict[str, str], tr_all: TimeRange, cur_start: datetime, unit: Bucket, tz: str,
+    timeout: float,
+) -> dict[int, set[datetime]] | None:
+    """Per period (0 = preceding, 1 = current) the buckets holding at least one entry of any kind, from the
+    timestamp column alone; None when even that scan does not fit the cost check."""
+    ts_cols = role_columns(lt.roles.timestamp)
+    _, decision = cost.check(db, lt, tr_all, ts_cols)
+    if decision.status != "run" or not decision.plan.exact:
+        return None
+    where, params = time_clause(lt, tr_all, cols)
+    cur_sql, cur_params = time_clause(lt, TimeRange(start=cur_start), cols, prefix="c")
+    rows = db.read(
+        f"SELECT DISTINCT date_trunc({sql_literal(unit)}, {_ts_local(lt, cols, 'UTC' if unit == 'hour' else tz)}) AS bucket, "
+        f"CASE WHEN {cur_sql} THEN 1 ELSE 0 END AS p FROM {lt.relation} WHERE {where}",
+        {**params, **cur_params},
+        timeout_s=timeout,
+        what=f"checking {lt.name} for gaps",
+        how_to_narrow=NARROW,
+    ).rows
+    out: dict[int, set[datetime]] = {0: set(), 1: set()}
+    for raw, p in rows:
+        out[int(p)].add(_key(raw, unit))
+    return out
+
+
+def _gap_cover(
+    cover: Coverage, buckets: list[datetime], seen: set[datetime], whole: Any, unit: Bucket, what: str, zone: Any
+) -> Coverage:
+    """Downgrade a full coverage when whole buckets inside the period have no entries at all."""
+    if cover.status != "full":
+        return cover
+    empty = [b for b in buckets if whole(b) and b not in seen]
+    if not empty:
+        return cover
+    n, total = len(empty), len(buckets)
+    if n == total:
+        return Coverage("none", f"the logs have no entries at all in {what} (a gap in the data)")
+    shown = ", ".join(_label(b, zone, unit) for b in empty[:3]) + (", …" if n > 3 else "")
+    return Coverage(
+        "partial",
+        f"the logs have no entries at all in {n} of the {total} {unit}s of {what} ({shown}): a gap in the data, "
+        "so it is only partly covered",
+    )
+
+
 def _ts_local(lt: LogTable, cols: dict[str, str], tz: str) -> str:
     """The timestamp as a naive local time in `tz` (an expression for SELECT, never for a WHERE)."""
     expr = role_sql(lt, "timestamp")
@@ -403,6 +449,7 @@ def trend(
         sql, params = _build_sql(lt, cols, tr_all, cur.start, f, chosen, plan, unit, timezone)
         timeout = cost.run_timeout(plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
         rows = db.read(sql, params, timeout_s=timeout, what=f"counting trends in {lt.name}", how_to_narrow=NARROW).rows
+        seen = _seen_buckets(db, lt, cols, tr_all, cur.start, unit, timezone, timeout)
     series, entries, block_hits = _gather(rows, bool(plan.sampling), len(chosen), unit)
     sampled_blocks = range(len(plan.groups)) if plan.sampling else range(1)
 
@@ -434,6 +481,15 @@ def trend(
             cmp_prev = prev_buckets[-n_cmp:]
             if all(complete(b, prev) for b in cmp_prev):
                 truncated = (cmp_cur, cmp_prev)
+    # A gap in the logs (whole buckets with no entry at all) inside the data's span: those buckets are not
+    # covered, so the comparison is limited there and nothing is called new across the gap.
+    if seen is not None:
+        prev_cover = _gap_cover(prev_cover, prev_buckets, seen[0], lambda b: complete(b, prev), unit, "the preceding period", zone)
+        cur_cover = _gap_cover(cur_cover, cur_buckets, seen[1], lambda b: complete(b, cur), unit, "this period", zone)
+        if truncated is not None and (set(truncated[1]) - seen[0] or set(truncated[0]) - seen[1]):
+            truncated = None
+    else:
+        notes.append("whether the logs have gaps (hours or days with no entries at all) was not checked: too expensive")
     over = ""
     if truncated is not None:
         n_cmp = len(truncated[0])

@@ -142,3 +142,17 @@ async def test_describe_samples_top_values_when_counting_is_expensive(mcp, corpu
     monkeypatch.setattr(cost, "BUDGET_SECONDS", 0.0)
     out = await call(mcp, "describe_logs", log_table="bgl")
     assert "sampled — rare values may be missing" in out and "KERNEL" in out
+
+
+async def test_trend_never_calls_new_across_a_gap_in_the_logs(mcp, tmp_path):
+    lines = [f"2026-03-01T{h:02d}:00:00Z ERROR [db] connection reset by peer" for h in range(24)]
+    lines += [f"2026-03-03T{h:02d}:00:00Z INFO [web] request served" for h in range(24)]
+    lines += [f"2026-03-03T{h:02d}:30:00Z ERROR [db] disk quota exceeded on volume 7" for h in range(24)]
+    path = tmp_path / "gappy.log"
+    path.write_text("\n".join(lines) + "\n")
+    await call(mcp, "setup_log_table", name="gappy", source=str(path))
+    await call(mcp, "survey", log_table="gappy")
+    out = await call(mcp, "trend", log_table="gappy", start="2026-03-03", end="2026-03-04", exact=True)
+    # 2 March has no entries at all: the data's span covers it, but the logs do not
+    assert "no entries at all in the preceding period" in out and "limited comparison" in out
+    assert "new in this period" not in out
