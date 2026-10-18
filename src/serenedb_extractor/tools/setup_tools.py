@@ -12,9 +12,17 @@ import psycopg
 
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.setup import indexes, localfiles, rawcopy, structcopy
-from serenedb_extractor.setup.paths import ResolvedSource, resolve_source, source_sql
+from serenedb_extractor.setup.paths import ResolvedSource, pct, resolve_source, source_sql
 from serenedb_extractor.setup.rawlog import LINE_FORMATS, detect_line_format, line_format_named, parse_entries
-from serenedb_extractor.setup.roles import HELPER_COLUMNS, propose_roles, role_column, role_lines, validate_roles
+from serenedb_extractor.setup.roles import (
+    HELPER_COLUMNS,
+    display_role,
+    is_temporal,
+    propose_roles,
+    role_column,
+    role_lines,
+    validate_roles,
+)
 from serenedb_extractor.timezones import get_zone
 from serenedb_extractor.setup.tablewrite import drop_table
 from serenedb_extractor.setup.sniff import SourceInfo, human_bytes, readable, relation_columns, sample_values, sniff
@@ -136,6 +144,8 @@ def _rerun(ctx: AppContext, lt: LogTable, source: str, roles: dict[str, Any] | N
         with readable(lt.source):
             cols = dict(relation_columns(ctx.db, lt.relation, lt.source))
         wanted = validate_roles(roles, cols)
+        if wanted.get("timestamp"):
+            _check_timestamp(ctx, lt.relation, wanted["timestamp"], cols)
         changed = [r for r, v in wanted.items() if getattr(lt.roles, r) != v]
         if changed:
             new_roles = _merge(lt.roles, wanted)
@@ -202,6 +212,7 @@ def setup_log_table(
             roles_updated_at=now,
         )
         try:
+            _check_timestamp(ctx, relation, final.timestamp, dict(info.columns))
             ctx.store.create_log_table(lt)
         except Exception:
             ctx.db.write(f"DROP VIEW IF EXISTS {relation}", {})
@@ -260,6 +271,25 @@ def setup_zone(given: str | None, line_format: str | None) -> tuple[str, str]:
     if fmt_def is not None and fmt_def.zone:
         return fmt_def.zone, f"the {fmt_def.name} line format's zone: {fmt_def.zone_why}"
     return "UTC", "the default"
+
+
+def _check_timestamp(ctx: AppContext, relation: str, ts_expr: str | None, cols: dict[str, str]) -> None:
+    """Refuse a timestamp role whose values are not times: every later query casts it, and one bad value fails
+    them all. Columns of a time type pass; anything else must hold text SereneDB reads as a time."""
+    if ts_expr is None or is_temporal(cols.get(role_column(ts_expr) or "", "")):
+        return
+    expr = pct(ts_expr)
+    n, ok, bad = ctx.db.read(
+        f"SELECT count(v), count(TRY_CAST(v AS TIMESTAMPTZ)), any_value(CASE WHEN TRY_CAST(v AS TIMESTAMPTZ) IS NULL "
+        f"THEN v END) FROM (SELECT ({expr})::varchar AS v FROM {relation} WHERE ({expr}) IS NOT NULL LIMIT 200)",
+        {},
+    ).rows[0]
+    if n and ok < n:
+        raise UserFacingError(
+            f"The timestamp role {display_role(ts_expr)} holds values that are not times (e.g. "
+            f"{fmt.shorten(str(bad), 80)!r}), so the log table can't be read by time. Give the column that holds the "
+            "times (roles={\"timestamp\": ...}), or leave the role out."
+        )
 
 
 def _carries_zone(ts_role: str | None, columns: dict[str, str]) -> bool:

@@ -219,3 +219,17 @@ async def test_raw_openstack_logs_get_service_and_trace(mcp, corpus):
     occ = re.search(r"\s(e:\d+)\s", found).group(1)
     ctx_out = await call(mcp, "get_context", log_table="openstack", occurrence=occ)
     assert "the narrowest available context scope: the same trace" in ctx_out
+
+
+async def test_a_timestamp_role_on_a_column_without_times_is_refused(mcp, db_url):
+    from tests.conftest import container_parquet
+    from tests.fixtures.data import FX
+
+    path = container_parquet(db_url, "fx_badts", FX)
+    out = await call(mcp, "setup_log_table", name="badts", source=path, roles={"timestamp": "level"})
+    assert "holds values that are not times" in out and re.search(r"\(e\.g\. '(ERROR|WARN|INFO)'\)", out)
+    fixed = await call(mcp, "setup_log_table", name="badts", source=path)  # nothing was registered: a clean setup works
+    assert "Set up log table 'badts'" in fixed
+    await call(mcp, "setup_log_table", name="goodts", source=path)
+    again = await call(mcp, "setup_log_table", name="goodts", source=path, roles={"timestamp": "service"})
+    assert "holds values that are not times" in again
