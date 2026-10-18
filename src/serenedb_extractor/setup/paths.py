@@ -147,7 +147,22 @@ def resolve_source(source: str, settings: Settings, format: str | None = None) -
     local = host_path or db_path  # outside the mount the path is a file on this machine, if it exists
     if os.path.isfile(local):
         size = os.path.getsize(local)
+    elif host_path is None and _local_matches(db_path):
+        raise UserFacingError(
+            f"{src} names several files on this machine. SereneDB can't see this machine's files, and only a single "
+            "local file is copied in, so set them up one at a time, or put them in the logs folder mount "
+            "(LOGS_HOST_DIR and LOGS_CONTAINER_DIR) or anywhere SereneDB can read, where several files work as one log table."
+        )
     return ResolvedSource(kind, db_path, host_path, size)
+
+
+def _local_matches(path: str) -> bool:
+    """Whether a path with wildcards ({a,b}, {000..009}, *, ?) names files that exist on this machine."""
+    if not any(c in path for c in "*?{["):
+        return False
+    import glob
+
+    return any(glob.glob(os.path.expanduser(p)) for p in expand_files(path))
 
 
 def _translate(path: str, settings: Settings) -> tuple[str, str | None]:
