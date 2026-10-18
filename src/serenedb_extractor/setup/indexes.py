@@ -286,6 +286,17 @@ def build_measured(ctx: AppContext, lt: LogTable, kind: str) -> BuiltIndex:
     return BuiltIndex(qualified, int(size or 0), seconds)
 
 
+def drop(ctx: AppContext, lt: LogTable, kind: str) -> str | None:
+    """Drop the log table's index of this kind and forget it; its name, or None when it had none."""
+    k = check_kind(kind)
+    have = lt.filter_index_name if k == "filter" else lt.search_index_name
+    if not have:
+        return None
+    ctx.db.write(f"DROP INDEX IF EXISTS {have}", {}, what=f"dropping the {k} index of log table {lt.name}")
+    ctx.store.set_index(lt.name, k, None)
+    return have
+
+
 def build(ctx: AppContext, lt: LogTable, kind: str) -> str:
     """Build the index; returns its (qualified) name."""
     return build_measured(ctx, lt, kind).name

@@ -507,3 +507,17 @@ def create_index(ctx: AppContext, log_table: str, kind: str, dry_run: bool = Fal
             note,
         ]
     )
+
+
+def drop_index(ctx: AppContext, log_table: str, kind: str) -> str:
+    kind = indexes.check_kind(kind)
+    lt = ctx.store.get_log_table(log_table)
+    dropped = indexes.drop(ctx, lt, kind)
+    head = fmt.how_measured("index removed; no log entries were read")
+    if dropped is None:
+        return head + f"\nLog table '{lt.name}' has no {kind} index; nothing changed."
+    return (
+        head
+        + f"\nDropped the {kind} index {dropped} of log table '{lt.name}'. Its disk space is freed; questions on this "
+        "log table now scan the entries again (create_index builds it again)."
+    )

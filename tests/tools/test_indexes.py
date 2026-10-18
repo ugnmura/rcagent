@@ -291,3 +291,13 @@ async def test_failed_build_at_setup_is_one_short_line(mcp, fx_path, monkeypatch
     out = await call(mcp, "setup_log_table", name="fx", source=fx_path, build_filter_index=True)
     line = next(ln for ln in out.splitlines() if ln.startswith("The filter index could not be built"))
     assert "out of memory" in line and "HINT: try a smaller table" in line, out
+
+
+async def test_drop_index_frees_it_and_build_again_works(mcp, fx_lt, database):
+    await call(mcp, "create_index", log_table="fx", kind="filter")
+    assert "indexes: extractor." in await call(mcp, "describe_logs", log_table="fx")
+    out = await call(mcp, "drop_index", log_table="fx", kind="filter")
+    assert "Dropped the filter index" in out
+    assert "indexes: none" in await call(mcp, "describe_logs", log_table="fx")
+    assert "has no filter index; nothing changed" in await call(mcp, "drop_index", log_table="fx", kind="filter")
+    assert "Built the filter index" in await call(mcp, "create_index", log_table="fx", kind="filter")

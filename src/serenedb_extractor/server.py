@@ -377,6 +377,13 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         Returns: the index's size on disk and build time (measured, or estimated for dry_run)."""
         return await runner.run_tool(setup_tools.create_index, log_table=log_table, kind=kind, dry_run=dry_run)
 
+    @mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
+    async def drop_index(log_table: str, kind: str) -> str:
+        """Remove an index built with create_index, e.g. when an investigation is over, to free its disk space.
+        Inputs: kind = "filter" or "search".
+        Returns: what was dropped (nothing changes when the log table has no such index)."""
+        return await runner.run_tool(setup_tools.drop_index, log_table=log_table, kind=kind)
+
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))
     async def rename_parameter(log_table: str, template: str, old_name: str, new_name: str) -> str:
         """Give a template's parameter a clearer name, permanently (later surveys keep it).
