@@ -275,7 +275,17 @@ class Database:
         what: str = "",
         how_to_narrow: str = DEFAULT_NARROW,
     ) -> Rows:
-        return self._execute(self._writer, sql, params, timeout_s, what, how_to_narrow, self.settings.max_timeout_s)
+        if not evidence.active() or not evidence.is_evidence(sql):
+            return self._execute(self._writer, sql, params, timeout_s, what, how_to_narrow, self.settings.max_timeout_s)
+        shown = self._writer.mogrify(sql, params)
+        began = time.perf_counter()
+        try:
+            rows = self._execute(self._writer, sql, params, timeout_s, what, how_to_narrow, self.settings.max_timeout_s)
+        except Exception as exc:
+            evidence.note(shown, None, time.perf_counter() - began, " ".join(str(exc).split())[:200] or type(exc).__name__)
+            raise
+        evidence.note(shown, len(rows.rows), time.perf_counter() - began)
+        return rows
 
     def _execute(
         self,

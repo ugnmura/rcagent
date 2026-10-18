@@ -81,7 +81,14 @@ class ToolRunner:
         def body(**k: Any) -> str:
             ctx = self.ctx()
             with evidence.collecting() as queries:
-                out = fn(ctx, **k)
+                try:
+                    out = fn(ctx, **k)
+                except Exception as exc:
+                    # A failure after queries ran (e.g. a timeout) keeps its evidence too: which query ran
+                    # how long is what tells why it failed.
+                    if name in NO_EVIDENCE or not queries:
+                        raise
+                    out = fmt.plain_error(exc, name)
             if name in NO_EVIDENCE:
                 return out
             rec = ctx.evidence.record(name, k, queries, out)
