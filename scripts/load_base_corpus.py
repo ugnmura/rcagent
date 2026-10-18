@@ -30,6 +30,7 @@ import urllib.request
 import zipfile
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,7 @@ import pyarrow.parquet as pq
 
 ZENODO = "https://zenodo.org/records/8196385/files/{name}?download=1"
 BATCH = 250_000
+PACIFIC = ZoneInfo("America/Los_Angeles")
 ROW_GROUP = 50_000  # entries per Parquet row group: many small blocks keep block-sampled estimates tight
 
 BGL_LINE = re.compile(
@@ -141,11 +143,17 @@ def _untar(archive: Path, dest: Path) -> None:
 # ---------------------------------------------------------------- parsing
 
 
-def _bgl_ts(text: str) -> datetime | None:
+def _bgl_ts(text: str, epoch: str | None = None) -> datetime | None:
+    """The entry's real instant (UTC). BGL's time column is US Pacific local time; the epoch column is the same
+    second as a Unix time, which also settles the repeated hour when daylight saving time ends. The local
+    time's fraction of a second is kept."""
     try:
-        return datetime.strptime(text, "%Y-%m-%d-%H.%M.%S.%f").replace(tzinfo=UTC)
+        local = datetime.strptime(text, "%Y-%m-%d-%H.%M.%S.%f" if "." in text[-7:] else "%Y-%m-%d-%H.%M.%S")
     except ValueError:
         return None
+    if epoch and epoch.isdigit():
+        return datetime.fromtimestamp(int(epoch), UTC).replace(microsecond=local.microsecond)
+    return local.replace(tzinfo=PACIFIC).astimezone(UTC)
 
 
 def bgl_rows(path: Path) -> Iterator[dict[str, Any]]:
@@ -165,7 +173,7 @@ def bgl_rows(path: Path) -> Iterator[dict[str, Any]]:
                 level = None
             yield {
                 "entry_id": n,
-                "ts": _bgl_ts(m["time"]),
+                "ts": _bgl_ts(m["time"], m["epoch"]),
                 "level": level,
                 "component": m["component"],
                 "node": m["node"],
@@ -243,9 +251,21 @@ def _openstack_row(line: str, n: int, source_file: str, anomalous: set[str]) -> 
     }
 
 
+# Bumped whenever the Parquet layout or its values change, so files written by an older loader are converted again.
+# 2: BGL timestamps are real instants from the epoch column (version 1 stored Pacific wall-clock times as UTC).
+FORMAT_VERSION = "2"
+
+
+def format_version(path: Path) -> str | None:
+    meta = pq.read_schema(path).metadata or {}
+    v = meta.get(b"loader_format")
+    return v.decode() if v else None
+
+
 def write_parquet(rows: Iterator[dict[str, Any]], schema: pa.Schema, out: Path) -> int:
     tmp = out.with_suffix(".parquet.tmp")
     total = 0
+    schema = schema.with_metadata({"loader_format": FORMAT_VERSION})
     with pq.ParquetWriter(tmp, schema, compression="zstd") as writer:
         batch: list[dict[str, Any]] = []
         for row in rows:
@@ -268,6 +288,10 @@ def parse(data_dir: Path, force: bool) -> tuple[dict[str, Path], set[str]]:
     out_dir.mkdir(parents=True, exist_ok=True)
     outputs = {"bgl": out_dir / "bgl.parquet", "openstack": out_dir / "openstack.parquet"}
     written = {name for name, path in outputs.items() if force or not path.exists()}
+    for name, path in outputs.items():
+        if name not in written and format_version(path) != FORMAT_VERSION:
+            log(f"{path.name} was written by an older loader; converting it again")
+            written.add(name)
     if "bgl" in written:
         log("parsing BGL …")
         n = write_parquet(bgl_rows(data_dir / "BGL" / "BGL.log"), BGL_SCHEMA, outputs["bgl"])
@@ -306,8 +330,8 @@ def docker_cp(container: str, files: dict[str, Path], target_dir: str) -> dict[s
     return out
 
 
-# The zone each log's timestamps were written in. BGL records US Pacific local time: its epoch column
-# 1117838570 is 2005-06-03 22:42:50 UTC, and the same line's time reads 2005-06-03-15.42.50.
+# The zone results are shown in. Timestamps are stored as real instants (UTC): BGL's from its epoch column
+# (1117838570 is 2005-06-03 22:42:50 UTC; the same line's local time reads 2005-06-03-15.42.50, US Pacific).
 ZONES = {"bgl": "America/Los_Angeles", "openstack": "UTC"}
 
 

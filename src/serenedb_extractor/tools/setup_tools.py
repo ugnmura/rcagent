@@ -14,7 +14,7 @@ from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.setup import indexes, localfiles, rawcopy, structcopy
 from serenedb_extractor.setup.paths import ResolvedSource, resolve_source, source_sql
 from serenedb_extractor.setup.rawlog import LINE_FORMATS, detect_line_format, line_format_named, parse_entries
-from serenedb_extractor.setup.roles import HELPER_COLUMNS, propose_roles, role_lines, validate_roles
+from serenedb_extractor.setup.roles import HELPER_COLUMNS, propose_roles, role_column, role_lines, validate_roles
 from serenedb_extractor.timezones import get_zone
 from serenedb_extractor.setup.tablewrite import drop_table
 from serenedb_extractor.setup.sniff import SourceInfo, human_bytes, readable, relation_columns, sample_values, sniff
@@ -143,7 +143,13 @@ def _rerun(ctx: AppContext, lt: LogTable, source: str, roles: dict[str, Any] | N
             changes.append(f"updated field roles: {', '.join(changed)}")
     if timezone is not None and timezone != lt.timezone:
         ctx.store.set_timezone(lt.name, timezone)
-        changes.append(f"updated time zone: {timezone}")
+        with readable(lt.source):
+            cols = dict(relation_columns(ctx.db, lt.relation, lt.source))
+        shown_only = _carries_zone(new_roles.timestamp, cols)
+        changes.append(
+            f"updated time zone: {timezone}"
+            + (" (the timestamp column carries its own zone, so this changes only how times are shown)" if shown_only else "")
+        )
     header = fmt.how_measured("log table settings updated; no data was read", tz=timezone or lt.timezone)
     if not changes:
         return header + f"\nLog table '{lt.name}' is already set up and nothing changed. Pass roles={{...}} or timezone to correct them."
@@ -213,7 +219,7 @@ def setup_log_table(
         *([f"files: {info.num_files:,}"] if info.num_files and info.num_files > 1 else []),
         *([f"size: {human_bytes(info.size_bytes)}"] if info.size_bytes else []),
         f"setup took {fmt.duration(time.perf_counter() - began)}",
-        f"time zone for naive timestamps: {zone}",
+        _shown_zone_line(zone) if _carries_zone(final.timestamp, dict(info.columns)) else f"time zone for timestamps without one: {zone}",
         "field roles:",
         *role_lines(final, "  "),
         "The template catalog starts empty.",
@@ -254,6 +260,19 @@ def setup_zone(given: str | None, line_format: str | None) -> tuple[str, str]:
     if fmt_def is not None and fmt_def.zone:
         return fmt_def.zone, f"the {fmt_def.name} line format's zone: {fmt_def.zone_why}"
     return "UTC", "the default"
+
+
+def _carries_zone(ts_role: str | None, columns: dict[str, str]) -> bool:
+    """The timestamp column already holds real instants (a type with a time zone)."""
+    typ = columns.get(role_column(ts_role or "") or "", "").upper()
+    return "WITH TIME ZONE" in typ or typ.startswith("TIMESTAMPTZ")
+
+
+def _shown_zone_line(zone: str) -> str:
+    return (
+        f"time zone: {zone}. The timestamp column carries its own zone, so its instants are used as they are; "
+        "this zone only sets how times are shown"
+    )
 
 
 def _zone_line(zone: str, why: str) -> str:
