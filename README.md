@@ -125,7 +125,7 @@ There are 18 tools in total, including setup, indexes and team ownership. Each o
 
 - **Counted in the database.** Counts cover every entry in scope, not a handful of examples. An estimate is
   labelled with its margin.
-- **Every number is cited.** `[Q46]` next to a number means "run `show_evidence(['Q46'])` to see the query".
+- **No evidence, no claim.** Every statement about the logs is cited: `[Q46]` next to a number, time or message means "run `show_evidence(['Q46'])` to see the query".
 - **Facts and guesses are kept apart.** Causes are labelled as hypotheses, and each answer says what the logs do
   not show.
 - **Checked against ground truth.** A full-text count of "data TLB error interrupt" over all of BGL gives 152,734,

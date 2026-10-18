@@ -18,6 +18,7 @@ known limits.
 - [Private S3 / HTTP sources](#private-s3--http-sources)
 - [Indexes](#indexes)
 - [Time zones](#time-zones)
+- [Safety](#safety)
 - [Running the tests](#running-the-tests)
 - [Known limits](#known-limits)
 
@@ -52,27 +53,41 @@ its inputs and what it returns. The server instructions add a "which tool for wh
 | tool | use it for | main inputs | returns |
 |---|---|---|---|
 | `describe_logs` | orientation: tables, fields, time range, value spellings; **start here** | `log_table`, `find_values={"level": "err"}` | per table: field roles (incl. team), entry count, time range, context scopes, top values (exact when affordable) |
-| `count_logs` | **aggregation**: how many, per team / component / level / day, over one or **all** log tables | `group_by` (≤3 of team, component, level, host, service, any column, `time:<n>m\|h\|d`), `filters`, `text`, `start`/`end` | per table the total and each group's count and share; a combined line for shared values; exact unless marked |
+| `count_logs` | **aggregation**: how many, per team / component / level / day, over one or **all** log tables | `group_by` (≤3 of team, component, level, host, service, any column, `time:<n>m\|h\|d`), `filters`, `text`, `start`/`end` | per table the total and each group's count and share; a cut keeps the largest groups; a combined line for shared values; exact unless marked |
 | `search_logs` | **full-text search**: the actual entries matching words and/or filters in a time window | `text`, `fuzzy`, `filters`, `start`/`end`, `order`, `limit` | total matches, then up to 50 entries (time, fields, team, message, template tag, occurrence ID); says when cut |
 | `get_context` | nearby events before and after one entry | `occurrence` (from search/locate), `scope` (same trace / host / everything), `window_minutes`, `before`/`after` | the entries in time order, the occurrence marked → |
-| `survey` | which kinds of messages (templates) occur, with counts | `filters`, `start`/`end`, `exclude`, `limit` | templates ranked by count with share, components, teams and an example; exact or a stated sample |
+| `survey` | which kinds of messages (templates) occur, with counts | `filters`, `start`/`end`, `exclude`, `limit` | templates ranked by count with share, components, teams and an example; exact or a stated sample; `NEW TO CATALOG` marks a template seen for the first time (not a problem that started now) |
 | `locate_occurrences` | exact counts of chosen templates by where and when | `templates` (T-ids), `group_by` (team, host, `time:1h` …) | per template the total and per-group counts with example occurrence IDs |
-| `trend` | rising, falling, new or persistent: a period against the one before | `start`, `end`, `templates`, `bucket` hour\|day, `exact` | per template the counts per bucket, change, presence, components and teams; refuses to call anything new across gaps |
+| `trend` | rising, falling, new or persistent: a period against the one before | `start`, `end`, `templates` (default: the period's own largest, found by a survey and saved to the catalog), `bucket` hour\|day, `exact` (default: every entry counted when that fits the time budget, else a stated sample) | per template the counts per bucket, change, presence, components and teams; refuses to call anything new across gaps |
 | `extract_params` | the values inside a template (nodes, status codes, latencies) | `template`, `by` | top values per parameter; min / p50 / p95 / max for numbers |
-| `rank_problems` | **what to look at first**: the warning-and-worse problems ranked by a stated, measured score | `start`, `end`, `log_tables`, `min_level` warning\|error\|fatal, `filters`, `limit` | per problem its score (0-18) and the points behind it: exact entries and levels, change against the preceding period, days (or hours) present, distinct hosts, components and owning team |
+| `rank_problems` | **what to look at first**: the warning-and-worse problems ranked by a stated, measured score | `start`, `end`, `log_tables`, `min_level` warning\|error\|fatal\|critical, `filters`, `limit` | per problem its score (0-18) and the points behind it: exact entries and levels, change against the preceding period, days (or hours) present, distinct hosts, components and owning team |
 | `show_evidence` | the queries and results behind any earlier answer | `ids` (Q-handles) | the tool call, every query with its time and row count, the result |
 | `show_team_ownership` | who owns what, and whether the teams are official | `log_table`, `coverage` | rules by team, their source, recent changes, entries per team and components without a team |
 | `edit_team_ownership` | import the supplied ownership CSV, fix a team, export the rules | `action` import\|set\|remove\|export\|reset, `csv_path`/`csv_text`, `mode`, `rules`, `team`, `dry_run` | the rules added, changed and removed, then coverage |
-| `inspect_source` | look at a new source before setting it up | `source` | columns, samples, size, proposed roles |
-| `setup_log_table` | register a source (Parquet/JSON/CSV read in place, raw text copied) | `name`, `source` (several files: `part_{000..009}.parquet`), `roles` | roles, entries, files, size, setup time, index estimates |
+| `inspect_source` | look at a new source before setting it up | `source`, `format_hint` | columns, samples, size, proposed roles |
+| `setup_log_table` | register a source (Parquet/JSON/CSV that SereneDB can reach is read in place; a file only on this machine is copied; raw text is parsed and copied) | `name`, `source` (several files: `part_{000..009}.parquet`), `roles`, `format_hint`, `timezone` | roles, entries, files, size, setup time (copies too), index estimates |
 | `create_index` / `drop_index` | build an index for repeated questions; remove it after the investigation | `log_table`, `kind` filter\|search, `dry_run` | size and build time (estimated with `dry_run`) |
 | `rename_parameter` | a clearer name for a template parameter | `template`, `old_name`, `new_name` | the template |
 | `run_sql` | last resort: one read-only SQL statement (e.g. latency percentiles) | `sql`, `limit` | rows, cut to 50; cost-checked first |
 
-Shared inputs: `start`/`end` are ISO times (end exclusive) in `timezone` (default UTC). `filters` is
-`{"role or column": value or [values]}`. `confirmed_cost` runs a step the tool called **TOO EXPENSIVE** once the
+Shared inputs: `start`/`end` are ISO times (end exclusive) in `timezone` (default: the log table's own zone). A
+local time that happens twice (the night clocks go back) is refused with the two UTC offsets to choose from; one that
+does not exist (the night clocks go forward) is explained. `filters` is `{"role or column": value or [values]}`. `confirmed_cost` runs a step the tool called **TOO EXPENSIVE** once the
 user agrees. Default result limits (survey 30 templates, search 50 entries, context 10 before and after) can be
 raised per call up to 10×; see [Configuration](#configuration).
+
+Time buckets (`time:1h`, `time:1d`, `time:7d`, trend's `bucket`): an hour is a real hour labelled with its UTC offset,
+so the night clocks go back has two 01:00 hours (`01:00-07:00` and `01:00-08:00`); a day is a local calendar day (23 or
+25 hours across a clock change); weeks and other multi-day buckets start on a Monday. When a grouping is cut, the
+largest groups are kept and shown in reading order ("showing the 25 largest of 31,482 groups").
+
+Occurrence IDs (from `search_logs` and `locate_occurrences`, for `get_context`):
+
+| source | ID | note |
+|---|---|---|
+| Parquet / JSON / CSV file read in place | `<file>#<n>`, e.g. `/logs/bgl.parquet#222715` | the bare file name (`bgl.parquet#222715`) also works. `n` is a position SereneDB gives: the row for Parquet, but not a line number for JSON (a byte offset) or CSV |
+| copied (raw text, or a file only on this machine) | `e:<n>` | a file's own `entry_id` column is kept as `source_entry_id` |
+| database table | `pk:<value>` | when the table has an order column |
 
 ## Evidence records
 
@@ -85,8 +100,13 @@ Evidence [Q46]: the queries that produced this result. Cite [Q46] next to number
 ```
 
 The server records every query a tool call ran (with its parameters filled in, its time and row count), together
-with the call's arguments and result, in `extractor.evidence` under a handle (`Q46`). Answers cite the handle next
-to each number, and `show_evidence` returns the record for checking. Failed calls keep their evidence too, so a
+with the call's arguments and result, in `extractor.evidence` under a handle (`Q46`).
+
+No evidence, no claim: answers cite the handle next to every statement about the logs, not only numbers: a time, a
+quoted message, a node, a team, a trend, "new" or "absent" (`it started at 17:17:44 PDT on node R30-M0-N9-C:J16-U01
+[Q5]`). A sentence without a handle must be a labelled hypothesis, a recommendation, or a statement of what the logs do
+not show. The answer's **Evidence** section lists every handle it cited with what it measured and its main query, and
+`show_evidence` returns the full record for checking. Failed calls keep their evidence too, so a
 timeout shows which query ran for how long.
 
 ## How "what first" is decided
@@ -99,10 +119,15 @@ the preceding one. Each gets points from fixed thresholds:
 | factor | 3 | 2 | 1 | 0 |
 |---|---|---|---|---|
 | severity (counted twice) | fatal / critical | error / severe / failure | warning | — |
-| change against the preceding period | new, or +50% or more | +10% to +50% | within ±10%, or not comparable (gap in the data) | falling |
-| persistence: share of whole days (or hours) present | 75% or more | 40% or more | 10% or more | less |
+| change against the preceding period | new, or +50% or more | +10% to +50% | within ±10%, or not comparable (the data does not cover both periods, or has a gap) | falling |
+| persistence: share of whole days with data that it appears in (hours for a period under two days, or when fewer than 3 whole days have data; not judged, 0 points, when even hours give fewer than 3) | 75% or more | 40% or more | 10% or more | less |
 | spread: distinct hosts (else services, else components) | 100 or more | 10 or more | 2 or more | one |
 | share of the entries ranked | 10% or more | 1% or more | 0.1% or more | less |
+
+Severity is the level most of a problem's entries have: fatal or critical (also crit, emerg, alert, panic) 3; error,
+severe or failure 2; warning 1. `min_level` (warning, error, fatal or critical) chooses which levels are ranked. A gap
+in the data is 3 or more hours, or a whole day, with no entries at all; buckets in a gap are left out of persistence,
+and nothing is called new across one. Ties go to the problem with more entries.
 
 The result shows each problem's points next to the numbers that earned them. The score orders what to look at
 first. It is not a risk, impact or cost figure, and it counts entries, not incidents. A single-node storm scores low
@@ -158,8 +183,9 @@ Parsing notes:
 - A few hundred malformed BGL lines (a missing node name, stray text) are parsed by anchoring on the event
   type. Lines that still don't parse are kept with only their message, so whole-corpus counts stay complete.
 - Row groups hold 50,000 entries, so sampled estimates can spread across the whole period.
-- `bgl` is set up in `America/Los_Angeles` (BGL logs US Pacific local time; see [Time zones](#time-zones)) and
-  `openstack` in UTC. Running the loader again corrects the zone of a table set up before this.
+- `bgl` timestamps are real instants taken from BGL's epoch column. The table is shown in `America/Los_Angeles`,
+  the local time BGL logs (see [Time zones](#time-zones)); `openstack` is in UTC. Running the loader again converts a
+  `bgl` file written by an older loader and corrects the zone of a table set up before this.
 
 Data licence: Loghub is research-use only and needs a citation: Zhu et al., *Loghub: A Large Collection of
 System Log Datasets for AI-driven Log Analytics*, ISSRE 2023. For BGL, also Oliner & Stearley, DSN 2007.
@@ -189,8 +215,10 @@ so a fresh database starts with a fictional platform organisation we wrote,
 | Identity & Access | OpenStack `keystonemiddleware.*` |
 | Storefront, Checkout & Payments, Fulfilment, Catalog & Recommendations, Platform | TextBench (OpenTelemetry demo) services |
 
-A rule is `(log_table pattern, role, value pattern, team)` with SQL `LIKE` patterns (case-insensitive, `%` matches
-any text), and the most specific pattern wins. With the stand-in, every BGL and OpenStack entry maps to a team.
+A rule is `(log_table pattern, role, value pattern, team)`. Patterns are case-insensitive; `%` matches any text and
+everything else is literal, `_` included (`SERV_NET` matches only `SERV_NET`). The most specific rule wins: an exact
+name beats a pattern, then the pattern with the longer fixed text; between rules on the same value, one naming the log
+table exactly (`bgl`) beats one naming a table pattern (`bgl%`). With the stand-in, every BGL and OpenStack entry maps to a team.
 Entries no rule covers are in team "Unassigned".
 
 ### Importing and editing the ownership table
@@ -204,7 +232,7 @@ Ask the agent ("use the ownership table in ~/Downloads/teams.csv"), or call the 
 | `mode="replace"` (default) / `"merge"` / `"replace_all"` | replace the rules of the log tables the file covers (others stay) / add and update only / drop every other rule |
 | `edit_team_ownership(action="set", rules=[{"log_table": "bgl", "component": "KERNEL", "team": "Kernel"}])` | add or change single rules |
 | `edit_team_ownership(action="remove", team="Kernel")` or `rules=[...]` | remove a team's rules, or single rules |
-| `edit_team_ownership(action="export", csv_path="ownership.csv")` | write the rules to a file to edit and import again |
+| `edit_team_ownership(action="export", csv_path="/Users/me/ownership.csv")` | write the rules to a file to edit and import again. Needs a full path to a `.csv`/`.tsv` file (a relative one is refused); an existing file is replaced only with `overwrite=True`; with `dry_run=True` it only says what it would write |
 | `edit_team_ownership(action="reset")` | back to the stand-in |
 | `dry_run=True` | show the change without making it |
 
@@ -220,6 +248,7 @@ component the file misses shows up at once instead of silently counting as "Unas
 | `SERENEDB_WRITER_URL` | connection for setup, index builds and catalog writes; a role that owns only the `extractor` schema | the reader URL (single-role mode, with a one-time warning) |
 | `LOGS_HOST_DIR` / `LOGS_CONTAINER_DIR` | the mounted logs folder on this machine and where SereneDB sees it (e.g. `~/logs` → `/logs`) | unset; set both or neither |
 | `SERENEDB_ALLOW_SQL` | `1` lets `run_sql` work in single-role mode | off |
+| `SERENEDB_SOURCE_DIRS` | comma-separated folders on SereneDB's disk that may be read in place (see [Safety](#safety)) | unset: any folder that is not private |
 
 Built-in limits (not configurable in this prototype):
 
@@ -259,7 +288,11 @@ docker run -d --name serenedb \
   `LOGS_HOST_DIR=$HOME/logs` and `LOGS_CONTAINER_DIR=/logs`; you can then refer to files by their path on your
   machine and SereneDB reads them in place through the mount. Structured files outside the mount are streamed in and
   copied; raw text logs are always parsed and copied in (multi-line entries are joined).
-- Remote Parquet/JSON (`https://…`, `s3://…`) is read in place by SereneDB; nothing is downloaded by the extractor.
+- Remote Parquet/JSON/CSV (`https://…`, `s3://…`) is read in place by SereneDB; nothing is downloaded by the extractor.
+- CSV: give `format_hint="csv"` when the file name does not end in `.csv` or `.tsv`. A copied CSV's separator is
+  detected (`,`, `;`, tab or `|`), standard quoting applies, and every column is kept, a repeated name getting a suffix
+  (`level`, `level_1`). A file with its own `filename` or `file_row_number` column cannot be read in place (SereneDB
+  adds those columns); it is explained, and a copy works.
 
 For the test suite, `scripts/test-db.sh` starts (or reuses) a pinned test container on `127.0.0.1:17890` and prints
 the `SERENEDB_TEST_URL` to use (see [Running the tests](#running-the-tests)).
@@ -370,8 +403,9 @@ build on a sample) before anything is built; you can also ask for just the estim
 - **Filter index** — the timestamp, level, service, component and trace fields. `describe_logs` then lists each
   field's distinct values (and `find_values` lookups) exactly and instantly from the index. Counts, surveys, trends
   and rankings still read the entries.
-- **Search index** — the message text plus the same fields and the host. Makes text search fast and enables fuzzy
-  search (finding misspellings). It matches **whole words only**: a fragment like `disk` inside `diskfull` is not found.
+- **Search index** — the message text plus the same fields and the host. Serves `search_logs`: makes text search fast and enables fuzzy
+  search (finding misspellings). Only the message, the timestamp and the fields a search filters on must be in the
+  index, so it also works when some fields are JSON paths. It matches **whole words only**: a fragment like `disk` inside `diskfull` is not found.
   When a plain scan is affordable, the scan is used instead (exact substring matching); every answer that came from the
   index says "whole words only".
 
@@ -381,8 +415,13 @@ Indexes live in the `extractor` schema next to their log table.
 
 Every log table has its own time zone: the zone its timestamps without one were written in. Setup reads them in
 the zone you give (`timezone`), else in the line format's own zone where it has one, else in UTC. The `bgl` line
-format's zone is `America/Los_Angeles`: Blue Gene/L logs record US Pacific local time (their epoch field is 7 or 8
-hours later). Timestamps are stored as real instants.
+format's zone is `America/Los_Angeles`: Blue Gene/L logs record US Pacific local time. Timestamps are stored as real
+instants; the loader's `bgl` takes them from BGL's epoch column. When a source's timestamps already are real instants
+(a type with a time zone), the zone only sets how times are shown; setup and `describe_logs` say so.
+
+Setup checks the timestamp role: a column that mostly holds no times is refused. Text times, time types and Unix epoch
+numbers (seconds, or milliseconds when that large) are times. Timestamps are read leniently: a value that is not a time
+makes an entry without a time, not a failed query.
 
 Results show times in the log table's own zone unless a tool is given `timezone`, and times you pass without a zone
 are read in that zone too, so dates mean the same as in the log itself. Outside UTC, every result says so and the
@@ -390,6 +429,20 @@ times of entries and periods carry their UTC offset (`2005-06-03 16:17:40-07:00`
 log tables it reads (UTC when they differ), so timestamps print with their offset and `date_trunc`, `::date` and time
 literals follow the log's clock; `ts AT TIME ZONE 'UTC'` gives UTC. A copied log table keeps the zone it was read in;
 set it up again under another name to change it.
+
+## Safety
+
+The tools read only log and data files: a local or container path must end in a log or data extension (`.log .txt
+.out .err`, `.parquet .pq`, `.json .jsonl .ndjson`, `.csv .tsv`, text ones optionally `.gz`; a `format_hint` does not
+lift this). Hidden files and folders (`~/.ssh`, `~/.aws`), system locations (`/etc`, `/proc`, `/sys`, `/dev`, `/root`,
+the keychains) and `..` that leaves the logs folder are refused, also after following links on this machine.
+Wildcards are allowed only in the file name, which must start with a plain character (`part_*.parquet`, not
+`*.parquet`, which would also match hidden files). With `SERENEDB_SOURCE_DIRS` set, files on SereneDB's own disk are
+read in place only from those folders; links there can't be checked from the extractor, so set it to be sure. Tables
+in system schemas (`pg_catalog`, `information_schema`, `pg_*`) and in the `extractor` schema can't be set up as log
+tables. The ownership export writes only `.csv`/`.tsv` files and replaces one only with `overwrite=True`; import reads
+only `.csv`/`.tsv`/`.txt` files. Remote URLs are unaffected. `run_sql` has its own limits (see
+[Known limits](#known-limits) and [Reader and writer roles](#reader-and-writer-roles)).
 
 ## Running the tests
 
@@ -410,14 +463,14 @@ This is a prototype:
 
 - **Sources are static snapshots.** Log tables are not refreshed or appended to; files read in place are assumed not to
   change after setup.
-- **Remote raw text is not supported.** Remote sources must be Parquet or JSON; raw text logs must be local files.
+- **Remote raw text is not supported.** Remote sources must be Parquet, JSON or CSV; raw text logs must be local files.
 - **One log table holds one application's logs**; template catalogs are not shared between log tables.
 - **`run_sql` is restricted:** one read-only statement (SELECT, WITH, set operations or EXPLAIN); only tables and views
   in the `extractor` schema, always schema-qualified (`extractor.lt_<name>`); only allowlisted functions (string, regex,
   date/time, math, aggregates, window functions, casts, JSON); no table functions; no column lists on CTEs or aliases
   (`WITH r(n) AS …` is refused; write `SELECT 1 AS n` inside instead); results cut at 50 rows by default.
 - **Sampling only for a single Parquet file.** Estimates from a block sample need one in-place Parquet file; for
-  globs of several files, JSON and copied tables every entry in scope is read and counted exactly, or, when that is
+  globs of several files, JSON, CSV and copied tables every entry in scope is read and counted exactly, or, when that is
   over the time budget, the tool asks before running it.
 - **Index builds are capped at the server's maximum query time** (600 s by default): a build that runs longer is
   cancelled and no index is created; `create_index` with `dry_run` warns beforehand when its estimate is longer.
