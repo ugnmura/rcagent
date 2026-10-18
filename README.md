@@ -202,6 +202,16 @@ How setup stays fast on a remote source:
 After setup, every tool checks the predicted cost first. A big scope is answered from a **block sample** of
 whole row groups (said so, with a margin), or the tool asks before reading more.
 
+**Measured on the real S3 file** (`part_000`, about 1 billion rows, one shared 16-CPU / 128 GB HPC node, details
+and raw logs in [docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md)):
+
+| Step | Time |
+|---|---|
+| `setup_log_table` on the S3 URL (metadata only, nothing downloaded) | 1.97 s |
+| `create_index(kind="search")` over all ~1B rows (index build time) | 69.9 s |
+| `search_logs` "error", 60 s window, **without index** (exact scan; median of 3) | 2.88 s |
+| `search_logs` "error", **whole billion-row file, with index** (median of 3) | 4.18 s |
+
 ## Passwords
 
 Anything passed as `-e …URL=postgresql://user:password@…` ends up in your shell history and in Claude Code's MCP
@@ -416,5 +426,8 @@ This is a prototype:
   gets large.
 - **Gap detection needs an affordable scan of the timestamp column.** When even that is too expensive (a huge
   remote source over a long period), `trend` says gaps were not checked.
-- **The remote TextBench path was exercised over HTTP from a local server** (one file and a two-file
-  `part_{000..001}` source); its timings against the real S3 bucket were not measured in this version.
+- **TextBench timings are from one file at commit `6cad141`** on a shared HPC node
+  ([docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md)); multi-file sources (`part_{000..009}`) work but were not timed,
+  and later changes on `main` were not re-timed there.
+- **A search index over 1 billion rows needs more than 64 GB of RAM**: the database server ran out of memory at
+  64 GB and finished at 128 GB.

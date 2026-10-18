@@ -1,0 +1,4 @@
+[
+  {"tool": "search_logs", "args": {"log_table": "tb", "text": "error", "start": "2025-09-23T00:10:00", "end": "2025-09-23T00:11:00", "timezone": "UTC", "limit": 20}, "label": "matched:search_error_60s"},
+  {"tool": "search_logs", "args": {"log_table": "tb", "text": "error", "fuzzy": false, "limit": 20}, "label": "own:search_error_all"}
+]

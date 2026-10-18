@@ -1,0 +1,2 @@
+/var/spool/slurm/job5111081/slurm_script: line 92: 113630 Killed                  apptainer exec "${BINDS[@]}" "$SIF" serened --flagfile=/var/lib/serenedb-etc/serened.conf > "$OUT/serened.log" 2>&1  (wd: ~)
+[2026-10-18T03:10:34.251] error: Detected 1 oom_kill event in StepId=5111081.batch. Some of the step tasks have been OOM Killed.
