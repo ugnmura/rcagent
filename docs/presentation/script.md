@@ -47,14 +47,14 @@ appears.*
 > Saturday, 11 June 2005, Lawrence Livermore National Laboratory. Blue Gene/L, then the fastest supercomputer on
 > Earth.
 
-*Slide 3: "$2M · per hour of a high-impact outage" (New Relic Observability Forecast 2025).*
+*Slide 3: "419 · unexpected failures in 54 days on one AI cluster" (Meta, The Llama 3 Herd of Models, 2024).*
 
-> This is not rare: a high-impact outage costs a company two million dollars an hour.
+> On a 16,000-GPU AI cluster, something fails every three hours.
 
-*Slide 4: "419 · unexpected failures in 54 days on one AI cluster" (Meta, The Llama 3 Herd of Models, 2024).*
+*Slide 4: "$2M · per hour of a high-impact outage" (New Relic Observability Forecast 2025).*
 
-> On a 16,000-GPU AI cluster, something fails every three hours. Tonight it could be CLAIX, here in Aachen. No
-> human can read those logs fast enough. No AI prompt holds them either.
+> Each high-impact outage costs a company two million dollars an hour. Tonight it could be CLAIX, here in Aachen.
+> No human can read those logs fast enough. No AI prompt holds them either.
 
 *Slide 5: "Introducing RCAgent" (RCAgent in gold).*
 
@@ -139,8 +139,8 @@ Every page carries SchubKI × SereneDB in the bottom right corner (the close sho
 
 1. Title: National AI Hackathon 2026 · Making Sense of Logs · the README pitch · SchubKI × SereneDB
 2. The call: caption and the five dialog lines with speakers
-3. $2M per hour of a high-impact outage (New Relic Observability Forecast 2025)
-4. 419 unexpected failures in 54 days on one AI cluster (Meta, Llama 3 paper)
+3. 419 unexpected failures in 54 days on one AI cluster (Meta, Llama 3 paper)
+4. $2M per hour of a high-impact outage (New Relic Observability Forecast 2025)
 5. Introducing RCAgent
 6. Templating: four BGL templates, 4.6 million lines → 320 templates (Loghub-2.0)
 7. How it works: the README diagram

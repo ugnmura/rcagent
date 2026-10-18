@@ -128,10 +128,10 @@ export const RevealScene: React.FC<SceneProps> = ({assets, frames}) => {
 	const up = ramp(frame, REVEAL_UP_FROM, REVEAL_UP_TO);
 	return (
 		<AbsoluteFill style={{backgroundColor: INK}}>
-			<Shot from={statFrom[0]} to={statFrom[1]} name="$2M an hour">
+			<Shot from={statFrom[0]} to={statFrom[1]} name="419 failures">
 				<StatShot index={0} />
 			</Shot>
-			<Shot from={statFrom[1]} to={introFrom} name="419 failures">
+			<Shot from={statFrom[1]} to={introFrom} name="$2M an hour">
 				<StatShot index={1} />
 			</Shot>
 			<Shot from={introFrom} to={templatesFrom} name="Introducing RCAgent">

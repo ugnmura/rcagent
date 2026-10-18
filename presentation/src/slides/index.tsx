@@ -54,14 +54,14 @@ export const SlideCall: React.FC<{mode: Mode}> = () => (
 
 export const SlideStatCost: React.FC<{mode: Mode}> = () => (
 	<AbsoluteFill style={{backgroundColor: '#030405'}}>
-		<StatShot index={0} done />
+		<StatShot index={1} done />
 		<Brand />
 	</AbsoluteFill>
 );
 
 export const SlideStatFailures: React.FC<{mode: Mode}> = () => (
 	<AbsoluteFill style={{backgroundColor: '#030405'}}>
-		<StatShot index={1} done />
+		<StatShot index={0} done />
 		<Brand />
 	</AbsoluteFill>
 );
@@ -179,6 +179,6 @@ export const Slide7: React.FC<{mode: Mode}> = ({mode}) => (
 	</SlideFrame>
 );
 
-export const SLIDES = [SlideTitle, SlideCall, SlideStatCost, SlideStatFailures, SlideIntroducing, SlideTemplating, SlideHowItWorks, SlideSplit, SlideDemo, Slide5, Slide6, SlideFeatures, Slide7] as const;
+export const SLIDES = [SlideTitle, SlideCall, SlideStatFailures, SlideStatCost, SlideIntroducing, SlideTemplating, SlideHowItWorks, SlideSplit, SlideDemo, Slide5, Slide6, SlideFeatures, Slide7] as const;
 
 export const Blank: React.FC = () => <AbsoluteFill style={{backgroundColor: color.bg}} />;

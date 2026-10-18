@@ -98,10 +98,10 @@ export const reveal = {
 	/** How often these failures happen in the world, each with its source (shown under the number). */
 	stats: {
 		items: [
-			// New Relic, Observability Forecast 2025 (press release 2025-09-17): median $2M per hour of a high-impact outage
-			{value: '$2M', label: 'per hour of a high-impact outage', source: 'New Relic Observability Forecast 2025'},
 			// Meta, The Llama 3 Herd of Models (arXiv 2407.21783): 419 unexpected interruptions in 54 days, 16,384 H100 GPUs
 			{value: '419', label: 'unexpected failures in 54 days on one AI cluster', source: 'Meta, The Llama 3 Herd of Models (2024)'},
+			// New Relic, Observability Forecast 2025 (press release 2025-09-17): median $2M per hour of a high-impact outage
+			{value: '$2M', label: 'per hour of a high-impact outage', source: 'New Relic Observability Forecast 2025'},
 		],
 	},
 	/** Raw lines → masked in SereneDB (SQL regexp_replace) → merged by Drain3 into templates (ADR 0002 on main).
@@ -135,10 +135,10 @@ export const reveal = {
 	cues: [
 		'Saturday, 11 June 2005, Lawrence Livermore National Laboratory.',
 		'Blue Gene/L, then the fastest supercomputer on Earth.',
-		// $2M per hour: New Relic Observability Forecast 2025
-		'This is not rare: a high-impact outage costs a company two million dollars an hour.',
 		// 419 unexpected interruptions in 54 days (about one every three hours): Meta, Llama 3 paper
-		'On a 16,000-GPU AI cluster, something fails every three hours. Tonight it could be CLAIX, here in Aachen.',
+		'On a 16,000-GPU AI cluster, something fails every three hours.',
+		// $2M per hour: New Relic Observability Forecast 2025
+		'Each high-impact outage costs a company two million dollars an hour. Tonight it could be CLAIX, here in Aachen.',
 		'No human can read those logs fast enough. No AI prompt holds them either.',
 		'So we built RCAgent.',
 		'We call it templating: Drain3 and SereneDB regex fold the lines into templates.',
