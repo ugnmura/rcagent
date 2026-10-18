@@ -574,7 +574,7 @@ def create_index(ctx: AppContext, log_table: str, kind: str, dry_run: bool = Fal
             )
         built = indexes.build_measured(ctx, lt, kind)
     note = {
-        "filter": "describe_logs now lists values exactly and filters on the indexed fields cost almost nothing.",
+        "filter": "describe_logs now lists values (and find_values) exactly from the index; counts, surveys and trends still read the entries.",
         "search": "search_logs uses it for text search, and fuzzy search is available.",
     }[kind]
     return "\n".join(

@@ -333,8 +333,8 @@ def offer_lines(
 
 _OFFER_FOOTER = (
     "No index is built unless you ask for it (build_filter_index / build_search_index at setup, or create_index). "
-    "A filter index lists values exactly and makes filters nearly free; a search index also speeds up text "
-    "search and allows fuzzy search."
+    "A filter index makes describe_logs' value lists exact and instant; a search index speeds up text search "
+    "(search_logs) and allows fuzzy search. Counts, surveys and trends read the entries either way."
 )
 
 
