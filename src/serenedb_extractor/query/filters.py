@@ -74,7 +74,15 @@ def _parse_moment(text: str, zone: ZoneInfo, what: str) -> datetime:
         raise UserFacingError(
             f"I could not read {what} '{text}' as a time. Use a form like 2026-03-01 or 2026-03-01T12:30:00."
         ) from None
-    return (dt.replace(tzinfo=zone) if dt.tzinfo is None else dt).astimezone(UTC)
+    if dt.tzinfo is not None:
+        return dt.astimezone(UTC)
+    local = dt.replace(tzinfo=zone)
+    if local.astimezone(UTC).astimezone(zone).replace(tzinfo=None) != dt:
+        raise UserFacingError(
+            f"{what.capitalize()} '{text}' does not exist in {zone.key}: the clocks moved forward an hour that night. "
+            "Use a time after the change (or give the time with its UTC offset)."
+        )
+    return local.astimezone(UTC)
 
 
 def shown_zone(lt: LogTable, given: str | None) -> str:

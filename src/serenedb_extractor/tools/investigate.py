@@ -508,6 +508,7 @@ def extract_params(
         if (missing := untimestamped_note(db, lt, tr)) is not None:
             notes.append(missing)
         run = _ParamRun(sc, plan, t, by_expr, shown_limit, ctx)
+        run.by_values = fmt.clamp_limit(limit, BY_VALUES, BY_VALUES * ctx.settings.limit_cap)
         result = run.go()
     return _render_params(sc, plan, t, by_items[0][0] if by_items else None, result, shown_limit, notes)
 
@@ -531,6 +532,7 @@ class ParamResult:
 class _ParamRun:
     def __init__(self, sc: Scope, plan: cost.Plan, t: Template, by_expr: str | None, limit: int, ctx: AppContext) -> None:
         self.sc, self.plan, self.t, self.by_expr, self.limit = sc, plan, t, by_expr, limit
+        self.by_values = BY_VALUES  # values shown per group of `by`
         self.db = ctx.db
         self.timeout = cost.run_timeout(plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
         self.what = f"extracting parameters of {t.template_id} in log table {sc.lt.name}"
@@ -609,7 +611,7 @@ class _ParamRun:
         for b, name, v, c in self.q(
             "SELECT b, p, v, c FROM (SELECT b, p, v, c, row_number() OVER (PARTITION BY b, p ORDER BY c DESC, v) AS rn FROM ("
             f"SELECT b, p, v, count(*) AS c FROM ({self.unpivot}) WHERE v IS NOT NULL AND b IN ({', '.join(marks)}) GROUP BY 1, 2, 3)) "
-            f"WHERE rn <= {_int(BY_VALUES)}",
+            f"WHERE rn <= {_int(self.by_values)}",
             p,
         ):
             res.by_top.setdefault((str(b), name), []).append((str(v), int(c)))

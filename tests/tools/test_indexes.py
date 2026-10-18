@@ -137,7 +137,7 @@ async def test_text_search_same_answer_with_and_without_index(mcp, fx_lt, monkey
         if "confirmed_cost=" in out:  # the occurrence-ID lookup is priced; approve it
             out = await call(mcp, "search_logs", log_table="fx", confirmed_cost=token_of(out), **q)
         after.append(out)
-    notes = ("Whole words only", "The search index wasn't needed")
+    notes = ("Whole words only", "The search index wasn't needed", "Confirmed_cost=")
     for q, b, a in zip(queries, before, after, strict=True):
         assert [ln for ln in _body(b) if not ln.startswith(notes)] == [ln for ln in _body(a) if not ln.startswith(notes)], q
     assert "search index" in after[0].splitlines()[0]

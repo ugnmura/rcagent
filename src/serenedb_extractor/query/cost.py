@@ -156,6 +156,9 @@ def decide(
             return Decision("run", replace(exact, confirmed=True, notes=(note,)))
     small = stats.rows_in_range <= sample_target
     if exact.seconds <= budget and (want_exact or small):
+        if problem:  # a confirmation that confirms nothing: it was not needed, but say it was not understood
+            note = f"confirmed_cost={confirmed_cost} was not needed and was ignored: this fits the time budget."
+            return Decision("run", replace(exact, notes=(note,)))
         return Decision("run", exact)
     tried: list[Plan] = []
     groups = stats.groups if stats.can_sample else ()

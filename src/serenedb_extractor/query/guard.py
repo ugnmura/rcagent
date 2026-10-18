@@ -30,7 +30,7 @@ ALLOWED_FUNCTIONS = frozenset(
     current_timestamp current_date current_time make_timestamp make_date make_time to_timestamp to_char
     strftime strptime time_bucket year month day hour minute second dayofweek dayofyear week quarter
     abs ceil ceiling floor round trunc sign sqrt cbrt power pow exp ln log log2 log10 mod div random
-    greatest least coalesce nullif ifnull nvl if iif cast try_cast typeof
+    greatest least coalesce nullif ifnull nvl if iif cast try_cast typeof timezone
     json_extract json_extract_string json_extract_path json_extract_path_text json_exists json_valid json_type
     json_array_length json_keys json_object json_array to_json
     count sum avg min max median mode stddev stddev_pop stddev_samp variance var_pop var_samp quantile quantile_cont
@@ -99,6 +99,8 @@ def _check_tokens(text: str) -> None:
         tokens = Dialect.get_or_raise("postgres").tokenize(text)
     except Exception:
         raise SqlRejected(COMPLEX) from None
+    if any(tok.token_type == TokenType.SEMICOLON for tok in tokens):
+        raise SqlRejected("run_sql runs one statement at a time; send each query on its own")
     depth = 0
     for i, tok in enumerate(tokens):
         word = tok.text.lower() if "STRING" not in tok.token_type.name else ""
@@ -200,6 +202,8 @@ def _check(sql: str) -> Checked:
         cte_refs = _cte_references(root)
     except Exception:
         raise SqlRejected(COMPLEX) from None
+    if any(isinstance(node, _WRITE_NODES) for node in root.walk()):  # say what is wrong before naming tables
+        raise SqlRejected("it changes data, settings or the database")
     for node in root.walk():
         if isinstance(node, exp.Table):
             _check_relation(node, cte_refs)

@@ -363,6 +363,9 @@ class CatalogStore:
     def resolve(self, log_table: str, template_id: str) -> Resolved:
         """The live template for an ID, following a merge redirect (one hop by construction)."""
         wanted = template_id.strip()
+        spelled = re.fullmatch(r"[Tt]\s*0*(\d+)", wanted)
+        if spelled:  # t1, T 1, T001 all mean T1
+            wanted = f"T{spelled.group(1)}"
         live = self._template_row(log_table, wanted)
         if live is not None:
             return Resolved(live, None)
