@@ -10,6 +10,25 @@ export const DRAMATIZATION_LABEL = 'Dramatization: real log data, AI-generated v
 // ---------------------------------------------------------------- 1a cold open (slide 1)
 export const coldOpen = {
 	caption: 'Lawrence Livermore National Laboratory · Blue Gene/L · Saturday, 11 June 2005, 17:17',
+	/** The caption as the three typed lines of the film title. */
+	captionLines: ['Lawrence Livermore National Laboratory', 'Blue Gene/L', 'Saturday, 11 June 2005 · 17:17'],
+	// Background log scroll: only real BGL lines, as quoted in docs/worked-investigation-transcript.md
+	// (step 5, rows #222714 to #222719). Lines after the quoted ones repeat the run's message without a
+	// timestamp, because their timestamps are not quoted (WI §1: 152,182 such entries on this node, step 3).
+	log: {
+		node: 'R30-M0-N9-C:J16-U01',
+		level: 'FATAL',
+		component: 'KERNEL',
+		quoted: [
+			{ts: '2005-06-11 17:17:44', message: 'machine check interrupt (bit=0x10): L2 DCU read error'},
+			{ts: '2005-06-11 17:17:44', message: 'data TLB error interrupt'},
+			{ts: '2005-06-11 17:17:45', message: 'data TLB error interrupt'},
+			{ts: '2005-06-11 17:17:45', message: 'data TLB error interrupt'},
+			{ts: '2005-06-11 17:17:45', message: 'data TLB error interrupt'},
+			{ts: '2005-06-11 17:17:45', message: 'data TLB error interrupt'},
+		],
+		runMessage: 'data TLB error interrupt',
+	},
 	// script.md, dialog table. Speaker labels are the table's "Voice" column, shortened.
 	dialog: [
 		{
@@ -28,6 +47,10 @@ export const coldOpen = {
 export const reveal = {
 	// 152,229: WI §1 [step 2]
 	headline: ['152,229 fatal entries', 'one node', 'one evening'],
+	/** Video shot: the counter rolls to this value; the words fade in under it. */
+	counter: {value: '152,229', label: 'fatal entries · one node · one evening'}, // WI §1 [step 2]
+	// 4.7 million: WI intro (4,747,963 BGL entries, 2005-06-03 to 2006-01-04); "seven months": script
+	fact: {value: '4.7 million', label: 'log lines · seven months'},
 	flow: ['Question', 'Agent picks a tool', 'SereneDB searches / counts', 'Evidence', 'Answer'],
 	cues: [
 		'The voices are reconstructed. Everything else is real.',
@@ -47,6 +70,8 @@ export const reveal = {
 	],
 	/** Index of the cue from which the headline card shows (the cue that says 152,229). */
 	headlineFromCue: 3,
+	/** Index of the cue from which the 4.7 million shot shows. */
+	factFromCue: 5,
 	/** Index of the cue from which the flow line shows ("So we flipped it."). */
 	flowFromCue: 7,
 };
@@ -54,6 +79,7 @@ export const reveal = {
 // ---------------------------------------------------------------- 2 engineer (slide 2)
 export const engineer = {
 	title: 'Engineer: what failed, and what happened just before?',
+	chapter: {title: 'The engineer', question: 'What failed? What came just before?'},
 	prompt: '/engineer What failed on BGL on 11 June 2005, and what happened just before?',
 	recordingCue: 'Pause on the search_logs result, then on the get_context timeline.',
 	node: 'R30-M0-N9-C:J16-U01', // WI §1 [step 2]
@@ -65,6 +91,9 @@ export const engineer = {
 	message: 'data TLB error interrupt',
 	window: '17:17 – 23:39', // WI §1 [step 4]: 17:17:44 to 23:39:32
 	before: 'L2 DCU read error, same second', // WI §1 [step 5]
+	/** The timeline shot: one line, then the flood. */
+	beforeLine: {time: '17:17:44', text: 'L2 cache read error'}, // WI §1 [step 5]; words as spoken in the script
+	runTimes: {from: '17:17', to: '23:39'}, // WI §1 [step 4]
 	rarity: '3 times in 7 months · twice on this node', // WI §1 [step 7]
 	hypothesis: 'Hypothesis: a failing L2 cache. Next check: processor diagnostics.',
 	cues: [
