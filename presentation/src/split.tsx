@@ -4,7 +4,7 @@
 // 152,734 = 152,734 lands under them. Texts: `split` in content.ts.
 // `SplitBoard` with DONE_TIMES draws the final state for the slides PDF.
 import React from 'react';
-import {AbsoluteFill, Audio, interpolate, Sequence, spring, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
+import {AbsoluteFill, Audio, interpolate, interpolateColors, Sequence, spring, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
 import {type ResolvedAssets} from './assets';
 import {split, type SplitFact, type SplitRole} from './content';
 import {BlackFades, easeOut, FilmFacecam, Grain, NameTag, ramp, Vignette} from './film';
@@ -13,9 +13,10 @@ import {color, font} from './theme';
 import {cueFrames} from './timeline';
 
 const INK = '#0b0f14';
-/** Flat card surface and borders: neutral, no gradients, no gold. */
-const CARD_BG = '#11161d';
-const BORDER_LIT = '#4a525c';
+/** Flat card surfaces, as in the reveal's flow and template cards: neutral panel; the card in focus gets the thin gold
+ * frame on a warm dark fill (no glow, no gradient). */
+const CARD_BG = color.panel;
+const CARD_BG_LIT = '#2a2215';
 /** Calm springs: little or no overshoot. */
 const MOVE = {damping: 26, stiffness: 90, mass: 1};
 const LAND = {damping: 22, stiffness: 120, mass: 0.8};
@@ -213,8 +214,8 @@ const Card: React.FC<{i: number; role: SplitRole; pose: Pose; T: SplitTimes; fac
 				height: pose.h,
 				boxSizing: 'border-box',
 				borderRadius: 24,
-				background: CARD_BG,
-				border: `2px solid ${focus > 0.5 ? BORDER_LIT : color.line}`,
+				background: interpolateColors(focus, [0, 1], [CARD_BG, CARD_BG_LIT]),
+				border: `2px solid ${interpolateColors(focus, [0, 1], [color.line, color.accent])}`,
 				boxShadow: `0 ${8 + 12 * focus}px ${24 + 24 * focus}px rgba(0,0,0,${0.3 + 0.15 * focus})`,
 				opacity: Math.min(1, enter * 1.4) * clamp01(pose.dim),
 				transform: `translateY(${(1 - enter) * 40}px) scale(${pose.s})`,
