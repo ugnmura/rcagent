@@ -70,6 +70,47 @@ the screening set (Sonnet 5.5, k=3, 30 questions plus 14 localisation questions,
 Cost per answer rose 77%. Each tool result now carries its evidence footer (`Evidence [Qn]` and its SQL), so
 results are 2.6 times longer, and there are 15 tools instead of 12. There is no Opus finals run at `b022894`.
 
+## The three designs compared
+
+The three designs are three MCP servers over the same SereneDB data. The team built all three:
+
+| | **Drain3 + SQL** (this server) | **18 fixed tools** ([serenedb-log-mcp](https://github.com/OrFrederick/serenedb-log-mcp)) | **7 fixed tools** ([serenedb-log-mcp-v2](https://github.com/OrFrederick/serenedb-log-mcp-v2)) |
+|---|---|---|---|
+| Data | Parquet/JSON read in place, also from S3; raw text copied once | copied into tables at load | copied into tables at load; TextBench read in place |
+| Templates | at question time: SQL masking, then Drain, kept as stable IDs `T1, T2, …` | at load time: Loghub template regexes, then a regex mask chain | at load time: the regex mask chain only |
+| Tools Claude sees | 8 core tools plus `run_sql` | 18 tools: incidents, precursors, patterns, baselines, … | 7 tools; each extra tool had to win a benchmark |
+| Evidence | every query saved as `Q<n>`, with its SQL | evidence ledger `[E<n>]` plus `verify_answer` | evidence ledger `[E<n>]` |
+| Roles | prompts and slash commands | `role` parameter on every tool | `role` parameter on every tool |
+
+## Templating: better grouping than Drain on the full Loghub-2.0 data
+
+How well log lines are grouped into templates, over every labelled line of Loghub-2.0's full BGL (4,631,261 lines,
+320 templates) and OpenStack (207,632 lines, 48 templates). GA is the share of lines in exactly the right group; FGA
+is the F1 score over groups, so it punishes splitting one template into many. Higher is better for both.
+
+| Approach | BGL GA | BGL FGA | OpenStack GA | OpenStack FGA |
+|---|---|---|---|---|
+| **Drain3 + SQL** (this server, `6cad141`) | 0.929 | **0.745** | 0.355 | 0.682 |
+| 18 / 7 fixed tools (regex mask chain¹) | **0.939** | 0.694 | **1.000** | **1.000** |
+| Drain (the standard parser), Loghub-2.0's tuned settings | 0.919 | 0.624 | 0.752 | 0.007 |
+| *AEL (published)* | *0.915* | *0.587* | *0.743* | *0.682* |
+| *IPLoM (published)* | *0.896* | *0.692* | *0.375* | *0.029* |
+| *UniParser (published, trained model)* | *0.549* | *0.641* | *1.000* | *1.000* |
+| *LogPPT (published, trained model)* | *0.311* | *0.519* | *0.534* | *0.929* |
+
+All rows in plain type were run with the same scorer on 2026-10-18 (drain3 0.9.11 for Drain). The
+italic rows are copied from the Loghub-2.0 paper's results
+([`effectiveness_results.csv`](https://github.com/logpai/loghub-2.0/blob/ac4aad2ea86f561e5a0acbc6587fa28b487259f9/RQs_experiments/RQ2/effectiveness_results.csv),
+full-dataset column) and were not rerun. They are comparable: our run of Drain with Loghub's settings gives the
+paper's Drain numbers to three decimals on both datasets (BGL 0.919 / 0.624, OpenStack 0.752 / 0.007).
+
+The extractor has the best BGL FGA of every approach here, trained models included: its templates match the
+real ones one to one more often. On OpenStack it ties AEL, the best published parser without training, on FGA,
+but its GA is low because GET, POST and DELETE request lines fall into one template.
+
+¹ The 18-tool server's default also matches regexes generated from the Loghub-2.0 templates, which would score
+the labels against themselves; that tier is off in this row, so both fixed-tool servers give the same result.
+
 ## Weak spots and threats to validity
 
 - **Key facts:** the mechanical key-fact match is lower than for the other two designs (54% against 63–67%),

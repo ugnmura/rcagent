@@ -14,70 +14,31 @@ An MCP server that lets Claude investigate millions of log lines for three peopl
 error, a **team lead** looking for recurring problems, and a **manager** deciding what comes first. SereneDB does
 the searching and counting; Claude explains the results. Built for *Making Sense of Logs* (SereneDB track).
 
-**Demo video:** _link to come_ · **Worked investigation:** [below](#worked-investigation-two-503s-at-0625) · [longer, three roles](docs/worked-investigation.md)
+**Demo video:** _link to come_ · **Worked investigation:** [below](#worked-investigation-one-corpus-three-roles) ·
+**Requirements checklist:** [docs/reference.md](docs/reference.md#requirements-checklist)
 
-## Benchmarks
+## Beyond the core challenge
 
-### 96.9% on 30 sealed held-out questions, at $0.117 per answer
+The core workflow (three roles, full-text search plus whole-corpus counts, cited evidence) is complete. On top of
+it we entered both special awards and added optional extensions from the brief:
+
+| | what we did | result |
+|---|---|---|
+| **Best MCP Server** (special award) | 18 tools whose descriptions say when to use them, their inputs and what they return; capped results that say when they were cut; `/engineer`, `/team-lead`, `/manager` prompts | **96.9%** on 30 sealed held-out questions, blind-graded, at **$0.117** per answer ([evaluation](docs/EVALUATION.md)) |
+| **Working with Huge Datasets** (special award) | One TextBench file, **1 billion rows**, read in place from the public S3 bucket; nothing downloaded | full-text search over all of it in **4.18 s** with the index ([timings](docs/HUGE_DATASETS.md)) |
+| **Agent-managed indexes** (optional) | `create_index` (with a `dry_run` size and time estimate) and `drop_index`, so the agent builds an index for an investigation and removes it after | index over 1B rows built in **69.9 s**; build time against query time in [docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md#the-trade-off-index-build-time-against-query-time) |
+| **Fuzzy matching** (optional) | `search_logs` with `fuzzy`, through the search index | |
+| **Template mining** (our own) | Log lines grouped into message templates at question time (SQL masking, then Drain), kept as stable IDs `T1, T2, …` | best BGL grouping score (FGA 0.745) of every approach compared, published parsers included ([table](docs/EVALUATION.md#templating-better-grouping-than-drain-on-the-full-loghub-20-data)) |
 
 <img src="docs/img/bench-quality.svg" alt="Answer quality on 30 sealed held-out questions: this server scores 96.9% on a blind rubric (18 fixed tools 92.9%, 7 fixed tools 93.5%), 98% on exact values (94%, 96%), costs $0.117 per answer ($0.459, $0.259) and uses 5.9 tool calls per answer (9.2, 6.6)." width="100%">
 
-A separate model wrote the questions without seeing this repository; a blind grader scored the answers. These
-finals ran at commit `6cad141`. The current version, rerun on the screening set with Sonnet 5.5, scored 94.4% on
-the rubric and 99% on exact values. Method, confidence intervals and weak spots: [docs/EVALUATION.md](docs/EVALUATION.md).
-
-The three designs are three MCP servers over the same SereneDB data. The team built all three:
-
-| | **Drain3 + SQL** (this server) | **18 fixed tools** ([serenedb-log-mcp](https://github.com/OrFrederick/serenedb-log-mcp)) | **7 fixed tools** ([serenedb-log-mcp-v2](https://github.com/OrFrederick/serenedb-log-mcp-v2)) |
-|---|---|---|---|
-| Data | Parquet/JSON read in place, also from S3; raw text copied once | copied into tables at load | copied into tables at load; TextBench read in place |
-| Templates | at question time: SQL masking, then Drain, kept as stable IDs `T1, T2, …` | at load time: Loghub template regexes, then a regex mask chain | at load time: the regex mask chain only |
-| Tools Claude sees | 8 core tools plus `run_sql` | 18 tools: incidents, precursors, patterns, baselines, … | 7 tools; each extra tool had to win a benchmark |
-| Evidence | every query saved as `Q<n>`, with its SQL | evidence ledger `[E<n>]` plus `verify_answer` | evidence ledger `[E<n>]` |
-| Roles | prompts and slash commands | `role` parameter on every tool | `role` parameter on every tool |
-
-### 1 billion rows on S3, queried in place
+The team built three MCP server designs over the same data and kept the best; the chart compares them
+([how they differ](docs/EVALUATION.md#the-three-designs-compared)). A separate model wrote the questions without
+seeing this repository, and a blind grader scored the answers. These finals ran at commit `6cad141`; the current
+version, rerun on the screening set with Sonnet 5.5, scored 94.4% on the rubric and 99% on exact values.
 
 <img src="docs/img/bench-textbench.svg" alt="TextBench, 1 billion rows read in place on S3: search of the whole file with the index 4.18 s, exact search of a 60-second window without an index 2.88 s, survey 7.8 s; registering the S3 file 1.97 s, building the search index 69.9 s." width="100%">
 
-One TextBench file (`part_000.parquet`) straight from the public bucket, nothing downloaded, at commit `6cad141`
-on one shared HPC node. The search index over a billion rows needs more than 64 GB of RAM. Raw per-call logs:
-[docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md).
-
-### The base corpus: 25 tool calls, median 0.25 s
-
-In the worked investigation over BGL and OpenStack (4,955,599 entries, no index), every one of the 25 tool calls
-took between 0.02 s and 1.97 s, 0.25 s at the median, including exact counts over the whole corpus. Each timing is
-in the [transcript](docs/worked-investigation-transcript.md); the machine it ran on was not recorded.
-
-### Templating: better grouping than Drain on the full Loghub-2.0 data
-
-How well log lines are grouped into templates, over every labelled line of Loghub-2.0's full BGL (4,631,261 lines,
-320 templates) and OpenStack (207,632 lines, 48 templates). GA is the share of lines in exactly the right group; FGA
-is the F1 score over groups, so it punishes splitting one template into many. Higher is better for both.
-
-| Approach | BGL GA | BGL FGA | OpenStack GA | OpenStack FGA |
-|---|---|---|---|---|
-| **Drain3 + SQL** (this server, `6cad141`) | 0.929 | **0.745** | 0.355 | 0.682 |
-| 18 / 7 fixed tools (regex mask chain¹) | **0.939** | 0.694 | **1.000** | **1.000** |
-| Drain (the standard parser), Loghub-2.0's tuned settings | 0.919 | 0.624 | 0.752 | 0.007 |
-| *AEL (published)* | *0.915* | *0.587* | *0.743* | *0.682* |
-| *IPLoM (published)* | *0.896* | *0.692* | *0.375* | *0.029* |
-| *UniParser (published, trained model)* | *0.549* | *0.641* | *1.000* | *1.000* |
-| *LogPPT (published, trained model)* | *0.311* | *0.519* | *0.534* | *0.929* |
-
-All rows in plain type were run with the same scorer on 2026-10-18 (drain3 0.9.11 for Drain). The
-italic rows are copied from the Loghub-2.0 paper's results
-([`effectiveness_results.csv`](https://github.com/logpai/loghub-2.0/blob/ac4aad2ea86f561e5a0acbc6587fa28b487259f9/RQs_experiments/RQ2/effectiveness_results.csv),
-full-dataset column) and were not rerun. They are comparable: our run of Drain with Loghub's settings gives the
-paper's Drain numbers to three decimals on both datasets (BGL 0.919 / 0.624, OpenStack 0.752 / 0.007).
-
-The extractor has the best BGL FGA of every approach here, trained models included: its templates match the
-real ones one to one more often. On OpenStack it ties AEL, the best published parser without training, on FGA,
-but its GA is low because GET, POST and DELETE request lines fall into one template.
-
-¹ The 18-tool server's default also matches regexes generated from the Loghub-2.0 templates, which would score
-the labels against themselves; that tier is off in this row, so both fixed-tool servers give the same result.
 
 ## How it works
 
@@ -87,6 +48,7 @@ the labels against themselves; that tier is off in this row, so both fixed-tool 
 
 Claude only sees query results, never the raw logs. Every query is saved under an ID like `Q46`; the answer cites
 it, and `show_evidence` shows the exact SQL behind any number.
+
 
 ## Quick start
 
@@ -128,48 +90,68 @@ Then run `claude` in this folder and ask:
   ownership table or shared instance, so the quick start runs all of it locally.
 - Passwords, reader and writer roles, other options: [docs/reference.md](docs/reference.md).
 
-## Three roles, three kinds of answer
 
-| role | asks | gets |
-|---|---|---|
-| **Engineer** | What failed, and what happened around it? | the error messages, nearby events, a possible cause (labelled as a hypothesis) and the next check |
-| **Team lead** | What keeps recurring? | counts by team, trends over a stated period, and what to investigate first |
-| **Manager** | What should we prioritise? | 3-5 ranked risks, each with an owning team and a next action |
+## Worked investigation: one corpus, three roles
 
-For example, the engineer answer from the worked investigation:
+The same agent answers one question per role over the base corpus: BGL (4,747,963 entries) and OpenStack
+(207,636 entries). Each role gets different evidence and a different kind of action. All 25 tool calls took
+0.02 s to 1.97 s each (median 0.25 s) with no index. `[step n]` points to the
+[transcript](docs/worked-investigation-transcript.md), which holds every tool call, its result and the SQL that
+ran. The full write-up is [docs/worked-investigation.md](docs/worked-investigation.md). BGL times are US Pacific,
+the zone the log was written in.
 
-> One node, R30-M0-N9-C:J16-U01, produced 152,229 of BGL's 855,501 FATAL entries (17.8%) in one run on 11 June
-> 2005. Just before it, the node logged a rare `L2 DCU read error`. **Hypothesis:** a faulty L2 cache. **Next
-> check:** run hardware diagnostics on that node.
+### Engineer: "What failed on BGL, and what happened just before it?"
 
-## Worked investigation: two 503s at 06:25
+- **Found by:** `count_logs` on FATAL entries by node, full-text `search_logs`, `get_context`.
+- **What failed:** one compute node, **R30-M0-N9-C:J16-U01**, produced **152,229 of BGL's 855,501 FATAL entries**
+  (17.8%); the next node has 1,567 [step 2]. Almost all of them are `data TLB error interrupt`
+  (152,182) [step 3], in one run on 11 June 2005 from 17:17:44 to 23:39:32 PDT [step 4].
+- **Just before:** in the same second, the node logged `machine check interrupt (bit=0x10): L2 DCU read error`
+  [step 5]. Nothing else on the machine was logged in the 10 minutes before [step 6]. That error appears only 3 times in the whole log,
+  twice on this node [step 7].
+- **Possible cause (hypothesis):** a faulty L2 data cache on the node's processor.
+- **Next check:** run the processor and L2 diagnostics on that node. If they fail, take it out of the scheduler
+  and replace the card. If they pass, look at the job that ran there at 17:17.
 
-**Question (engineer):** *"What are the most severe entries in OpenStack, and did they matter?"* Eight tool calls,
-each under 0.2 s. Every result and the SQL behind it is in the
-[transcript](docs/keystone-503-transcript.md); `[step n]` points there. Times are UTC.
+### Team lead: "Which problems keep recurring, and what should the team look at first?"
 
-1. **The rarest entries are one failure, twice.** OpenStack has only 2 CRITICAL entries in 207,636 [steps 1, 6]. Both
-   say `Unable to validate token: Failed to fetch token data from identity server`, right after Keystone answered
-   `503`. The first was at **06:25:02 on 16 May**, the second at **06:25:03 on 17 May**: the same minute, a day apart
-   [step 2]. They are also the only two HTTP 503s in the log, both on `GET …/servers/detail` [step 3].
-2. **Nothing warned before it.** The six entries just before the first one are routine: API calls returning `200`
-   and an image-cache check. The 503 is the first sign of trouble [step 4].
-3. **After it, the workload stops.** On 17 May the client polled `servers/detail` about 2,830 times an hour until
-   05:00. After 06:25 it made 12 requests an hour, until the log ends [step 7]. New VMs stopped too: 86 or 87
-   spawns an hour, then none from 07:00 [step 8]. Right after the 503, polling fell by 99.6% and new VMs stopped, for the
-   last 5 h 37 min of the log.
-4. **What the logs cannot show.** On 16 May the log file itself ends at 06:25:02.870, on the 503 line. The next
-   file starts 8 h 51 min later [steps 5, 6], so day 1 cannot tell an outage from the end of a capture. Loghub's
-   anomaly labels (`anomaly_labels.txt`) mark four VMs in `openstack_abnormal.log` only; both 503s are in the "normal" files [step 6].
+- **Found by:** `count_logs` over the whole corpus by team and level, `trend` by week and day, `survey`.
+- **Whole-corpus counts by team** (fictional stand-in ownership table) [step 9]: Node OS 626,756 FATAL and HPC
+  Applications 228,536 FATAL on BGL; Virtualization 3,071 WARNING on OpenStack.
+- **Recurring:** "Link has been severed" (CioStream socket) on **22 of 31 days** in December, 14,616 entries, +4%
+  against November [step 21]. Kernel fault storms are rarer but huge: 62% of all BGL FATAL entries fall in 9-15
+  June [step 11]. On OpenStack, an image-cache warning appears in every hour at a steady rate [step 16].
+- **Investigate first:** **HPC Applications**, the "Link has been severed" failures: the most persistent fatal
+  problem, and not falling. Then Node OS, to confirm whether the 14 June event on about 22,500 nodes was a planned
+  restart [steps 12, 13].
 
-**Hypothesis (not established by these logs):** 06:25 is when Ubuntu's default `/etc/crontab` runs `cron.daily`.
-Its `logrotate` job reloads Apache, and Keystone usually runs inside Apache. A token check that arrives during the
-reload gets a 503, and the client then gives up instead of retrying.
-**Next check:** read Keystone's Apache log and the controller's `/etc/crontab` for 06:25. Then make the client
-retry on a 503.
+### Manager: "What should we prioritise, and what happens next?"
 
-Regenerate with `scripts/worked_investigation_keystone.py`. A longer investigation, one question per role:
-[docs/worked-investigation.md](docs/worked-investigation.md).
+- **Found by:** `rank_problems` for December 2005 against November, scored on measured severity, change,
+  persistence, spread and share [step 23]. The score orders the list; it is not a cost figure.
+
+| # | risk (measured) | owner | next action |
+|---|---|---|---|
+| 1 | Broken links between compute and I/O nodes: FATAL, 22 of 31 days, 1,024 nodes, 31% of December's severe entries | HPC Applications | trace which I/O-node links drop |
+| 2 | Failing job launches ("permission denied"), up 91% (7,296 → 13,952) | HPC Applications | review program-image permissions |
+| 3 | Lustre mounts failing, up 716% (230 → 1,877) on 924 nodes | Node OS | check the mounts and their servers for those 4 days |
+| 4 | One faulty node in June: 17.8% of all FATAL entries | Node OS | hardware diagnostics; keep it out of service until it passes |
+
+### What the data does and does not establish
+
+Every number above is an exact count over every entry in scope. The counts are log entries, not incidents. Causes
+are hypotheses; downtime, cost and customer impact are not in the logs. A check against ground truth: a full-text
+count of "data TLB error interrupt" over all of BGL gives **152,734**, exactly the number of lines BGL's own
+labels mark as `KERNDTLB` [steps 24, 25].
+
+### A second engineer finding: two 503s at 06:25 (OpenStack)
+
+OpenStack's only 2 CRITICAL entries are failed token checks after Keystone answered `503`: at **06:25:02 on 16 May**
+and **06:25:03 on 17 May**, the same minute a day apart. After the one on 17 May, polling of `servers/detail` fell
+from about 2,830 to 12 requests an hour, and no VM finished starting from 07:00 to the end of the log. The
+anomaly labels don't mark either one. **Hypothesis:** Ubuntu's daily cron job at 06:25 reloads Apache, which hosts
+Keystone, and the client gives up instead of retrying. **Next check:** Keystone's Apache log and `/etc/crontab` on
+the controller. Eight tool calls, all in [docs/keystone-503-transcript.md](docs/keystone-503-transcript.md).
 
 ## Tools
 
@@ -189,6 +171,7 @@ Claude picks these from their descriptions. Every result says how it was measure
 There are 18 tools in total, including setup, indexes and team ownership. Each one's inputs and outputs are listed in
 [docs/reference.md](docs/reference.md#tools).
 
+
 ## Evidence
 
 - **Counted in the database.** Counts cover every entry in scope, not a handful of examples. An estimate is
@@ -199,21 +182,21 @@ There are 18 tools in total, including setup, indexes and team ownership. Each o
 - **Checked against ground truth.** A full-text count of "data TLB error interrupt" over all of BGL gives 152,734,
   exactly the number of lines BGL's own labels mark as that alert.
 
+
 ## Limitations
 
 - Counts are log entries, not incidents.
-- The team-ownership table is fictional: the organisers supplied none.
+- The team-ownership table is a fictional stand-in; `edit_team_ownership` imports a real one.
 - Log tables are snapshots; they are not refreshed.
-- The benchmarks above ran at commit `6cad141`; later changes were only rerun on the smaller screening set.
+- The benchmarks ran at commit `6cad141`; later changes were only rerun on the smaller screening set.
 
 Full list: [docs/reference.md](docs/reference.md#known-limits).
 
 ## More
 
-- [docs/worked-investigation.md](docs/worked-investigation.md): one question per role, every number cited
-  ([full transcript](docs/worked-investigation-transcript.md))
-- [docs/EVALUATION.md](docs/EVALUATION.md) and [docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md): how the benchmarks
-  were run
-- [docs/reference.md](docs/reference.md): the requirements checklist, all tools, configuration, security, tests
+- [docs/worked-investigation.md](docs/worked-investigation.md): the full worked investigation
+- [docs/EVALUATION.md](docs/EVALUATION.md): benchmark method, the three designs, templating scores
+- [docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md): TextBench at 1 billion rows
+- [docs/reference.md](docs/reference.md): requirements checklist, all tools, configuration, security, tests
 
 Data: Loghub (Zhu et al., ISSRE 2023; BGL: Oliner & Stearley, DSN 2007), research use only.
