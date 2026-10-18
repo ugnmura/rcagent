@@ -13,9 +13,9 @@ import {
 	StarScene,
 } from './scenes';
 import {SplitScene} from './split';
-import {type ScenePart, type SceneId} from './timeline';
+import {type SceneId} from './timeline';
 
-type SceneProps = {assets: ResolvedAssets; frames: number; benchmarks: Benchmarks | null; parts: ScenePart[]};
+type SceneProps = {assets: ResolvedAssets; frames: number; benchmarks: Benchmarks | null};
 
 const renderScene = (id: SceneId, p: SceneProps): React.ReactNode => {
 	switch (id) {
@@ -26,7 +26,7 @@ const renderScene = (id: SceneId, p: SceneProps): React.ReactNode => {
 		case 'reveal':
 			return <RevealScene {...p} />;
 		case 'split':
-			return <SplitScene assets={p.assets} frames={p.frames} parts={p.parts} />;
+			return <SplitScene assets={p.assets} frames={p.frames} />;
 		case 'benchmarks':
 			return <BenchmarksScene {...p} />;
 		case 'close':
@@ -45,7 +45,7 @@ export const Talk: React.FC<TalkProps> = ({assets, scenes, benchmarks: b}) => {
 			<Series>
 				{scenes.map((s) => (
 					<Series.Sequence key={s.id} durationInFrames={s.frames} name={s.label}>
-						{renderScene(s.id, {assets, frames: s.frames, benchmarks: b, parts: s.parts ?? []})}
+						{renderScene(s.id, {assets, frames: s.frames, benchmarks: b})}
 					</Series.Sequence>
 				))}
 			</Series>

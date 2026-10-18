@@ -1,8 +1,9 @@
 # Handoff 2: Role recordings
 
 **Goal:** one screen recording of Claude Code answering one question per role with the serenedb-extractor
-MCP server, on the loaded base corpus: `roles.mp4` in `presentation/public/assets/`. The video plays it at about
-3× as a short proof clip before the three-way split (design: `docs/superpowers/specs/2026-10-19-three-way-split-design.md`).
+MCP server, on the loaded base corpus: `roles.mp4` in `presentation/public/assets/`. The video speeds it up to fit
+a 3–4 s proof clip at the start of the three-way split, presented by B in one take (design:
+`docs/superpowers/specs/2026-10-19-three-way-split-design.md`).
 
 **Wait:** start only after the benchmark runs on this machine have finished. The running `night-*` SereneDB
 containers belong to those runs; do not use, stop or reset them. Use a fresh container as in the README quick
@@ -20,8 +21,9 @@ Terminal for recording: dark theme, font size 18 or larger, window 1920×1080, n
 ## The take
 
 Ask the three prompts in turn, in one session or in three fresh sessions cut together into one file, in this
-order. Only the first seconds show in the video (sped up), so the tool calls of each role matter more than the
-full answers.
+order. The whole recording is squeezed into 3–4 s on screen, so the tool calls of each role matter more than the
+full answers: the point is that the same agent picks different tools per role. The split's columns then show
+each role's question, tool calls and one-line answer as animation, not from this footage.
 
 | part | prompt | must be visible | pause frames (for the script cues) |
 |---|---|---|---|
@@ -41,7 +43,8 @@ Compare every number in the answer with `docs/presentation/script.md` and `docs/
 
 ## Editing
 
-- Cut long waiting; the video speeds the clip up about 3× itself (`PROOF_RATE` in `src/timeline.ts`).
+- Cut long waiting; the video speeds the clip up itself to fit the 3–4 s proof slot, so a shorter cut plays
+  at a more readable speed.
 - Raw length is free. Export 1920×1080 H.264. Audio is not used.
 
 ## Done when

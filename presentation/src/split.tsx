@@ -1,61 +1,70 @@
-// Scene 2: the three roles as one split. A short sped-up proof clip of the real session, then the answers lift
-// into three columns (Question / Evidence / Next step) that build in turn on each presenter's cues, all three
-// lit at the end, and a push into the Q46 citation for the evidence. Texts: `split` and the role blocks in
-// content.ts. `SplitBoard` with DONE_TIMES draws the final state for the slides PDF.
+// Scene 2: the three roles as one split, in one take by presenter B. A short sped-up proof clip of the real
+// session, then the answers lift into three columns (question, tool calls, answer, next step) that build at the
+// same time, a spotlight following B's sentence for each role, and all three lit at the end with the evidence
+// beat (the engineer's [Q46] chip and 152,734 = 152,734). Texts: `split` in content.ts.
+// `SplitBoard` with DONE_TIMES draws the final state for the slides PDF.
 import React from 'react';
 import {AbsoluteFill, Audio, Freeze, OffthreadVideo, Sequence, spring, staticFile, useCurrentFrame, useVideoConfig, interpolate} from 'remotion';
-import {ASSETS, type AssetKey, type ResolvedAssets} from './assets';
+import {ASSETS, type ResolvedAssets} from './assets';
 import {engineer, evidence, manager, split, teamLead} from './content';
-import {BlackFades, ease, easeOut, FilmFacecam, Grain, NameTag, ramp, SoftPlaceholder, Typewriter, Vignette} from './film';
-import {Ring} from './shots';
-import {CitationShot, DaysRing, SnapShot} from './shots2';
+import {BlackFades, ease, easeOut, FilmFacecam, Grain, NameTag, ramp, SoftPlaceholder, Vignette} from './film';
+import {DaysRing} from './shots2';
 import {color, font} from './theme';
-import {cueFrames, FPS, PROOF_RATE, splitStarts, type ScenePart} from './timeline';
+import {cueFrames, FPS, PROOF_RATE} from './timeline';
 
 const INK = '#030405';
-const RED = '#ff6b6b';
 const COL_W = 560;
 const COL_GAP = 40;
 const COL_LEFT = (1920 - 3 * COL_W - 2 * COL_GAP) / 2;
-const COL_TOP = 210;
-const COL_H = 600;
+const COL_TOP = 196;
+const COL_H = 632;
 const PAD = 28;
 const colX = (i: number) => COL_LEFT + i * (COL_W + COL_GAP);
-/** Centre of the Q46 chip on the engineer's message line, in frame coordinates (the evidence push-in aims here). */
-const CHIP = {x: colX(0) + COL_W - PAD - 38, y: COL_TOP + 390 + 16};
 const LIFT_FRAMES = 36;
-const PUSH_FRAMES = 26;
-const PULL_FRAMES = 34;
 const NAME_TAG_FRAMES = 90;
+/** Column i starts building this many frames after the previous one (the columns build together, slightly staggered). */
+const STAGGER = 6;
+/** Frames between two tool calls in a column's ticker; each call "runs" for TOOL_RUN frames, then gets its tick. */
+const TOOL_STEP = 13;
+const TOOL_RUN = 10;
+/** Build offsets within a column, from its start. */
+const AT_TOOLS = 14;
+const AT_ANSWER = AT_TOOLS + 3 * TOOL_STEP + 6;
+const AT_NEXT = AT_ANSWER + 16;
+/** Brightness of a column outside the spotlight (still readable, slightly dimmer). */
+const DIM = 0.55;
 
 const num = (s: string) => Number(s.replace(/[^0-9.]/g, ''));
 const fmtInt = (n: number) => Math.round(n).toLocaleString('en-US');
 
-/** Scene-relative frames on which each part of the board appears. */
+/** Scene-relative frames of each beat. */
 export type SplitTimes = {
 	liftoff: number;
-	eng: {start: number; end: number; node: number; share: number; message: number; before: number; hypothesis: number; check: number};
-	tl: {start: number; end: number; question: number; bars: number; persistent: number; first: number};
-	mg: {start: number; question: number; risks: number; top: number; limit: number};
+	/** Build start of each column. */
+	build: [number, number, number];
+	/** Spotlight start for each column (it ends where the next one starts, the last at `allLit`). */
+	spot: [number, number, number];
 	allLit: number;
+	/** The [Q46] chip pulses and 152,734 = 152,734 lands. */
+	evidence: number;
 };
 
-/** Everything already built and all three columns lit: the slides PDF page. */
+/** Everything already built and all three columns lit, no transient effect running: the slides PDF page. */
 export const DONE_TIMES: SplitTimes = {
 	liftoff: -1000,
-	eng: {start: -1000, end: -999, node: -1000, share: -1000, message: -1000, before: -1000, hypothesis: -1000, check: -1000},
-	tl: {start: -999, end: -998, question: -1000, bars: -1000, persistent: -1000, first: -1000},
-	mg: {start: -998, question: -1000, risks: -1000, top: -1000, limit: -1000},
+	build: [-1000, -1000, -1000],
+	spot: [-1000, -1000, -1000],
 	allLit: -1000,
+	evidence: -1000,
 };
 
 // ---------------------------------------------------------------- pieces
 
-/** A row element that lands with a small overshoot when its cue arrives. */
+/** A row element that lands with a small overshoot when its beat arrives. */
 const Land: React.FC<{at: number; style?: React.CSSProperties; children: React.ReactNode}> = ({at, style, children}) => {
 	const frame = useCurrentFrame();
 	const {fps} = useVideoConfig();
-	const s = spring({frame: frame - at, fps, config: {damping: 13, stiffness: 170, mass: 0.6}});
+	const s = spring({frame: frame - at, fps, config: {damping: 12, stiffness: 180, mass: 0.6}});
 	return (
 		<div style={{position: 'absolute', left: PAD, right: PAD, opacity: Math.min(1, s * 1.5), transform: `translateY(${(1 - s) * 22}px)`, ...style}}>
 			{children}
@@ -64,28 +73,56 @@ const Land: React.FC<{at: number; style?: React.CSSProperties; children: React.R
 };
 
 const Label: React.FC<{children: React.ReactNode}> = ({children}) => (
-	<div style={{fontSize: 17, letterSpacing: '0.2em', textTransform: 'uppercase', color: color.muted, fontWeight: 600}}>{children}</div>
+	<div style={{fontSize: 18, letterSpacing: '0.2em', textTransform: 'uppercase', color: color.muted, fontWeight: 600}}>{children}</div>
 );
 
-/** Query mark on an evidence line: the numbered handle where one exists, otherwise an unnumbered mark. */
-const QueryChip: React.FC<{handle?: string}> = ({handle}) => (
+/** The query handle on the engineer's answer; `pulse` (0–1) swells it for the evidence beat. */
+const QueryChip: React.FC<{pulse: number}> = ({pulse}) => (
 	<span
 		style={{
+			display: 'inline-block',
 			fontFamily: font.mono,
-			fontSize: 16,
-			fontWeight: 600,
-			color: color.accent,
-			border: `2px solid ${handle ? color.accent : 'rgba(245,165,36,0.45)'}`,
+			fontSize: 20,
+			fontWeight: 700,
+			color: pulse > 0.01 ? INK : color.accent,
+			background: `rgba(245,165,36,${pulse})`,
+			border: `2px solid ${color.accent}`,
 			borderRadius: 999,
-			padding: '2px 10px',
+			padding: '2px 12px',
 			whiteSpace: 'nowrap',
+			transform: `scale(${1 + 0.28 * pulse})`,
+			boxShadow: pulse > 0.01 ? `0 0 ${40 * pulse}px rgba(245,165,36,${0.8 * pulse})` : undefined,
 		}}
 	>
-		{handle ? `[${handle}]` : split.labels.query}
+		[{evidence.handle}]
 	</span>
 );
 
-const Column: React.FC<{i: number; role: string; level: number; glow: number; children: React.ReactNode}> = ({i, role, level, glow, children}) => (
+/** One tool call in a column's ticker: a pulsing dot while it runs, then a tick. */
+const ToolRow: React.FC<{name: string; at: number; top: number}> = ({name, at, top}) => {
+	const frame = useCurrentFrame();
+	const done = frame >= at + TOOL_RUN;
+	const blink = 0.4 + 0.6 * Math.abs(Math.sin((frame - at) / 2.2));
+	return (
+		<Land at={at} style={{top, display: 'flex', alignItems: 'center', gap: 14, fontFamily: font.mono, fontSize: 24}}>
+			<span style={{width: 22, textAlign: 'center', fontWeight: 800, color: done ? color.accent : color.muted, opacity: done ? 1 : blink}}>
+				{done ? '✓' : '●'}
+			</span>
+			<span style={{color: done ? color.text : color.muted}}>{name}</span>
+		</Land>
+	);
+};
+
+const Column: React.FC<{i: number; role: string; question: string; tools: readonly string[]; start: number; level: number; glow: number; children: React.ReactNode}> = ({
+	i,
+	role,
+	question,
+	tools,
+	start,
+	level,
+	glow,
+	children,
+}) => (
 	<div
 		style={{
 			position: 'absolute',
@@ -97,7 +134,7 @@ const Column: React.FC<{i: number; role: string; level: number; glow: number; ch
 			borderRadius: 20,
 			background: 'linear-gradient(180deg, #121821 0%, #0c1016 100%)',
 			border: `2px solid ${glow > 0.01 ? `rgba(245,165,36,${0.25 + 0.6 * glow})` : color.line}`,
-			boxShadow: `0 30px 80px rgba(0,0,0,0.55)${glow > 0.01 ? `, 0 0 ${70 * glow}px rgba(245,165,36,${0.22 * glow})` : ''}`,
+			boxShadow: `0 30px 80px rgba(0,0,0,0.55)${glow > 0.01 ? `, 0 0 ${80 * glow}px rgba(245,165,36,${0.24 * glow})` : ''}`,
 			opacity: level,
 			filter: `saturate(${0.4 + 0.6 * level})`,
 			fontFamily: font.sans,
@@ -106,227 +143,212 @@ const Column: React.FC<{i: number; role: string; level: number; glow: number; ch
 	>
 		<div style={{position: 'absolute', left: PAD, top: 22, fontSize: 40, fontWeight: 800, color: color.text}}>{role}</div>
 		<div style={{position: 'absolute', left: 0, right: 0, top: 0, height: 4, background: color.accent, opacity: glow, transform: `scaleX(${glow})`}} />
+		<Land at={start} style={{top: 82, fontSize: 28, fontWeight: 600, fontStyle: 'italic', color: color.text, lineHeight: 1.2}}>
+			{question}
+		</Land>
+		<Land at={start + AT_TOOLS - 4} style={{top: 172}}>
+			<Label>{split.labels.tools}</Label>
+		</Land>
+		{tools.map((name, k) => (
+			<ToolRow key={name} name={name} at={start + AT_TOOLS + k * TOOL_STEP} top={202 + k * 36} />
+		))}
+		<Land at={start + AT_ANSWER - 4} style={{top: 328}}>
+			<Label>{split.labels.answer}</Label>
+		</Land>
 		{children}
+		<Land at={start + AT_NEXT - 4} style={{top: 488}}>
+			<Label>{split.labels.next}</Label>
+		</Land>
 	</div>
 );
 
-const EngineerColumn: React.FC<{t: SplitTimes['eng']}> = ({t}) => {
+/** The headline of an answer: lands with overshoot and swells briefly when its column takes the spotlight. */
+const Headline: React.FC<{at: number; focus: number; children: React.ReactNode; style?: React.CSSProperties}> = ({at, focus, children, style}) => {
 	const frame = useCurrentFrame();
-	const fill = ramp(frame, t.share, t.share + 40, ease);
-	const pct = num(engineer.share.pct);
-	const ghost = ramp(frame, t.message + 6, t.message + 50, easeOut);
-	const flash = Math.max(0, 1 - Math.max(0, frame - t.before) / 24) * (frame >= t.before ? 1 : 0);
+	const swell = frame >= focus ? Math.sin(Math.PI * Math.min(1, (frame - focus) / 18)) : 0;
+	return (
+		<Land at={at} style={{top: 354, fontSize: 30, fontWeight: 800, color: color.text, ...style}}>
+			<div style={{transform: `scale(${1 + 0.05 * swell})`, transformOrigin: 'left center'}}>{children}</div>
+		</Land>
+	);
+};
+
+const Next: React.FC<{at: number; children: React.ReactNode}> = ({at, children}) => (
+	<Land at={at} style={{top: 514, fontSize: 28, fontWeight: 800, color: color.accent, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>
+		→ {children}
+	</Land>
+);
+
+const EngineerAnswer: React.FC<{start: number; focus: number; evidenceAt: number}> = ({start, focus, evidenceAt}) => {
+	const frame = useCurrentFrame();
+	const e = split.engineer;
+	// Two quick pulses of the chip as the evidence beat starts.
+	const p = frame >= evidenceAt ? Math.abs(Math.sin(Math.PI * 2 * Math.min(1, (frame - evidenceAt) / 36))) : 0;
+	const a = start + AT_ANSWER;
 	return (
 		<>
-			<Land at={t.start} style={{top: 84}}>
-				<Label>{split.labels.question}</Label>
-				<div style={{fontSize: 30, fontWeight: 600, color: color.text, marginTop: 8, lineHeight: 1.2}}>{split.engineer.question}</div>
-			</Land>
-			<Land at={t.node} style={{top: 196}}>
-				<Label>{split.labels.evidence}</Label>
-			</Land>
-			<div style={{position: 'absolute', left: PAD, top: 224, fontFamily: font.mono, fontSize: 26, fontWeight: 600, color: color.text}}>
-				<Typewriter text={engineer.node} start={t.node} cps={24} />
-			</div>
-			<Land at={t.share} style={{top: 262, display: 'flex', alignItems: 'center', gap: 18}}>
-				<Ring fraction={(pct / 100) * fill} r={32} stroke={9} label={`${(pct * fill).toFixed(1)}%`} labelSize={17} />
-				<div style={{fontSize: 26, fontWeight: 800, color: color.text, fontVariantNumeric: 'tabular-nums'}}>
-					{fmtInt(num(engineer.share.part) * fill)}
-					<span style={{color: color.muted, fontWeight: 400}}> / {engineer.share.whole} FATAL</span>
+			<Headline at={a} focus={focus} style={{fontSize: 28}}>
+				<div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12}}>
+					<span>{e.answer}</span>
+					<QueryChip pulse={p} />
 				</div>
+			</Headline>
+			<Land at={a + 5} style={{top: 396, fontFamily: font.mono, fontSize: 24, color: color.muted}}>
+				{e.detail}
 			</Land>
-			<Land at={t.before} style={{top: 356, fontFamily: font.mono, fontSize: 21}}>
-				<span style={{color: color.accent, textShadow: `0 0 ${18 * flash}px rgba(245,165,36,${flash})`}}>
-					{engineer.beforeLine.time} {engineer.beforeLine.text}
-				</span>
+			<Land at={a + 9} style={{top: 432, fontSize: 24, color: color.accent}}>
+				{e.before}
 			</Land>
-			<Land at={t.message} style={{top: 390, display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontFamily: font.mono, fontSize: 21}}>
-				<span style={{color: RED, fontWeight: 600}}>{engineer.message}</span>
-				<QueryChip handle={evidence.handle} />
-			</Land>
-			{[1, 2, 3].map((k) => (
-				<div
-					key={k}
-					style={{position: 'absolute', left: PAD, top: 390 + 10 * k * ghost, fontFamily: font.mono, fontSize: 21, color: RED, opacity: (0.22 / k) * ghost}}
-				>
-					{engineer.message}
-				</div>
-			))}
-			<Land at={t.message + 8} style={{top: 428, fontSize: 21, color: color.muted}}>
-				non-stop {engineer.window}
-			</Land>
-			<Land at={t.hypothesis} style={{top: 470}}>
-				<Label>{split.labels.next}</Label>
-				<div style={{fontSize: 23, color: color.muted, marginTop: 10, fontStyle: 'italic'}}>{split.engineer.hypothesis}</div>
-			</Land>
-			<Land at={t.check} style={{top: 536, fontSize: 28, fontWeight: 800, color: color.accent}}>
-				→ {split.engineer.check}
-			</Land>
+			<Next at={start + AT_NEXT}>{e.next}</Next>
 		</>
 	);
 };
 
-const TeamLeadColumn: React.FC<{t: SplitTimes['tl']}> = ({t}) => {
+const TeamLeadAnswer: React.FC<{start: number; focus: number}> = ({start, focus}) => {
 	const frame = useCurrentFrame();
-	const bars = teamLead.fatalBars;
-	const max = Math.max(...bars.map((b) => num(b.value)));
-	const {days, of, message} = teamLead.persistent;
-	const lit = interpolate(frame, [t.persistent + 4, t.persistent + 46], [0, days], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: ease});
+	const {days, of, trendLabel} = teamLead.persistent;
+	const a = start + AT_ANSWER;
+	const lit = interpolate(frame, [a + 4, a + 40], [0, days], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: ease});
 	return (
 		<>
-			<Land at={t.question} style={{top: 84}}>
-				<Label>{split.labels.question}</Label>
-				<div style={{fontSize: 30, fontWeight: 600, color: color.text, marginTop: 8, lineHeight: 1.2}}>{split.teamLead.question}</div>
-			</Land>
-			<Land at={t.bars} style={{top: 196, display: 'flex', justifyContent: 'space-between'}}>
-				<Label>{split.labels.evidence}</Label>
-				<QueryChip />
-			</Land>
-			{bars.map((b, i) => {
-				const p = ramp(frame, t.bars + 6 + i * 8, t.bars + 40 + i * 8, easeOut);
-				const v = num(b.value);
-				return (
-					<Land key={b.team} at={t.bars + i * 6} style={{top: 230 + i * 56}}>
-						<div style={{display: 'flex', justifyContent: 'space-between', fontSize: 20, color: color.text}}>
-							<span>{b.team}</span>
-							<span style={{fontWeight: 800, fontVariantNumeric: 'tabular-nums'}}>{fmtInt(v * p)}</span>
-						</div>
-						<div style={{height: 18, marginTop: 6, borderRadius: 6, width: `${Math.max(2, 100 * (v / max) * p)}%`, background: i === 0 ? '#5b6573' : '#3b4450'}} />
-					</Land>
-				);
-			})}
-			<Land at={t.persistent} style={{top: 352, display: 'flex', alignItems: 'center', gap: 18}}>
-				<DaysRing lit={lit} r={30} stroke={9} />
-				<div>
-					<div style={{fontSize: 23, fontWeight: 800, color: color.text}}>"{message}"</div>
-					<div style={{fontSize: 20, color: color.muted, marginTop: 4, fontVariantNumeric: 'tabular-nums'}}>
-						{Math.round(lit)} of {of} days · {teamLead.persistent.trendLabel}
-					</div>
+			<Headline at={a} focus={focus}>
+				{split.teamLead.answer}
+			</Headline>
+			<Land at={a + 5} style={{top: 398, display: 'flex', alignItems: 'center', gap: 16}}>
+				<DaysRing lit={lit} r={24} stroke={8} />
+				<div style={{fontSize: 24, color: color.text, fontVariantNumeric: 'tabular-nums'}}>
+					<span style={{fontWeight: 800}}>{Math.round(lit)}</span> of {of} days
+					<span style={{color: color.muted}}> · {trendLabel}</span>
 				</div>
 			</Land>
-			<Land at={t.first} style={{top: 470}}>
-				<Label>{split.labels.next}</Label>
-				<div style={{fontSize: 23, color: color.muted, marginTop: 10}}>{teamLead.first.label}</div>
-			</Land>
-			<Land at={t.first + 6} style={{top: 536, fontSize: 28, fontWeight: 800, color: color.accent}}>
-				→ {teamLead.first.team}
-			</Land>
+			<Next at={start + AT_NEXT}>{split.teamLead.next}</Next>
 		</>
 	);
 };
 
-const ManagerColumn: React.FC<{t: SplitTimes['mg']}> = ({t}) => {
+const ManagerAnswer: React.FC<{start: number; focus: number}> = ({start, focus}) => {
 	const frame = useCurrentFrame();
 	const {fps} = useVideoConfig();
-	const pop = spring({frame: frame - t.top, fps, config: {damping: 8, stiffness: 220, mass: 0.5}});
-	const counter = manager.cards[0].counter ?? 0;
-	const shown = Math.round(counter * ramp(frame, t.top, t.top + 30, easeOut));
+	const a = start + AT_ANSWER;
+	const m = split.manager;
 	return (
 		<>
-			<Land at={t.question} style={{top: 84}}>
-				<Label>{split.labels.question}</Label>
-				<div style={{fontSize: 30, fontWeight: 600, color: color.text, marginTop: 8, lineHeight: 1.2}}>{split.manager.question}</div>
-			</Land>
-			<Land at={t.risks} style={{top: 196, display: 'flex', justifyContent: 'space-between'}}>
-				<Label>{split.labels.evidence}</Label>
-				<QueryChip />
-			</Land>
-			{manager.cards.map((c, i) => {
-				const first = i === 0;
-				const hot = first ? Math.min(1, Math.max(0, frame - t.top) / 8) : 0;
-				return (
-					<Land key={c.label} at={t.risks + 6 + i * 6} style={{top: 226 + i * 44}}>
+			<Headline at={a} focus={focus}>
+				{m.answer}
+			</Headline>
+			<Land at={a + 4} style={{top: 398, display: 'flex', alignItems: 'center', gap: 10}}>
+				{manager.cards.map((c, i) => {
+					const s = spring({frame: frame - a - 6 - i * 4, fps, config: {damping: 9, stiffness: 220, mass: 0.5}});
+					return (
 						<div
+							key={c.label}
 							style={{
-								height: 38,
-								boxSizing: 'border-box',
+								width: 40,
+								height: 40,
+								borderRadius: 10,
 								display: 'flex',
 								alignItems: 'center',
-								gap: 10,
-								padding: '0 10px',
-								borderRadius: 8,
-								background: hot > 0 ? '#2a2215' : '#161b22',
-								border: `2px solid ${hot > 0 ? color.accent : color.line}`,
-								fontSize: 18,
+								justifyContent: 'center',
+								fontSize: 24,
+								fontWeight: 800,
+								color: i === 0 ? INK : color.text,
+								background: i === 0 ? color.accent : '#1d242e',
+								border: `2px solid ${i === 0 ? color.accent : color.line}`,
+								opacity: Math.min(1, s * 1.5),
+								transform: `scale(${s})`,
 							}}
 						>
-							<span style={{fontWeight: 800, color: first ? color.accent : color.muted, width: 14}}>{i + 1}</span>
-							<span style={{flex: 1, color: color.text, fontWeight: first ? 800 : 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{c.label}</span>
-							{first && frame >= t.top ? (
-								<span style={{fontWeight: 800, color: color.accent, fontVariantNumeric: 'tabular-nums', display: 'inline-block', transform: `scale(${0.6 + 0.4 * pop})`}}>+{shown}%</span>
-							) : null}
-							<span style={{fontSize: 14, color: color.muted, whiteSpace: 'nowrap'}}>{c.owner.split(' · ')[0]}</span>
+							{i + 1}
 						</div>
-					</Land>
-				);
-			})}
-			<Land at={t.limit} style={{top: 470}}>
-				<Label>{split.labels.next}</Label>
-				<div style={{fontSize: 28, fontWeight: 800, color: color.accent, marginTop: 10}}>→ {split.manager.action}</div>
+					);
+				})}
+				<div style={{fontSize: 24, color: color.muted, marginLeft: 6}}>{m.detail}</div>
 			</Land>
-			<Land at={t.limit + 14} style={{top: 548, fontSize: 20, color: color.muted, fontStyle: 'italic'}}>
-				{manager.limit}
+			<Next at={start + AT_NEXT}>{m.next}</Next>
+			<Land at={start + AT_NEXT + 12} style={{top: 572, fontSize: 24, color: color.muted, fontStyle: 'italic'}}>
+				{m.limit}
 			</Land>
 		</>
 	);
 };
 
-/** Brightness of a column: dim before its turn, lit while its presenter speaks, half after, lit again at "all lit". */
-const columnLevel = (frame: number, start: number, end: number, allLit: number) => {
-	const on = ramp(frame, start, start + 12);
-	const off = end < allLit ? ramp(frame, end, end + 12) : 0;
-	const all = end < allLit ? ramp(frame, allLit, allLit + 14) : 0;
-	return 0.3 + 0.7 * on - 0.5 * off + 0.5 * all;
+/** "152,734 = 152,734" under the columns: both sides count up, then the equals sign pops. */
+const EvidenceLine: React.FC<{at: number}> = ({at}) => {
+	const frame = useCurrentFrame();
+	const {fps} = useVideoConfig();
+	const inS = spring({frame: frame - at, fps, config: {damping: 13, stiffness: 160, mass: 0.6}});
+	const count = ramp(frame, at + 4, at + 34, easeOut);
+	const eq = spring({frame: frame - at - 34, fps, config: {damping: 8, stiffness: 240, mass: 0.5}});
+	const ev = split.evidence;
+	const big: React.CSSProperties = {fontSize: 44, fontWeight: 800, color: color.text, fontVariantNumeric: 'tabular-nums', minWidth: 170, textAlign: 'center'};
+	return (
+		<div
+			style={{
+				position: 'absolute',
+				left: 0,
+				right: 0,
+				top: COL_TOP + COL_H + 26,
+				display: 'flex',
+				justifyContent: 'center',
+				alignItems: 'center',
+				gap: 22,
+				fontFamily: font.sans,
+				opacity: Math.min(1, inS * 1.5),
+				transform: `translateY(${(1 - inS) * 26}px)`,
+			}}
+		>
+			<span style={{fontFamily: font.mono, fontSize: 24, fontWeight: 700, color: color.accent}}>[{evidence.handle}]</span>
+			<span style={big}>{fmtInt(num(ev.left) * count)}</span>
+			<span style={{...big, color: color.accent, minWidth: 0, display: 'inline-block', transform: `scale(${eq})`}}>=</span>
+			<span style={big}>{fmtInt(num(ev.right) * count)}</span>
+			<span style={{fontSize: 24, color: color.muted, marginLeft: 8}}>{ev.caption}</span>
+		</div>
+	);
 };
 
-/** The header and the three columns. Columns fly in from the terminal at the lift-off. */
+/** The header, the three columns and the evidence line. Columns fly in from the terminal at the lift-off. */
 export const SplitBoard: React.FC<{times: SplitTimes}> = ({times: T}) => {
 	const frame = useCurrentFrame();
 	const {fps} = useVideoConfig();
 	const answer = ramp(frame, T.allLit, T.allLit + 18);
 	const head = spring({frame: frame - T.liftoff, fps, config: {damping: 200}, durationInFrames: 24});
+	const all = ramp(frame, T.allLit, T.allLit + 14);
 	const sweep = ramp(frame, T.allLit, T.allLit + 34, ease);
-	const levels = [
-		columnLevel(frame, T.eng.start, T.eng.end, T.allLit),
-		columnLevel(frame, T.tl.start, T.tl.end, T.allLit),
-		columnLevel(frame, T.mg.start, Infinity, T.allLit),
-	];
-	const active = (start: number, end: number) => ramp(frame, start, start + 12) * (1 - ramp(frame, end, end + 12));
-	const glows = [active(T.eng.start, T.eng.end), active(T.tl.start, T.tl.end), active(T.mg.start, T.allLit)].map(
-		(g) => Math.max(g, Math.sin(Math.PI * Math.min(1, Math.max(0, sweep))) * 0.8),
-	);
+	const ends = [T.spot[1], T.spot[2], T.allLit];
+	const glows = T.spot.map((s, i) => {
+		const own = ramp(frame, s, s + 10) * (1 - ramp(frame, ends[i], ends[i] + 10));
+		return Math.max(own, 0.6 * all, Math.sin(Math.PI * sweep) * 0.9);
+	});
+	const levels = glows.map((g) => DIM + (1 - DIM) * Math.min(1, Math.max(g, all)));
 	const fly = (i: number) => {
-		const s = spring({frame: frame - T.liftoff - i * 5, fps, config: {damping: 15, stiffness: 120, mass: 0.8}});
+		const s = spring({frame: frame - T.liftoff - i * STAGGER, fps, config: {damping: 14, stiffness: 120, mass: 0.8}});
 		const dx = 960 - (colX(i) + COL_W / 2);
 		const dy = 540 - (COL_TOP + COL_H / 2);
 		return {transform: `translate(${dx * (1 - s)}px, ${dy * (1 - s)}px) scale(${0.55 + 0.45 * s})`, opacity: Math.min(1, s * 1.6)};
 	};
-	const cols = [
-		<Column key="e" i={0} role={split.engineer.role} level={levels[0]} glow={glows[0]}>
-			<EngineerColumn t={T.eng} />
-		</Column>,
-		<Column key="t" i={1} role={split.teamLead.role} level={levels[1]} glow={glows[1]}>
-			<TeamLeadColumn t={T.tl} />
-		</Column>,
-		<Column key="m" i={2} role={split.manager.role} level={levels[2]} glow={glows[2]}>
-			<ManagerColumn t={T.mg} />
-		</Column>,
+	const roles = [split.engineer, split.teamLead, split.manager];
+	const answers = [
+		<EngineerAnswer key="e" start={T.build[0]} focus={T.spot[0]} evidenceAt={T.evidence} />,
+		<TeamLeadAnswer key="t" start={T.build[1]} focus={T.spot[1]} />,
+		<ManagerAnswer key="m" start={T.build[2]} focus={T.spot[2]} />,
 	];
 	return (
 		<AbsoluteFill style={{fontFamily: font.sans, background: 'radial-gradient(ellipse at 50% 40%, #10161e 0%, #030405 75%)'}}>
-			<div style={{position: 'absolute', left: 0, right: 0, top: 60, textAlign: 'center', opacity: head, transform: `translateY(${(1 - head) * -20}px)`}}>
+			<div style={{position: 'absolute', left: 0, right: 0, top: 54, textAlign: 'center', opacity: head, transform: `translateY(${(1 - head) * -20}px)`}}>
 				<div style={{position: 'relative', height: 64, fontSize: 56, fontWeight: 800, color: color.text, letterSpacing: -1}}>
 					<div style={{position: 'absolute', left: 0, right: 0, opacity: 1 - answer}}>{split.header.ask}</div>
-					<div style={{position: 'absolute', left: 0, right: 0, opacity: answer, transform: `scale(${1 + 0.04 * Math.sin(Math.PI * answer)})`}}>
+					<div style={{position: 'absolute', left: 0, right: 0, opacity: answer, transform: `scale(${1 + 0.05 * Math.sin(Math.PI * answer)})`}}>
 						{split.header.answer.split('Three answers.')[0]}
 						<span style={{color: color.accent}}>Three answers.</span>
 					</div>
 				</div>
-				<div style={{fontSize: 24, color: color.muted, marginTop: 14}}>{split.header.scope}</div>
+				<div style={{fontSize: 24, color: color.muted, marginTop: 12}}>{split.header.scope}</div>
 			</div>
-			{cols.map((c, i) => (
-				<AbsoluteFill key={i} style={{...fly(i), transformOrigin: `${colX(i) + COL_W / 2}px ${COL_TOP + COL_H / 2}px`}}>
-					{c}
+			{roles.map((r, i) => (
+				<AbsoluteFill key={r.role} style={{...fly(i), transformOrigin: `${colX(i) + COL_W / 2}px ${COL_TOP + COL_H / 2}px`}}>
+					<Column i={i} role={r.role} question={r.question} tools={r.tools} start={T.build[i]} level={levels[i]} glow={glows[i]}>
+						{answers[i]}
+					</Column>
 				</AbsoluteFill>
 			))}
 			{sweep > 0 && sweep < 1 ? (
@@ -343,13 +365,17 @@ export const SplitBoard: React.FC<{times: SplitTimes}> = ({times: T}) => {
 					}}
 				/>
 			) : null}
+			<EvidenceLine at={T.evidence + 10} />
 		</AbsoluteFill>
 	);
 };
 
 // ---------------------------------------------------------------- proof clip
 
-/** roles.mp4 at PROOF_RATE in a terminal frame; holds its last frame if it runs out. */
+/**
+ * roles.mp4 in a terminal frame, sped up to fit the slot before the lift-off (at least PROOF_RATE); it holds its
+ * last frame if it runs out. One Freeze wrapper (switched by `active`) so the video never remounts.
+ */
 const ProofClip: React.FC<{assets: ResolvedAssets; liftoff: number}> = ({assets, liftoff}) => {
 	const frame = useCurrentFrame();
 	const {fps} = useVideoConfig();
@@ -357,7 +383,8 @@ const ProofClip: React.FC<{assets: ResolvedAssets; liftoff: number}> = ({assets,
 	const out = ramp(frame, liftoff, liftoff + 22, ease);
 	const a = assets.rolesRec;
 	const recFrames = Math.ceil(a.seconds * FPS);
-	const video = <OffthreadVideo src={staticFile(`assets/${ASSETS.rolesRec.file}`)} muted playbackRate={PROOF_RATE} style={{width: '100%', height: '100%', objectFit: 'contain'}} />;
+	const rate = Math.max(PROOF_RATE, recFrames / Math.max(1, liftoff));
+	const hold = Math.max(0, Math.floor((recFrames - 2) / rate));
 	return (
 		<AbsoluteFill style={{opacity: 1 - out, transform: `scale(${(0.92 + 0.08 * inS) * (1 - 0.12 * out)})`, filter: `blur(${8 * out}px)`}}>
 			<div
@@ -380,15 +407,18 @@ const ProofClip: React.FC<{assets: ResolvedAssets; liftoff: number}> = ({assets,
 						<div key={c} style={{width: 14, height: 14, borderRadius: 7, background: c}} />
 					))}
 					<div style={{flex: 1, textAlign: 'center', fontFamily: font.mono, fontSize: 16, color: color.muted}}>claude · serenedb-extractor</div>
-					<div style={{fontFamily: font.sans, fontSize: 16, fontWeight: 800, color: color.accent}}>{PROOF_RATE}×</div>
+					<div style={{fontFamily: font.sans, fontSize: 16, fontWeight: 800, color: color.accent}}>{Math.round(rate * 10) / 10}×</div>
 				</div>
 				<div style={{flex: 1, position: 'relative'}}>
 					{a.present ? (
-						frame * PROOF_RATE < recFrames - 2 ? (
-							video
-						) : (
-							<Freeze frame={Math.floor((recFrames - 2) / PROOF_RATE)}>{video}</Freeze>
-						)
+						<Freeze frame={hold} active={frame >= hold}>
+							<OffthreadVideo
+								src={staticFile(`assets/${ASSETS.rolesRec.file}`)}
+								muted
+								playbackRate={rate}
+								style={{width: '100%', height: '100%', objectFit: 'contain'}}
+							/>
+						</Freeze>
 					) : (
 						<SoftPlaceholder
 							assetKey="rolesRec"
@@ -412,78 +442,46 @@ const Sfx: React.FC<{name: string; from: number; volume: number}> = ({name, from
 		</Sequence>
 	) : null;
 
-const offset = (timing: [number, number][], at: number) => timing.map(([a]) => a + at);
-
-export const SplitScene: React.FC<{assets: ResolvedAssets; frames: number; parts: ScenePart[]}> = ({assets, frames, parts}) => {
-	const frame = useCurrentFrame();
-	const starts = splitStarts(parts);
-	const [s2, s3, s4, s5] = starts;
-	const e = offset(cueFrames(split.engineer.cues, parts[0].frames), s2);
-	const tl = offset(cueFrames(split.teamLead.cues, parts[1].frames), s3);
-	const mg = offset(cueFrames(split.manager.cues, parts[2].frames), s4);
-	const ev = offset(cueFrames(split.evidence.cues, parts[3].frames), s5);
-	const ea = split.engineer.at;
-	const ta = split.teamLead.at;
-	const ma = split.manager.at;
-	const liftoff = e[ea.liftoff];
-	const T: SplitTimes = {
+/** Beat frames for a scene of `frames` frames (the s2 take), from the cue timing of B's take. */
+export const splitTimes = (frames: number): SplitTimes => {
+	const c = cueFrames(split.cues, frames).map(([a]) => a);
+	const at = split.at;
+	const liftoff = c[at.liftoff];
+	const start = liftoff + 10;
+	return {
 		liftoff,
-		eng: {start: liftoff + 10, end: s3, node: e[ea.node], share: e[ea.share], message: e[ea.message], before: e[ea.before], hypothesis: e[ea.hypothesis], check: e[ea.check]},
-		tl: {start: s3, end: s4, question: tl[ta.question], bars: tl[ta.bars], persistent: tl[ta.persistent], first: tl[ta.first]},
-		mg: {start: s4, question: mg[ma.question], risks: mg[ma.risks], top: mg[ma.top], limit: mg[ma.limit]},
-		allLit: mg[ma.allLit],
+		build: [start, start + STAGGER, start + 2 * STAGGER],
+		spot: [c[at.engineer], c[at.teamLead], c[at.manager]],
+		allLit: c[at.allLit],
+		evidence: c[at.allLit] + 12,
 	};
-	const pushAt = ev[split.evidence.at.open];
-	const snapAt = ev[split.evidence.at.snap];
-	const pullAt = frames - PULL_FRAMES - 12;
-	const push = ramp(frame, pushAt, pushAt + PUSH_FRAMES, ease) * (1 - ramp(frame, pullAt, pullAt + PULL_FRAMES, ease));
-	const drift = interpolate(frame, [liftoff, frames], [1, 1.025], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
-	const lands = [T.eng.node, T.eng.share, T.eng.before, T.eng.message, T.eng.check, T.tl.bars, T.tl.persistent, T.tl.first, T.mg.risks, T.mg.top, T.mg.limit];
-	const facecams: AssetKey[] = ['s2', 's3', 's4', 's5'];
+};
+
+export const SplitScene: React.FC<{assets: ResolvedAssets; frames: number}> = ({assets, frames}) => {
+	const frame = useCurrentFrame();
+	const T = splitTimes(frames);
+	const drift = interpolate(frame, [T.liftoff, frames], [1, 1.02], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
+	const lands = T.build.map((b) => b + AT_ANSWER);
 	return (
 		<AbsoluteFill style={{backgroundColor: INK}}>
-			<Sequence durationInFrames={liftoff + LIFT_FRAMES} name="proof clip">
-				<ProofClip assets={assets} liftoff={liftoff} />
+			<Sequence durationInFrames={T.liftoff + LIFT_FRAMES} name="proof clip">
+				<ProofClip assets={assets} liftoff={T.liftoff} />
 			</Sequence>
-			{frame >= liftoff ? (
-				<AbsoluteFill
-					style={{
-						transform: `scale(${drift * (1 + 2.2 * push)})`,
-						transformOrigin: `${CHIP.x}px ${CHIP.y}px`,
-						opacity: 1 - 0.9 * push,
-						filter: `blur(${6 * push}px)`,
-					}}
-				>
+			{frame >= T.liftoff ? (
+				<AbsoluteFill style={{transform: `scale(${drift})`}}>
 					<SplitBoard times={T} />
 				</AbsoluteFill>
 			) : null}
-			<Sequence from={pushAt + 8} durationInFrames={Math.max(1, snapAt - pushAt - 8)} name="citation">
-				<AbsoluteFill style={{opacity: push}}>
-					<CitationShot />
-				</AbsoluteFill>
+			<FilmFacecam assetKey="s2" assets={assets} corner={1} />
+			<Sequence from={12} durationInFrames={NAME_TAG_FRAMES} name="name tag s2">
+				<NameTag assetKey="s2" frames={NAME_TAG_FRAMES} small />
 			</Sequence>
-			<Sequence from={snapAt} durationInFrames={Math.max(1, frames - snapAt)} name="152,734 = 152,734">
-				<AbsoluteFill style={{opacity: push}}>
-					<SnapShot />
-				</AbsoluteFill>
-			</Sequence>
-			{facecams.map((key, i) => (
-				<Sequence key={key} from={starts[i]} durationInFrames={parts[i].frames} name={`facecam ${key}`}>
-					<FilmFacecam assetKey={key} assets={assets} corner={1} />
-				</Sequence>
-			))}
-			{(['s3', 's4'] as const).map((key) => (
-				<Sequence key={key} from={(key === 's3' ? s3 : s4) + 8} durationInFrames={NAME_TAG_FRAMES} name={`name tag ${key}`}>
-					<NameTag assetKey={key} frames={NAME_TAG_FRAMES} small />
-				</Sequence>
-			))}
-			<Sfx name="whoosh" from={liftoff - 4} volume={0.35} />
+			<Sfx name="whoosh" from={T.liftoff - 4} volume={0.3} />
 			{lands.map((f, i) => (
-				<Sfx key={i} name="click" from={f} volume={0.16} />
+				<Sfx key={i} name="click" from={f} volume={0.15} />
 			))}
-			<Sfx name="chime" from={T.allLit} volume={0.4} />
-			<Sfx name="whoosh" from={pushAt - 2} volume={0.25} />
-			<Sfx name="impact" from={snapAt + 40} volume={0.3} />
+			<Sfx name="chime" from={T.allLit} volume={0.3} />
+			<Sfx name="click" from={T.evidence + 10 + 34} volume={0.15} />
 			<Vignette />
 			<Grain />
 			<BlackFades frames={frames} fadeIn={12} fadeOut={18} />

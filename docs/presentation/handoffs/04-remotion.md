@@ -22,15 +22,16 @@ length (see the asset contract in [README.md](README.md)).
 | 0 | Intro card | title card before the cold open | none | fixed, `INTRO_SECONDS` (3 s) |
 | 1a | Cold open | dark screen; caption "Lawrence Livermore National Laboratory · Blue Gene/L · Saturday, 11 June 2005, 17:17"; subtitles of the 5 dialog lines; corner label "Dramatization: real log data, AI-generated voices" | `dialog.mp3` | the audio |
 | 1b | Reveal | facecam full screen, then "152,229 fatal entries · one node · one evening", then the flow line (question → agent picks tool → SereneDB searches / counts → evidence → answer) | `s1-reveal.mp4` | the take |
-| 2 | Three roles (split) | proof clip: `roles.mp4` sped up in a terminal frame; the answers lift into three columns (Question / Evidence / Next step: engineer, team lead, manager) that build on each presenter's cues, then all lit ("One log. Three answers."); then a push into the `Q46` handle: the `show_evidence` view with its SQL and "152,734 = 152,734", and back to the table. Facecam in a corner | `s2-engineer.mp4`, `s3-team-lead.mp4`, `s4-manager.mp4`, a short silent hold, `s5-evidence.mp4`, back to back | the four takes plus the hold |
+| 2 | Three roles (split) | proof clip (3–4 s): `roles.mp4` sped up to fit, in a terminal frame; then three columns (Engineer / Team lead / Manager) build **at the same time**, each question → the role's tool calls → a one-line answer + next step; then all three lit ("One log. Three answers.") with a quick evidence beat: `Q46` → "152,734 = 152,734". No step-by-step examples, no separate evidence scene. B's facecam in a corner | `s2-roles.mp4` (B, one take) | the take (about 30 s) |
 | 3 | Benchmarks | slide 4: "Same questions, graded blind", one bar per design, ours highlighted, score and cost on each bar, footnote | `s6-benchmarks.mp4` | the take |
 | 4 | Close | facecam full screen; end card with the repository URL `github.com/ugnmura/serenedb-extractor` for the last `END_CARD_SECONDS` | `s7-close.mp4` (while it is missing: `s7-close-a/b/c.mp4` back to back) | the take(s) |
 | 5 | Star gag | star button with a click, gold burst and sound effects | sound effects | fixed, `STAR_SECONDS` (6 s) |
 
-The split is one scene (`SPLIT_PARTS` in `src/timeline.ts`: s2, s3, s4, s5); its column timing follows the take
-lengths and the row builds follow the subtitle cues. Two constants in `src/timeline.ts` let handoff 5 tune it:
-`SPLIT_HOLD_SECONDS` (the silent hold between s4 and s5 where "all lit" lands, at most 1 s) and `PROOF_RATE`
-(playback speed of `roles.mp4` in the proof clip, about 3×). Design: `docs/superpowers/specs/2026-10-19-three-way-split-design.md`.
+The split is one scene on one take, `s2-roles.mp4` (presenter B); its length is that take's length. The three
+columns build in parallel, and the moments where each role's answer, "all lit" and the evidence beat land
+follow B's subtitle cues. The proof clip plays `roles.mp4` at whatever speed fits it into 3–4 s (tunable in
+`src/timeline.ts`). Takes `s3-team-lead.mp4`, `s4-manager.mp4` and `s5-evidence.mp4` no longer exist. Design:
+`docs/superpowers/specs/2026-10-19-three-way-split-design.md` (revision 2026-10-19).
 
 Slides (`src/slides/index.tsx`): 1 title (the reveal's final frame), 2 the split's final frame (all three columns
 lit), 3 evidence (`Q46` citation and "152,734 = 152,734"), 4 benchmarks, 5 close. Each page is the fully built
@@ -58,8 +59,8 @@ final state of its video shots.
 ## Timing
 
 - Use `calculateMetadata` to read each asset's real duration (audio/video), falling back to the placeholder
-  length from the asset contract when the file is missing (take targets: s2 ≤ 32 s, s3 ≤ 25 s, s4 ≤ 25 s,
-  s5 ≤ 15 s, s6 ≤ 15 s; `roles.mp4` any length, it is sped up).
+  length from the asset contract when the file is missing (take targets: s1 ≤ 40 s, s2 ≤ 30 s, s6 ≤ 15 s,
+  close ≤ 25 s; `roles.mp4` any length, it is sped up to fit).
 - Fail the render with a clear message if the total exceeds 4:59 (and print the per-scene lengths).
 
 ## Look

@@ -2,6 +2,36 @@
 
 Date: 2026-10-19 · Status: design, awaiting approval · Applies to: `presentation/` (Remotion), `docs/presentation/`
 
+## Revision 2026-10-19: one presenter, parallel preview, ~30 s
+
+Decided by the user after the first build. Where this section conflicts with the original design below, this
+section wins; the conflicting parts below are marked *superseded*.
+
+- **One presenter, one take.** B presents the whole three-roles part in one facecam take, `s2-roles.mp4`,
+  about 30 s (target ≤ 30 s). A keeps the reveal (`s1-reveal.mp4`, ≤ 40 s), C keeps benchmarks
+  (`s6-benchmarks.mp4`, ≤ 15 s), the close stays with all three (`s7-close.mp4` or `s7-close-a/b/c.mp4`).
+  Takes `s3-team-lead.mp4`, `s4-manager.mp4` and `s5-evidence.mp4` no longer exist; the remaining names keep
+  their numbers.
+- **Parallel preview, not a walk-through.** The three columns, Engineer / Team lead / Manager, build **at the
+  same time**: question → the role's tool calls → a one-line answer and its next step. No step-by-step
+  examples, no column-by-column hand-offs.
+- **Proof clip** first: `roles.mp4` (still one recording, any length) sped up to fit about 3–4 s.
+- **Evidence** is a quick beat at the end, with all three columns lit: `[Q46]` → 152,734 = 152,734. No separate
+  evidence beat or take.
+- **B's lines** (draft, numbers fixed): "Same agent, same logs, three people asking at once. The engineer gets
+  a cause: one node, data TLB errors, and an L2 cache read error just before. Next check: processor
+  diagnostics. The team lead gets the pattern: 'Link has been severed' on 22 of 31 days. Investigate first: HPC
+  Applications. The manager gets the priority: five ranked risks, each with an owner, and no invented cost. And
+  every number is a query: 152,734 counted, 152,734 in BGL's own labels."
+- **Length.** Intro 3 s + dialog ~20 s + reveal ≤ 40 s + roles ~30 s + benchmarks ~15 s + close ≤ 25 s + star
+  6 s ≈ **2:20** (was ≈ 3:30 in the original design).
+- **Slides** unchanged: 5 pages (1 title, 2 the split's final frame, 3 evidence, 4 benchmarks, 5 close).
+
+*Superseded below:* the A → B → C → B presenter order, beats 3–5 (columns in turn) and the hand-offs, beat 7
+as a separate 15 s evidence take, the ≈ 1:40 split and ≈ 3:30 total, the take table rows `s2-engineer` …
+`s5-evidence`, the A/B/C draft wording for the split, the `sectionPresenter` note, call 1 (A's two-sentence
+opening, ≈ 6 s clip) and call 3 (the hold between `s4` and `s5`).
+
 ## Why
 
 The middle of the talk drags. Engineer, team lead and manager each run the same beat: chapter card → animated
@@ -44,6 +74,8 @@ small particles where something lands, sound effects on the beats).
 
 ## The new talk
 
+*Superseded by the revision above: split ≈ 0:30 (B only), total ≈ 2:20.*
+
 | # | Scene | Who | Length now | Length new |
 |---|---|---|---|---|
 | 0 | Intro card | — | 0:03 | unchanged |
@@ -57,7 +89,7 @@ small particles where something lands, sound effects on the beats).
 
 ## The split scene, beat by beat
 
-**Beat 1, proof clip (≈ 6 s, under A's opening line; see call 1).** One real terminal recording in which
+**Beat 1, proof clip (≈ 6 s, under A's opening line; see call 1).** *(Superseded: 3–4 s, under B's opening line.)* One real terminal recording in which
 `/engineer`, `/team-lead` and `/manager` are asked in turn and Claude calls the MCP tools for each. Played at
 about 3× through typing and tool calls; it slows to normal speed for a moment on each answer. Purpose: it
 really runs, and the same agent picks different tools per role.
@@ -66,7 +98,7 @@ really runs, and the same agent picks different tools per role.
 "One log. Three questions." with the scope line under it (BGL + OpenStack, whole corpus). The terminal
 dissolves behind.
 
-**Beats 3–5, the columns in turn.** Three columns, **same rows, aligned**: Question / Evidence / Next step.
+**Beats 3–5, the columns in turn.** *(Superseded: the three columns build at the same time, question → tool calls → one-line answer + next step, all on B's take.)* Three columns, **same rows, aligned**: Question / Evidence / Next step.
 Only the active column is lit; the others are dimmed. The active presenter's facecam sits in a round frame on
 their column. Each row builds on that presenter's spoken cue.
 
@@ -80,14 +112,14 @@ The existing shot components carry the evidence motion where they fit, scaled in
 the 17.8 % ring, the flood (engineer); the team bars and the 22-of-31 days grid (team lead); the risk cards and
 the limit line (manager).
 
-**Hand-offs carry one investigation**, not three chapters: A ends on the node ("…one node. Is it a pattern?"),
+*(Superseded: no hand-offs.)* **Hand-offs carry one investigation**, not three chapters: A ends on the node ("…one node. Is it a pattern?"),
 B picks it up and widens to the teams, B ends on "what do we act on first?", C answers with the ranking. As the
 active column changes, the previous one stays readable but dimmed, so the table fills up left to right.
 
 **Beat 6, all lit.** All three columns lit, header turns to "One log. Three answers." Hold long enough to read
 across the rows.
 
-**Beat 7, evidence (B, ≈ 15 s).** Every Evidence cell carries its query handle (e.g. Q46). The camera pushes
+**Beat 7, evidence (B, ≈ 15 s).** *(Superseded: a quick beat at the end of B's one take, `[Q46]` → 152,734 = 152,734, no push-in scene of its own.)* Every Evidence cell carries its query handle (e.g. Q46). The camera pushes
 into one handle in the engineer column; it opens into the `show_evidence` view: the call, the SQL excerpt and
 the ground-truth match **152,734 = 152,734** (full-text count vs. BGL's own KERNDTLB labels). Then it pulls back
 to the full table. This replaces the separate evidence scene.
@@ -98,6 +130,8 @@ One beat before the close: three designs, the same sealed questions, graded blin
 the cheapest per answer. Numbers still come only from `public/assets/benchmarks.json` (pending, as today).
 
 ## Presenters and facecam takes
+
+*Superseded by the revision above: rows `s2-engineer` … `s5-evidence` become one take, `s2-roles.mp4` (B, ≤ 30 s); the A/B/C split wording becomes B's lines.*
 
 | take | presenter | content | target | was |
 |---|---|---|---|---|
@@ -146,7 +180,7 @@ screen).
 - `presentation/src/scenes.tsx`, `src/Talk.tsx`: the split scene; role scenes and evidence scene removed;
   benchmarks scene shortened.
 - `presentation/src/content.ts`: split header lines, column rows, new cues from the draft wording;
-  `sectionPresenter` unchanged (A s2, B s3+s5, C s4+s6).
+  `sectionPresenter` unchanged (A s2, B s3+s5, C s4+s6). *(Superseded: A s1, B s2, C s6.)*
 - New shots for the split (columns, lift-off, evidence push-in) in a new file next to `shots2.tsx`.
 - `presentation/src/slides/index.tsx`: slides 2–5 become one split page (final frame of beat 6) plus the
   evidence page.
@@ -157,7 +191,7 @@ screen).
 
 ## Calls made after review (Claude's, not the user's; check these)
 
-1. **Proof clip vs. A's lines.** The proof clip is **≈ 6 s** on screen (not 10), under A's opening line, which
+1. *(Superseded.)* **Proof clip vs. A's lines.** The proof clip is **≈ 6 s** on screen (not 10), under A's opening line, which
    grows to two sentences: "Same agent, same logs, three people asking. Watch it pick different tools for each."
    The lift-off (beat 2) lands on "The engineer asks: what failed?", and the engineer rows build from there on
    A's cues. `s2` target becomes **≤ 32 s**.
@@ -165,7 +199,7 @@ screen).
    (stand-in, replaced by the live handle in handoff 5 as today). It is attached to that message line, **not**
    to the 152,229 node figure, so the push-in opening on 152,734 (whole-BGL count of that message) reads
    correctly. The other Evidence cells carry a small unnumbered "query" mark, no invented handle numbers.
-3. **Beat 6 timing.** "All lit" starts on C's last line and runs into the start of B's `s5` take: B's first
+3. *(Superseded.)* **Beat 6 timing.** "All lit" starts on C's last line and runs into the start of B's `s5` take: B's first
    line ("And every number here is a query.") plays over the full table, then the push-in starts. Plus at most
    a **1 s** silent hold between `s4` and `s5` (a constant in `timeline.ts`), where the chime lands. No longer
    silent hold.
