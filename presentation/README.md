@@ -23,6 +23,7 @@ Drop files into `public/assets/` under the exact names of the asset contract
 |---|---|---|
 | `dialog.mp3` | cold-open audio | scene 1a |
 | `s1-reveal.mp4` … `s7-close.mp4` | facecam + narration audio | scenes 1b–7 |
+| `s7-close-a.mp4`, `s7-close-b.mp4`, `s7-close-c.mp4` | one close clip per presenter (≤ 8 s each), used only while the joint take `s7-close.mp4` is missing; played back to back with hard cuts | scene 7 (their sum) |
 | `engineer.mp4`, `team-lead.mp4`, `manager.mp4` | screen recordings (muted) | nothing; they fill the slot after the slide |
 | `benchmarks.json` | slide 6 numbers | – |
 | `music.mp3` (optional) | music bed under the whole talk: loops, low, ducked under every voice, fades in and out | nothing |
@@ -31,6 +32,15 @@ A missing file shows a pink, labelled **PLACEHOLDER** of its target length, so e
 The one exception is `music.mp3`: missing means silence, with no placeholder. Its levels (`MUSIC_VOLUME`: open
 and ducked) are in `src/music.tsx`.
 A file that exists but cannot be read fails the check and the render.
+
+## Presenters
+
+Three presenters share the talk: A takes s1 (reveal) and s2 (engineer), B takes s3 (team lead) and s5 (evidence),
+C takes s4 (manager) and s6 (benchmarks); the close is all three. Names live in `presenters` in `src/content.ts`
+(placeholders "Presenter A/B/C" until filled; an optional `role` adds a second line), the take → presenter map in
+`sectionPresenter`. A lower-third name tag slides in once, at each presenter's first appearance (s1, s3, s4).
+In the split close each clip shows its speaker's tag. Placeholders name the presenter
+("PLACEHOLDER · Presenter B · s3-team-lead.mp4").
 
 ## Preview, check, render
 
