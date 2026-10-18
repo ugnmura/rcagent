@@ -97,7 +97,7 @@ Each requirement of the challenge brief, in its own words, and where this reposi
 | Runs from a clean checkout: connect to SereneDB, load the base data, start the agent workflow | [Quick start](#quick-start-from-a-clean-checkout) and [The base corpus and the loader](#the-base-corpus-and-the-loader) |
 | A public repository with a README explaining the workflow, setup, how to run it and known limitations | This README; [Known limits](#known-limits) |
 | One worked investigation of a real issue, with questions, tool calls, executed queries, results, and each role's answer and action | [docs/worked-investigation.md](docs/worked-investigation.md) and its transcript |
-| A presentation or demo of no more than 5 minutes, and slides | [docs/presentation/](docs/presentation/) |
+| A presentation or demo of no more than 5 minutes, and slides | The talk script, slides and video live in `docs/presentation/` and `presentation/` |
 | Optional: the agent manages its own workspace (create an index for an investigation and remove it after) | `create_index` (with a `dry_run` size and time estimate) and `drop_index`; see [Indexes](#indexes) |
 | Optional: larger datasets, such as the remote OpenTelemetry Parquet data | [Large datasets: TextBench](#large-datasets-textbench-remote-parquet-1-billion-rows-per-file) |
 | Optional: phrase and fuzzy matching | `search_logs` with `fuzzy`, through the search index |
