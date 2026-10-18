@@ -39,6 +39,9 @@ export const presenterOf = (assetKey: string): Presenter | null => {
 // ---------------------------------------------------------------- 0 intro card
 export const intro = {
 	event: 'National AI Hackathon 2026',
+	/** Title slide: the challenge name and the README's one-line pitch (README on main, top). */
+	title: 'Making Sense of Logs',
+	tagline: 'Ask your logs in plain words. Every number in the answer links to the SQL that produced it.',
 	// Logos: public/assets/logos/SOURCES.md. SchubKI has no logo file; its wordmark is text.
 	schubki: {first: 'Schub', accent: 'KI', gold: '#D3A43F'},
 	sereneLogo: 'assets/logos/serenedb-on-dark.svg',

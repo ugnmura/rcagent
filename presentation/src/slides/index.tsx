@@ -5,7 +5,7 @@ import {SlideFrame, type Mode} from '../components';
 import {DONE_TIMES, SplitBoard} from '../split';
 import {FactShot, FlowDiagramShot, TemplatesShot, TitleCaption} from '../shots';
 import {BenchShot, CitationShot, LogoPair, SnapShot} from '../shots2';
-import {close, coldOpen, demo, evidence, REPO_URL, reveal} from '../content';
+import {close, coldOpen, demo, evidence, intro, REPO_URL, reveal} from '../content';
 import {color, font} from '../theme';
 
 const Mono: React.FC<{children: React.ReactNode; style?: React.CSSProperties}> = ({children, style}) => (
@@ -17,6 +17,19 @@ const Brand: React.FC = () => (
 	<div style={{position: 'absolute', right: 48, bottom: 40}}>
 		<LogoPair height={26} />
 	</div>
+);
+
+// ------------------------------------------------------------------ title slide
+
+export const SlideTitle: React.FC<{mode: Mode}> = () => (
+	<AbsoluteFill style={{backgroundColor: '#030405', color: color.text, fontFamily: font.sans, justifyContent: 'center', alignItems: 'center', gap: 40}}>
+		<div style={{fontSize: 30, letterSpacing: '0.3em', color: color.muted, fontWeight: 600}}>{intro.event.toUpperCase()}</div>
+		<div style={{fontSize: 140, fontWeight: 800, letterSpacing: -3, lineHeight: 1}}>{intro.title}</div>
+		<div style={{fontSize: 40, color: color.muted, maxWidth: 1300, textAlign: 'center', lineHeight: 1.35}}>{intro.tagline}</div>
+		<div style={{marginTop: 50}}>
+			<LogoPair height={64} />
+		</div>
+	</AbsoluteFill>
 );
 
 // ------------------------------------------------------------------ slides 1–3 (the call, the node, the scale)
@@ -144,6 +157,6 @@ export const Slide7: React.FC<{mode: Mode}> = ({mode}) => (
 	</SlideFrame>
 );
 
-export const SLIDES = [SlideCall, SlideCounter, SlideFact, SlideTemplating, SlideHowItWorks, SlideSplit, SlideDemo, Slide5, Slide6, Slide7] as const;
+export const SLIDES = [SlideTitle, SlideCall, SlideCounter, SlideFact, SlideTemplating, SlideHowItWorks, SlideSplit, SlideDemo, Slide5, Slide6, Slide7] as const;
 
 export const Blank: React.FC = () => <AbsoluteFill style={{backgroundColor: color.bg}} />;
