@@ -1,5 +1,6 @@
 """Turning what the user typed into something SereneDB can read, and where it is read from."""
 
+import fnmatch
 import os
 import posixpath
 import re
@@ -14,7 +15,14 @@ _REMOTE = re.compile(r"^(https?|s3|gs|gcs|az|abfss?|r2|hf)://", re.IGNORECASE)
 _PARQUET_EXT = (".parquet", ".pq")
 _JSON_EXT = (".json", ".jsonl", ".ndjson", ".json.gz", ".jsonl.gz", ".ndjson.gz")
 _CSV_EXT = (".csv", ".tsv", ".csv.gz", ".tsv.gz")
-_RAW_EXT = (".log", ".txt", ".out", ".err", ".log.gz", ".txt.gz")
+_RAW_EXT = (".log", ".txt", ".out", ".err", ".log.gz", ".txt.gz", ".out.gz", ".err.gz")
+LOG_EXTENSIONS = (".log", ".txt", ".out", ".err", ".parquet", ".pq", ".json", ".jsonl", ".ndjson", ".csv", ".tsv")
+# Places that hold system files, keys and credentials, never logs this server reads (or writes): refused on this
+# machine and inside SereneDB's container alike.
+SYSTEM_DIRS = (
+    "/etc", "/proc", "/sys", "/dev", "/root", "/private/etc", "/private/var/root", "/var/root", "~/Library/Keychains",
+)
+_SYSTEM_SCHEMAS = ("pg_catalog", "information_schema", "extractor")
 _FORMAT_HINTS: dict[str, Kind] = {
     "parquet": "parquet",
     "json": "json",
@@ -141,8 +149,14 @@ def resolve_source(source: str, settings: Settings, format: str | None = None) -
             raise RemoteRawTextUnsupported(src)
         return ResolvedSource(kind, src, None, None, remote=True)
     if kind == "table":
+        check_table_source(src)
         return ResolvedSource("table", src, None, None)
-    db_path, host_path = _translate(src, settings)
+    path = normalise_path(src, settings)
+    check_log_file_name(path, src)
+    check_private_path(path, src)
+    db_path, host_path = _translate(path, settings)
+    if host_path is not None:
+        check_private_path(db_path, src)  # where SereneDB reads it
     size: int | None = None
     local = host_path or db_path  # outside the mount the path is a file on this machine, if it exists
     if os.path.isfile(local):
@@ -175,3 +189,88 @@ def _translate(path: str, settings: Settings) -> tuple[str, str | None]:
             rel = host[len(base) :].lstrip("/")
             return posixpath.join(container_dir, rel) if rel else container_dir, host
     return path, None
+
+
+# ---------------------------------------------------------------- what may be read (and written)
+
+
+def check_table_source(name: str) -> None:
+    """Refuse a table in a system schema (pg_catalog, information_schema, pg_*) or in the extractor schema: those
+    hold the database's own users and settings, or this server's catalog and log tables, never a log to set up."""
+    schema = name.strip().rpartition(".")[0].strip().strip('"').lower()
+    if schema and (schema in _SYSTEM_SCHEMAS or schema.startswith("pg_")):
+        raise UserFacingError(
+            f"'{name.strip()}' is in the {schema} schema, which holds the database's own system tables or this "
+            "server's catalog, not logs, so it can't be set up as a log table. Use a table in your own schema "
+            "(for example public.my_logs)."
+        )
+
+
+def normalise_path(source: str, settings: Settings) -> str:
+    """The path with `~`, `.` and `..` resolved. A path written under the logs folder (as this machine or as
+    SereneDB sees it) must stay inside it, and a relative path may not climb above where it starts."""
+    raw = os.path.expanduser(source.strip())
+    norm = posixpath.normpath(raw)
+    if norm == ".." or norm.startswith("../"):
+        raise UserFacingError(
+            f"{source.strip()} climbs out of the folder it starts from (..), so it is not read. Give the file's full path."
+        )
+    for folder in (settings.logs_host_dir, settings.logs_container_dir):
+        if not folder:
+            continue
+        base = posixpath.normpath(os.path.expanduser(folder)).rstrip("/") or "/"
+        inside = base == "/" or norm == base or norm.startswith(base + "/")
+        if raw.startswith(base + "/") and not inside:
+            raise UserFacingError(
+                f"{source.strip()} uses .. to leave the mounted logs folder {folder}, so it is not read. Only files "
+                "inside that folder are read through it."
+            )
+    return norm
+
+
+def check_log_file_name(path: str, source: str) -> None:
+    """Only log and data files are read: every file the path names must end in a recognised extension (a
+    format_hint does not lift this; it only says how a recognised file is read)."""
+    for f in expand_files(path):
+        if _kind_from_name(posixpath.basename(f)) is None:
+            raise UserFacingError(
+                f"{source.strip()} is not read: only log and data files are, and its name does not end in one of "
+                f"{', '.join(LOG_EXTENSIONS)} (optionally with .gz for text). Give a log file, or copy this one under "
+                "a name with a fitting extension."
+            )
+
+
+def check_private_path(path: str, source: str, *, verb: str = "read") -> None:
+    """Refuse hidden files and folders (~/.ssh, ~/.aws, ...) and system locations (/etc, /proc, ...). On this
+    machine the path is also checked after following links, so a link can't lead there either."""
+    candidates = [path]
+    expanded = os.path.expanduser(path)
+    if not any(c in expanded for c in "*?[{") and os.path.lexists(expanded):
+        candidates.append(os.path.realpath(expanded))
+    for cand in candidates:
+        for f in expand_files(cand):
+            parts = [p for p in posixpath.normpath(f).split("/") if p not in ("", ".", "..")]
+            hidden = next((p for p in parts if p.startswith(".")), None)
+            if hidden:
+                raise UserFacingError(
+                    f"{source.strip()} is not {verb}: it is in a hidden folder or is a hidden file ({hidden}). Hidden "
+                    "folders such as ~/.ssh or ~/.aws hold keys and settings, not logs."
+                )
+            where = _system_dir(f)
+            if where:
+                raise UserFacingError(
+                    f"{source.strip()} is not {verb}: it is in {where}, a system location that holds system files "
+                    "or credentials, not logs."
+                )
+
+
+def _system_dir(path: str) -> str | None:
+    """The system location a path (wildcards allowed) is or could be in, compared case-insensitively."""
+    parts = [p for p in posixpath.normpath(path).lower().split("/") if p]
+    if not posixpath.isabs(posixpath.normpath(path)):
+        return None
+    for d in SYSTEM_DIRS:
+        dparts = [p for p in posixpath.normpath(os.path.expanduser(d)).lower().split("/") if p]
+        if len(parts) >= len(dparts) and all(fnmatch.fnmatchcase(dp, pp) for dp, pp in zip(dparts, parts)):
+            return d
+    return None

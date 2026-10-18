@@ -137,7 +137,7 @@ Ask the agent ("use the ownership table in ~/Downloads/teams.csv"), or call the 
 | `mode="replace"` (default) / `"merge"` / `"replace_all"` | replace the rules of the log tables the file covers (others stay) / add and update only / drop every other rule |
 | `edit_team_ownership(action="set", rules=[{"log_table": "bgl", "component": "KERNEL", "team": "Kernel"}])` | add or change single rules |
 | `edit_team_ownership(action="remove", team="Kernel")` or `rules=[...]` | remove a team's rules, or single rules |
-| `edit_team_ownership(action="export", csv_path="/Users/me/ownership.csv")` | write the rules to a file to edit and import again. Needs a full path (a relative one is refused); says when it replaced a file; with `dry_run=True` it only says what it would write |
+| `edit_team_ownership(action="export", csv_path="/Users/me/ownership.csv")` | write the rules to a file to edit and import again. Needs a full path to a `.csv`/`.tsv` file (a relative one is refused); an existing file is replaced only with `overwrite=True`; with `dry_run=True` it only says what it would write |
 | `edit_team_ownership(action="reset")` | back to the stand-in |
 | `dry_run=True` | show the change without making it |
 
@@ -276,6 +276,16 @@ How setup stays fast on a remote source:
 
 After setup, every tool checks the predicted cost first. A big scope is answered from a **block sample** of
 whole row groups (said so, with a margin), or the tool asks before reading more.
+
+## Safety
+
+The tools read only log and data files: a local or container path must end in a log or data extension
+(`.log .txt .out .err`, `.parquet`, `.json/.jsonl/.ndjson`, `.csv/.tsv`, text ones optionally `.gz`; a
+`format_hint` does not lift this), and hidden folders (`~/.ssh`, `~/.aws`), system locations (`/etc`, `/proc`,
+`/sys`, `/dev`, `/root`, the keychains) and `..` that leaves the logs folder are refused. Tables in system schemas
+(`pg_catalog`, `information_schema`, `pg_*`) and in the `extractor` schema can't be set up as log tables. The
+ownership export writes only `.csv`/`.tsv` files and replaces one only with `overwrite=True`. Remote URLs are
+unaffected.
 
 ## Passwords
 

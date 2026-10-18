@@ -5,6 +5,7 @@ which components no rule covers. edit_team_ownership imports a CSV (replacing or
 rules, removes a team, exports the rules to a CSV file, or resets to the packaged stand-in.
 """
 
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -16,12 +17,15 @@ from serenedb_extractor.context import AppContext
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.ownership import Rule
 from serenedb_extractor.query.filters import Filters, parse_time_range
+from serenedb_extractor.setup.paths import check_private_path
 from serenedb_extractor.setup.sniff import readable
 from serenedb_extractor.tools.aggregate import _count_one
 
 ACTIONS = ("import", "set", "remove", "export", "reset")
 MODES = ("replace", "merge", "replace_all")
 MAX_CSV_BYTES = 5_000_000
+EXPORT_EXT = (".csv", ".tsv")
+IMPORT_EXT = (".csv", ".tsv", ".txt")
 SHOWN_CHANGES = 40
 SHOWN_UNASSIGNED = 15
 
@@ -174,6 +178,7 @@ def edit_team_ownership(
     rules: list[dict[str, Any]] | None = None,
     team: str | None = None,
     dry_run: bool = False,
+    overwrite: bool = False,
 ) -> str:
     action = (action or "").strip().lower()
     if action not in ACTIONS:
@@ -182,7 +187,7 @@ def edit_team_ownership(
         raise UserFacingError(f"role must be one of {', '.join(own.OWNER_ROLES)}.")
     current = ctx.store.ownership.rules()
     if action == "export":
-        return _export(current, csv_path, log_table, dry_run)
+        return _export(current, csv_path, log_table, dry_run, overwrite)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     notes: list[str] = []
     if action == "import":
@@ -215,6 +220,7 @@ def edit_team_ownership(
         source = own.STAND_IN
         change = own.plan_change(current, own.packaged_rules(), current)
     notes += _role_notes(ctx, [*change.added, *(a for _, a in change.updated)], action)
+    notes += _qualified_notes(ctx, [*change.added, *(a for _, a in change.updated)])
     lines = []
     if change.empty:
         lines.append("Nothing to change: the ownership table already says this.")
@@ -258,6 +264,18 @@ def _role_notes(ctx: AppContext, rules: list[Rule], action: str) -> list[str]:
     return out
 
 
+def _qualified_notes(ctx: AppContext, rules: list[Rule]) -> list[str]:
+    """A rule naming 'schema.table' that matches no log table was most likely meant for a database table: rules
+    match the names log tables were set up under (bgl), not database tables."""
+    names = [t.name for t in ctx.store.list_log_tables()]
+    odd = sorted({r.log_table for r in rules if "." in r.log_table and not any(r.covers_table(n) for n in names)})
+    return [
+        f"'{t}' looks like a schema-qualified database table name, and no log table is named like it: rules match "
+        "the names log tables were set up under (as describe_logs lists them, e.g. 'bgl'), so this rule matches nothing"
+        for t in odd
+    ]
+
+
 def _role_fix(action: str, wrong: str, right: str) -> str:
     """How to put the rule on the role the log table has, in the terms of the action just taken."""
     if action == "import":
@@ -285,6 +303,14 @@ def _csv_input(csv_path: str | None, csv_text: str | None) -> tuple[str, str]:
             )
         return csv_text or "", "pasted CSV"
     path = Path(csv_path or "").expanduser()
+    if not path.name.lower().endswith(IMPORT_EXT):
+        raise UserFacingError(
+            f"{csv_path} is not read: an ownership table is read only from a file ending in "
+            f"{', '.join(IMPORT_EXT)}. Give the CSV file, or paste its contents as csv_text."
+        )
+    check_private_path(str(path), str(csv_path))
+    if path.exists() and not path.is_file():
+        raise UserFacingError(f"{path} is not a regular file, so it is not read as an ownership table.")
     if not path.is_file():
         raise UserFacingError(f"There is no file at {path}.")
     if path.stat().st_size > MAX_CSV_BYTES:
@@ -311,17 +337,23 @@ def _rule_from(d: dict[str, Any], log_table: str | None, role: str | None, sourc
     if not isinstance(d, dict):
         raise UserFacingError('Each rule is an object like {"log_table": "bgl", "component": "KERNEL", "team": "Kernel"}.')
     low = {own._norm(str(k)): v for k, v in d.items()}
+    nested = [str(k) for k, v in d.items() if isinstance(v, (list, dict, tuple, set))]
+    if nested:
+        raise UserFacingError(
+            f"Each value in a rule is one piece of text, but {', '.join(nested)} holds a list or an object ({d}). "
+            "Give one rule per component, e.g. rules=[{\"log_table\": \"bgl\", \"component\": \"APP\", \"team\": \"X\"}, ...]."
+        )
     value_key = next((k for k in ("pattern", "value", "component", "service") if low.get(k)), None)
     table = str(low.get("log_table") or low.get("dataset") or log_table or "").strip()
     r_role = str(low.get("role") or (value_key if value_key in own.OWNER_ROLES else None) or role or "component").lower()
-    team = str(low.get("team") or low.get("owner") or "").strip()
+    team = own.clean_name(str(low.get("team") or low.get("owner") or ""))
     if not table or value_key is None or (need_team and not team):
         need = "log_table, component (or service/pattern)" + (" and team" if need_team else "")
         raise UserFacingError(f"Each rule needs {need}; got {d}.")
     if r_role not in own.OWNER_ROLES:
         raise UserFacingError(f"role must be one of {', '.join(own.OWNER_ROLES)}; got '{r_role}'.")
-    area = low.get("area") or low.get("description")
-    return Rule(table, r_role, str(low[value_key]).strip(), team, str(area) if area else None, source)
+    area = own.clean_name(str(low.get("area") or low.get("description") or ""), "area") or None
+    return Rule(table, r_role, str(low[value_key]).strip(), team, area, source)
 
 
 def _change_lines(change: own.Change) -> list[str]:
@@ -340,7 +372,9 @@ def _affected_tables(ctx: AppContext, change: own.Change) -> list[LogTable]:
     return [lt for lt in ctx.store.list_log_tables() if any(r.covers_table(lt.name) for r in touched)]
 
 
-def _export(current: list[Rule], csv_path: str | None, log_table: str | None, dry_run: bool = False) -> str:
+def _export(
+    current: list[Rule], csv_path: str | None, log_table: str | None, dry_run: bool = False, overwrite: bool = False
+) -> str:
     if not csv_path:
         raise UserFacingError("Give csv_path: the full path of the file to write the rules to.")
     path = Path(csv_path).expanduser()
@@ -352,9 +386,22 @@ def _export(current: list[Rule], csv_path: str | None, log_table: str | None, dr
     rules = [r for r in current if not log_table or r.covers_table(log_table)]
     if path.is_dir():
         path = path / "ownership.csv"
+    if not path.name.lower().endswith(EXPORT_EXT):
+        raise UserFacingError(
+            f"The rules are written only to a file ending in {' or '.join(EXPORT_EXT)}, not to {path.name}: give a "
+            "path such as /Users/me/ownership.csv."
+        )
+    check_private_path(str(path), str(path), verb="written")
     if not path.parent.is_dir():
         raise UserFacingError(f"The folder {path.parent} does not exist.")
-    replaced = path.exists()
+    replaced = os.path.lexists(path)
+    if replaced and (path.is_symlink() or not path.is_file()):
+        raise UserFacingError(f"{path} exists and is not a regular file (a folder, link or device), so it is not written.")
+    if replaced and not overwrite:
+        raise UserFacingError(
+            f"{path} already exists, and an existing file is replaced only when you say so: run export again with "
+            "overwrite=True to replace it, or give another file name."
+        )
     if dry_run:
         return (
             f"Dry run: nothing was written. Would write {len(rules)} ownership rules to {path}"
