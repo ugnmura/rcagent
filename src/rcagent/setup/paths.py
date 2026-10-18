@@ -263,6 +263,8 @@ def check_private_path(path: str, source: str, *, verb: str = "read") -> None:
             f"{source.strip()} is not {verb}: wildcards are allowed only in the file name, not in the folders."
         )
     if not any(c in expanded for c in "*?[{") and os.path.lexists(expanded):
+        # Every step of a link chain counts, not only its end: /etc/hosts may itself be a link out of /etc.
+        candidates.extend(_link_hops(expanded))
         candidates.append(os.path.realpath(expanded))
     elif folder and os.path.isdir(folder):
         candidates.append(os.path.realpath(folder) + "/" + name)  # the folder after following links
@@ -289,6 +291,19 @@ def check_private_path(path: str, source: str, *, verb: str = "read") -> None:
                     f"{source.strip()} is not {verb}: it is in {where}, a system location that holds system files "
                     "or credentials, not logs."
                 )
+
+
+def _link_hops(path: str, limit: int = 40) -> list[str]:
+    """The paths a link chain passes through, each made absolute (the target of the target, ...)."""
+    hops: list[str] = []
+    current = path
+    for _ in range(limit):
+        if not os.path.islink(current):
+            break
+        target = os.readlink(current)
+        current = posixpath.normpath(posixpath.join(posixpath.dirname(os.path.abspath(current)), target))
+        hops.append(current)
+    return hops
 
 
 def _system_dir(path: str) -> str | None:

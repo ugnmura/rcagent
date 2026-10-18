@@ -127,6 +127,24 @@ def test_hidden_folders_and_links_into_system_locations_are_refused(tmp_path: Pa
         resolve_source(str(link), PLAIN)
 
 
+def test_a_link_through_a_system_location_is_refused_even_when_that_file_is_a_link(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    # On some hosts /etc/hosts is itself a link out of /etc (RWTH CLAIX: /usr/local_host/etc/hosts), so the
+    # fully resolved path is not in a system location; the step through /etc must still be refused.
+    from rcagent.setup import paths
+
+    link = tmp_path / "innocent.log"
+    os.symlink("/etc/hosts", link)
+    real = os.path.realpath
+    monkeypatch.setattr(
+        paths.os.path, "realpath",
+        lambda p, *a, **k: "/usr/local_host/etc/hosts" if os.fspath(p) == str(link) else real(p, *a, **k),
+    )
+    with pytest.raises(UserFacingError, match="system location"):
+        resolve_source(str(link), PLAIN)
+
+
 def test_ordinary_log_files_and_remote_urls_still_resolve(tmp_path: Path):
     p = tmp_path / "app.log.gz"
     p.write_bytes(b"")
