@@ -116,6 +116,8 @@ class TableRun:
     period: str = ""
     owner_role: str | None = None
     owner_rules: list[Any] = field(default_factory=list)
+    considered: int = 0  # the largest templates of the period that were ranked (the candidates)
+    surveyed: int = 0  # all templates the survey found at the levels ranked
 
 
 def rank_problems(
@@ -151,7 +153,7 @@ def rank_problems(
     shown = fmt.clamp_limit(limit, DEFAULT_LIMIT, DEFAULT_LIMIT * ctx.settings.limit_cap)
     if candidates is not None and candidates < 1:
         raise UserFacingError(f"candidates is how many templates to consider per log table: 1 or more (default {DEFAULT_CANDIDATES}).")
-    n_cand = fmt.clamp_limit(candidates, DEFAULT_CANDIDATES, DEFAULT_CANDIDATES * 4)
+    n_cand, cand_cap = fmt.limit_and_note(candidates, DEFAULT_CANDIDATES, DEFAULT_CANDIDATES * 4)
     runs: list[TableRun] = []
     for lt in tables:
         try:
@@ -160,7 +162,7 @@ def rank_problems(
             if len(tables) == 1:
                 raise
             runs.append(TableRun(lt, note=f"not ranked: {exc}"))
-    return _render(runs, f, floor, shown)
+    return _render(runs, f, floor, shown, n_cand, cand_cap)
 
 
 def _rank_one(
@@ -227,6 +229,7 @@ def _rank_one(
             return run
         # A survey of one period can find a narrower form of a template the catalog already holds (one variant of
         # a message family): rank the catalog's broadest covering template, so IDs and counts agree with trend.
+        run.considered, run.surveyed = min(n_cand, len(got)), len(got)
         catalog = ctx.store.templates(lt.name)
         chosen = sorted({covering(t, catalog).template_id: covering(t, catalog) for t, _ in got[:n_cand]}.values(), key=_tmpl_number)
         # 3. Exact counts of every candidate over both periods.
@@ -422,7 +425,9 @@ def _teams(p: Problem, run: TableRun) -> str | None:
     return f"owning team: {text}" + (" (from the stand-in ownership table, not an official mapping)" if stand_in else "")
 
 
-def _render(runs: list[TableRun], f: Filters, floor: int, limit: int) -> str:
+def _render(
+    runs: list[TableRun], f: Filters, floor: int, limit: int, n_cand: int = DEFAULT_CANDIDATES, cand_cap: str | None = None
+) -> str:
     ranked = sorted(
         (p for r in runs for p in r.problems), key=lambda p: (-p.score, -p.now, p.lt.name, _tmpl_number(p.template))
     )
@@ -450,6 +455,15 @@ def _render(runs: list[TableRun], f: Filters, floor: int, limit: int) -> str:
         elif r.note:
             out.append(f"Log table {r.lt.name}: {r.note.rstrip('.')}.")
         else:
+            if r.surveyed:
+                level = _floor_name(floor)
+                out.append(
+                    f"Log table {r.lt.name}: considered the {r.considered:,} largest of {r.surveyed:,} {level}-and-worse "
+                    f"templates of this period (candidates={n_cand}"
+                    + (f"; {cand_cap}" if cand_cap else "")
+                    + (")." if r.considered == r.surveyed else "); smaller ones are not ranked: raise candidates, "
+                       "or narrow the period or filters, to rank them.")
+                )
             if r.limited:
                 out.append(f"Log table {r.lt.name}: limited comparison: {'; '.join(r.limited)}. No change is given there.")
             if r.persistence_note:

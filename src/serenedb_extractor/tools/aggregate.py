@@ -8,6 +8,7 @@ results are reported together, with a combined line per group when several table
 """
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any
 
 from serenedb_extractor import format as fmt
@@ -29,9 +30,13 @@ from serenedb_extractor.query.filters import (
 )
 from serenedb_extractor.query.stats import role_columns
 from serenedb_extractor.setup.sniff import readable
+from serenedb_extractor.timezones import get_zone
 from serenedb_extractor.tools.describe import known_columns, like_pattern
 from serenedb_extractor.tools.investigate import (
     NAME_OMITTED,
+    _TIME,
+    _UNIT_NAME,
+    _UNIT_SECONDS,
     _filter_columns,
     _group_columns,
     _one,
@@ -116,8 +121,8 @@ def _count_one(
         )
         if keep is not None and plan.exact and key_names:
             top = _top_groups(db, lt, plan, labels, key_names, inner, params, timeout, what, keep, note, tz)
-            if top.total is not None and top.total.value == 0 and (f.items() or tr.bounded) and not text:
-                top.empty_why = diagnose_empty(db, lt, tr, f, cols)
+            if top.total is not None and top.total.value == 0:
+                top.empty_why = _why_empty(db, lt, tr, f, cols, text)
             return top
         rows = db.read(sql, params, timeout_s=timeout, what=what, how_to_narrow=NARROW).rows
         per_key: dict[tuple[str, ...], list[tuple[int, int]]] = {}
@@ -144,9 +149,65 @@ def _count_one(
         by_key = dict(measured)
         measured = [(k, by_key[k]) for k in ordered(list(by_key), labels, {k: m.value for k, m in by_key.items()})]
         empty_why = None
-        if plan.exact and total.value == 0 and (f.items() or tr.bounded) and not text:
-            empty_why = diagnose_empty(db, lt, tr, f, cols)
+        if plan.exact and total.value == 0:
+            empty_why = _why_empty(db, lt, tr, f, cols, text)
         return TableCount(lt, plan, total, measured, labels, note=note, empty_why=empty_why)
+
+
+def _why_empty(db: Any, lt: LogTable, tr: TimeRange, f: Filters, cols: dict[str, str], text: str | None) -> list[str]:
+    """Why an exact count is 0: the period or a filter that matched nothing, as search_logs says it; with a text
+    and nothing else to blame, that no entry in scope contains it."""
+    why = diagnose_empty(db, lt, tr, f, cols) if (f.items() or tr.bounded) else []
+    if not text:
+        return why
+    # "each filter matches on its own, but not all together" was not checked with the text: leave it out.
+    why = [w for w in why if not w.startswith("Each filter matches entries on its own")]
+    blamed = [w for w in why if not w.startswith("Whether")]
+    return why + ([] if blamed else [f"No entry in this scope contains '{text}' (searched in any case)."])
+
+
+_EPOCH = datetime(1970, 1, 1)
+
+
+def _partial_buckets(group_by: list[str], tr: TimeRange) -> list[str]:
+    """Time buckets cut by the period: a period that starts (or ends) inside a bucket leaves that bucket holding
+    only part of its span, which its label (the bucket's start) does not show."""
+    if not tr.bounded:
+        return []
+    zone = get_zone(tr.tz)
+    out: list[str] = []
+    for g in group_by:
+        m = _TIME.fullmatch(g.strip().lower())
+        if m is None:
+            continue
+        n, unit = int(m.group(1)), m.group(2)
+        secs = n * _UNIT_SECONDS[unit]
+        monday = 4 * 86400 if unit == "d" and n > 1 else 0  # as investigate._bucket_sql cuts them
+        noun = _UNIT_NAME[unit] if n == 1 else f"{n}-{_UNIT_NAME[unit]}"
+
+        def show(dt: datetime, day: bool) -> str:
+            return dt.strftime("%Y-%m-%d") if day and dt.time() == datetime.min.time() else dt.strftime("%Y-%m-%d %H:%M")
+
+        for edge, at in (("first", tr.start), ("last", tr.end)):
+            if at is None:
+                continue
+            local = at.astimezone(zone).replace(tzinfo=None)
+            since = (local - _EPOCH).total_seconds()
+            start = _EPOCH + timedelta(seconds=((since - monday) // secs) * secs + monday)
+            if start == local:
+                continue
+            label = show(start, unit == "d")
+            if edge == "first":
+                out.append(
+                    f"partial bucket: the first {noun} bucket, {label}, holds only entries from {show(local, True)} on "
+                    "(the period starts inside it)"
+                )
+            else:
+                out.append(
+                    f"partial bucket: the last {noun} bucket, {label}, holds only entries before {show(local, True)} "
+                    "(the period ends inside it)"
+                )
+    return out
 
 
 def _top_groups(
@@ -295,6 +356,7 @@ def _render(
             else "in time order" if len(timed) == len(group_by) else "each series largest first, in time order inside"
         )
         lines.append("grouped by " + ", ".join(group_by) + "; " + order)
+        lines += _partial_buckets(group_by, tr)
     for t in results:
         lines.append("")
         if t.asked:

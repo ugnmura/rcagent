@@ -53,6 +53,7 @@ MAX_BUCKETS = 1000  # across both periods; more would make an unreadable answer
 SHOWN_COMPONENTS = 5
 SERIES_NUMBERS_MAX = 31
 _BARS = "▁▂▃▄▅▆▇█"
+GAP_MARK = "–"  # a bucket in a gap in the data (no entries of any kind) in a series line, never a plain 0
 NARROW = "narrow it: a shorter period (start/end), fewer templates, or filters such as level or service."
 NEED_PERIOD = (
     "Which period should I use? trend compares a period with the one before it, so it needs both start and end, "
@@ -203,18 +204,49 @@ def _seen_buckets(
 MIN_GAP_RUN = {"hour": 3, "day": 1}
 
 
-def gap_buckets(buckets: list[datetime], seen: set[datetime], whole: Any, unit: Bucket) -> list[datetime]:
-    """The whole buckets that lie in a gap: runs of at least MIN_GAP_RUN consecutive buckets with no entry at all."""
-    out: list[datetime] = []
+def gap_runs(buckets: list[datetime], seen: set[datetime], whole: Any, unit: Bucket) -> list[list[datetime]]:
+    """The gaps: runs of at least MIN_GAP_RUN consecutive whole buckets with no entry at all, in time order."""
+    out: list[list[datetime]] = []
     run: list[datetime] = []
     for b in [*buckets, None]:
         if b is not None and whole(b) and b not in seen:
             run.append(b)
             continue
         if len(run) >= MIN_GAP_RUN[unit]:
-            out += run
+            out.append(run)
         run = []
     return out
+
+
+def gap_buckets(buckets: list[datetime], seen: set[datetime], whole: Any, unit: Bucket) -> list[datetime]:
+    """The whole buckets that lie in a gap: runs of at least MIN_GAP_RUN consecutive buckets with no entry at all."""
+    return [b for run in gap_runs(buckets, seen, whole, unit) for b in run]
+
+
+SHOWN_HOUR_GAPS = 3
+
+
+def _hour_gaps_text(
+    period: TimeRange, what: str, seen_hours: set[datetime], gap_days: set[datetime], rng: DataRange | None, zone: tzinfo
+) -> str | None:
+    """For day buckets: the runs of whole hours with no entry at all (see MIN_GAP_RUN['hour']) inside the data's
+    span of the period, outside days that are gaps themselves. They do not make a day a gap day, but that day's
+    count covers fewer hours, which the reader must know."""
+    assert period.start is not None and period.end is not None
+    lo, hi = period.start, period.end
+
+    def whole(h: datetime) -> bool:
+        day = h.astimezone(zone).replace(tzinfo=None, hour=0, minute=0, second=0, microsecond=0)
+        inside = lo <= h and h + HOUR <= hi
+        return inside and day not in gap_days and (rng is None or (rng.first <= h and h + HOUR <= rng.last))
+
+    runs = gap_runs(_buckets(lo, hi, zone, "hour"), seen_hours, whole, "hour")
+    if not runs:
+        return None
+    shown = ", ".join(
+        f"{_label(r[0], zone, 'hour')} for {len(r)} hours" for r in runs[:SHOWN_HOUR_GAPS]
+    ) + (f", and {len(runs) - SHOWN_HOUR_GAPS} more" if len(runs) > SHOWN_HOUR_GAPS else "")
+    return f"{what}: {shown}"
 
 
 def _gap_cover(
@@ -357,11 +389,13 @@ def _unsampled(m: fmt.Measured) -> bool:
     return not m.exact and not m.sample_size
 
 
-def _spark(ms: list[fmt.Measured]) -> str:
+def _spark(ms: list[fmt.Measured], gaps: set[int] | None = None) -> str:
     top = max((m.value for m in ms), default=0)
     out = []
-    for m in ms:
-        if _unsampled(m):
+    for j, m in enumerate(ms):
+        if gaps and j in gaps:
+            out.append(GAP_MARK)
+        elif _unsampled(m):
             out.append("·")
         elif top <= 0 or m.value <= 0:
             out.append(_BARS[0])
@@ -434,9 +468,10 @@ def _choose(ctx: AppContext, lt: LogTable, templates: list[str] | None, top_n: i
     if not every:
         raise UserFacingError(f"Log table '{lt.name}' has no templates in the catalog yet: run survey first, or name templates.")
     ranked = sorted(every, key=lambda t: (-(t.last_estimate or 0), _tmpl_number(t)))
-    shown, note = fmt.cut(ranked, fmt.clamp_limit(top_n, DEFAULT_TOP_N, DEFAULT_TOP_N * ctx.settings.limit_cap), "templates")
+    n, cap_note = fmt.limit_and_note(top_n, DEFAULT_TOP_N, DEFAULT_TOP_N * ctx.settings.limit_cap)
+    shown, note = fmt.cut(ranked, n, "templates")
     if note:
-        notes.append(note + " in the catalog (largest by their last estimate)")
+        notes.append(note + " in the catalog (largest by their last estimate)" + (f"; {cap_note}" if cap_note else ""))
     return sorted(shown, key=_tmpl_number), notes
 
 
@@ -449,7 +484,7 @@ def _top_of_period(
     from serenedb_extractor.catalog.store import covering
     from serenedb_extractor.tools import survey as survey_tool
 
-    n = fmt.clamp_limit(top_n, DEFAULT_TOP_N, DEFAULT_TOP_N * ctx.settings.limit_cap)
+    n, cap_note = fmt.limit_and_note(top_n, DEFAULT_TOP_N, DEFAULT_TOP_N * ctx.settings.limit_cap)
     got: list[tuple[Template, fmt.Measured]] = []
     survey_tool.survey(ctx, lt.name, start=start, end=end, filters=filters, limit=1, timezone=tz,
                        confirmed_cost=confirmed_cost, found=got)
@@ -464,6 +499,7 @@ def _top_of_period(
     picked = dict(list(every.items())[:n])
     note = (
         f"showing {len(picked)} of {len(every)} templates: the largest of this period and filters (from a survey of them)"
+        + (f"; {cap_note}" if cap_note else "")
         if len(every) > len(picked)
         else "the templates of this period and filters (from a survey of them)"
     )
@@ -544,6 +580,12 @@ def trend(
         timeout = cost.run_timeout(plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
         rows = db.read(sql, params, timeout_s=timeout, what=f"counting trends in {lt.name}", how_to_narrow=NARROW).rows
         seen = _seen_buckets(db, lt, cols, tr_all, cur.start, unit, timezone, timeout)
+        # Day buckets hide a gap of hours inside a day: the hours with data are checked too.
+        seen_hours = (
+            _seen_buckets(db, lt, cols, tr_all, cur.start, "hour", timezone, timeout)
+            if unit == "day" and seen is not None
+            else None
+        )
     series, entries, block_hits = _gather(rows, bool(plan.sampling), len(chosen), unit)
     sampled_blocks = range(len(plan.groups)) if plan.sampling else range(1)
 
@@ -604,6 +646,21 @@ def trend(
         )
     if limited:
         out.append("limited comparison: " + "; ".join(limited) + ". Counts are shown; no change is given where a period is not fully covered.")
+    gapped = set(gap_buckets(cur_buckets, seen[1], lambda b: complete(b, cur), unit)) if seen is not None else set()
+    gapped_prev = set(gap_buckets(prev_buckets, seen[0], lambda b: complete(b, prev), unit)) if seen is not None else set()
+    if seen_hours is not None:
+        hour_gaps = [
+            t for t in (
+                _hour_gaps_text(prev, "the preceding period", seen_hours[0], gapped_prev, rng, zone),
+                _hour_gaps_text(cur, "this period", seen_hours[1], gapped, rng, zone),
+            ) if t
+        ]
+        if hour_gaps:
+            out.append(
+                f"hours with no entries at all inside days (at least {MIN_GAP_RUN['hour']} in a row; a gap in the data "
+                "within those days, so their counts cover fewer hours; the days are still counted): "
+                + "; ".join(hour_gaps) + "."
+            )
     out.append(
         f"Each period is split into {unit}s: this period has {len(cur_buckets)} ({_label(cur_buckets[0], zone, unit)} to "
         f"{_label(cur_buckets[-1], zone, unit)}), the preceding one {len(prev_buckets)}."
@@ -623,10 +680,18 @@ def trend(
     whole_cur = [b for b in cur_buckets if complete(b, cur)]
     # Buckets in a gap in the data (no entry of any kind) say nothing about whether a problem was there, so
     # presence is counted over the whole buckets with data, as rank_problems does.
-    gapped = set(gap_buckets(cur_buckets, seen[1], lambda b: complete(b, cur), unit)) if seen is not None else set()
     whole_now = [b for b in whole_cur if b not in gapped]
-    edge = len(cur_buckets) - len(whole_cur)
+
+    def outside_data(b: datetime) -> bool:
+        lo, hi = _bounds(b, zone, unit)
+        return rng is not None and (hi <= rng.first or lo > rng.last)
+
+    not_whole = [b for b in cur_buckets if not complete(b, cur)]
+    beyond = sum(1 for b in not_whole if outside_data(b))
+    edge = len(not_whole) - beyond
     left_out = [f"{edge} partial {unit}{'' if edge == 1 else 's'} at the edge of the period or the data"] if edge else []
+    if beyond:
+        left_out.append(f"{beyond} {unit}{'' if beyond == 1 else 's'} outside the data")
     if gapped:
         g = len(gapped)
         left_out.append(f"{g} {unit}{'' if g == 1 else 's'} in a gap in the data with no entries at all")
@@ -655,7 +720,11 @@ def trend(
         out.append("    " + _components(series[i], lt, plan))
         if (teams := _teams(ctx, series[i], lt, plan)) is not None:
             out.append("    " + teams)
-        out += _series_lines(per_now, per_before, unit, plan.exact)
+        out += _series_lines(
+            per_now, per_before, unit, plan.exact,
+            {j for j, b in enumerate(cur_buckets) if b in gapped},
+            {j for j, b in enumerate(prev_buckets) if b in gapped_prev},
+        )
     return "\n".join(out)
 
 
@@ -682,15 +751,21 @@ def _teams(ctx: AppContext, s: Series, lt: LogTable, plan: cost.Plan) -> str | N
     return f"owning teams this period{where}: {', '.join(top)} ({len(top)})"
 
 
-def _series_lines(now: list[fmt.Measured], before: list[fmt.Measured], unit: Bucket, exact: bool) -> list[str]:
-    def one(label: str, ms: list[fmt.Measured]) -> str:
+def _series_lines(
+    now: list[fmt.Measured], before: list[fmt.Measured], unit: Bucket, exact: bool,
+    gaps_now: set[int] | None = None, gaps_before: set[int] | None = None,
+) -> list[str]:
+    def one(label: str, ms: list[fmt.Measured], gaps: set[int]) -> str:
         values = [m.value for m in ms]
+        legend = f" ({GAP_MARK} = a {unit} in a gap in the data, no entries of any kind)" if gaps else ""
         if exact and len(values) <= SERIES_NUMBERS_MAX:
-            return f"    {label} by {unit}: " + " ".join(f"{round(v):,}" for v in values)
+            return f"    {label} by {unit}{legend}: " + " ".join(
+                GAP_MARK if j in gaps else f"{round(v):,}" for j, v in enumerate(values)
+            )
         shape = "" if exact else " (estimated shape; · = no sampled entries)"
-        return f"    {label} by {unit}{shape}: {_spark(ms)}"
+        return f"    {label} by {unit}{shape}{legend}: {_spark(ms, gaps)}"
 
-    return [one("this period", now), one("preceding period", before)]
+    return [one("this period", now, gaps_now or set()), one("preceding period", before, gaps_before or set())]
 
 
 def _head(lt: LogTable, cur: TimeRange, prev: TimeRange, f: Filters, plan: cost.Plan, tz: str, bucket: Bucket) -> str:
