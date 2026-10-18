@@ -6,7 +6,7 @@ server's audience prompts, so they never drift apart (tests/test_commands.py che
 
 from pathlib import Path
 
-from serenedb_extractor.prompts import PROMPTS
+from rcagent.prompts import PROMPTS
 
 ROOT = Path(__file__).resolve().parents[1]
 HEADER = """---

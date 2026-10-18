@@ -1,4 +1,4 @@
-from serenedb_extractor import format as fmt
+from rcagent import format as fmt
 
 
 def test_an_empty_template_or_message_is_named_not_left_blank():

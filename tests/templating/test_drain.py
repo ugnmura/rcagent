@@ -1,8 +1,8 @@
 import re
 from datetime import datetime
 
-from serenedb_extractor.templating.regex import compile_template
-from serenedb_extractor.templating.drain import MaskedGroup, merge_groups
+from rcagent.templating.regex import compile_template
+from rcagent.templating.drain import MaskedGroup, merge_groups
 
 
 def g(masked, count, example=None, first_seen=None, last_seen=None, **breakdown):

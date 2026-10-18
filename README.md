@@ -86,7 +86,8 @@ git clone https://github.com/ugnmura/RCAgent && cd RCAgent
 ./scripts/up.sh            # or ./scripts/up.sh --sample: the first 50,000 lines of each log, in seconds
 ```
 
-`scripts/up.sh` starts SereneDB in Docker (or reuses the container `serenedb`), loads the base corpus, checks
+`scripts/up.sh` starts SereneDB in Docker (or reuses the container `serenedb` it created before; it stops if a
+different SereneDB already has that name), loads the base corpus, checks
 that both log tables answer and prints the next step. Running it again changes nothing. Claude Code picks the
 server up from [`.mcp.json`](.mcp.json) when you start `claude` in this folder (approve it once), with `run_sql`
 off. `./scripts/up.sh --help` lists the settings. A `--sample` load covers only the first two days of each log, so
@@ -97,11 +98,15 @@ The same steps by hand:
 ```sh
 uv sync
 
-# 1. start SereneDB (drop --platform on an x86-64 host)
+# 1. start SereneDB: 26.10.1 on an x86-64 host
 mkdir -p ~/logs
-docker run -d --name serenedb --platform linux/amd64 -e SERENEDB_HOST_AUTH_METHOD=trust \
+docker run -d --name serenedb -e SERENEDB_HOST_AUTH_METHOD=trust \
   -p 127.0.0.1:7890:7890 -v ~/logs:/logs:ro \
   serenedb/serenedb@sha256:6d41ac6577e797289158786a2015ba8fbd6875feadb5c491518e166c011058c9
+# 1. or on Apple Silicon / arm64: 26.09.2, native (26.10.1 crashes under amd64 emulation)
+docker run -d --name serenedb -e SERENEDB_HOST_AUTH_METHOD=trust \
+  -p 127.0.0.1:7890:7890 -v ~/logs:/logs:ro \
+  serenedb/serenedb@sha256:f9681a19f7f1290836e8ab200f0b1907dbe2c8380102a09f043a5c44e3ffa2b2
 
 # 2. load BGL + OpenStack (downloads ~60 MB, takes about a minute)
 export SERENEDB_READER_URL=postgresql://postgres@localhost:7890/postgres
@@ -131,8 +136,8 @@ Then run `claude` in this folder and ask (the role commands live in `.claude/com
 
 - **Codex:** there are no role commands. Name the role in the question, for example "As the engineer: what failed
   on BGL on 11 June 2005?". `/mcp` lists the connected server.
-- **Apple Silicon:** use `serenedb/serenedb:26.09.2` (native arm64) and leave out `--platform`. The pinned image
-  is slow and may crash under emulation.
+- **Apple Silicon:** both `scripts/up.sh` and step 1 above use SereneDB 26.09.2 there, which runs natively. The
+  26.10.1 image is amd64 only and crashes under emulation before it listens.
 - **Local SereneDB and our own loader:** the organisers supplied no loader, schema, ownership table or instance.
 - Passwords, reader and writer roles, other options: [docs/reference.md](docs/reference.md).
 
@@ -209,10 +214,8 @@ Claude picks these from their descriptions. Every result says how it was measure
 | `trend` | what is rising, falling or new compared with the period before |
 | `rank_problems` | what to look at first, ranked by a stated, measured score |
 | `telemetry_overview` | a system's logs, metrics and traces around one moment, per service. The starting point when metrics or traces exist |
-| `metric_changes`, `trace_changes`, `log_changes` | what moved across that moment, per service |
+| `metric_changes`, `trace_changes`, `log_changes` | what moved across that moment, per service, by one fixed statistic |
 | `show_evidence` | the exact SQL and result behind any cited number |
-| `telemetry_overview` | with metric or trace tables: which signals each service has, before and after a point in time |
-| `metric_changes`, `trace_changes`, `log_changes` | what moved across that point, per service, by one fixed statistic |
 
 26 tools in total, including setup, indexes, team ownership and metric and trace drill-down. Inputs and outputs: [docs/reference.md](docs/reference.md#tools).
 

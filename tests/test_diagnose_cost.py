@@ -6,12 +6,12 @@ from datetime import UTC, datetime
 
 import pytest
 
-from serenedb_extractor.catalog.models import FieldRoles, LogTable
-from serenedb_extractor.config import Settings
-from serenedb_extractor.db import QueryTimeout, Rows
-from serenedb_extractor.query import cost, filters
-from serenedb_extractor.query.filters import Filters, TimeRange
-from serenedb_extractor.query.stats import ScopeStats
+from rcagent.catalog.models import FieldRoles, LogTable
+from rcagent.config import Settings
+from rcagent.db import QueryTimeout, Rows
+from rcagent.query import cost, filters
+from rcagent.query.filters import Filters, TimeRange
+from rcagent.query.stats import ScopeStats
 
 GB = 1_000_000_000
 COLS = {"ts": "TIMESTAMP WITH TIME ZONE", "message": "VARCHAR", "level": "VARCHAR"}

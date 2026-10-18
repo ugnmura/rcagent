@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from serenedb_extractor.tools import rank
+from rcagent.tools import rank
 from tests.conftest import call
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
@@ -77,7 +77,7 @@ def test_severity_names():
 
 
 def test_breadth_weighs_wildcards_above_typed_placeholders():
-    from serenedb_extractor.catalog.store import breadth
+    from rcagent.catalog.store import breadth
 
     assert breadth("x <*> <*>") == 4 and breadth("x <PATH>") == 1 and breadth("plain text") == 0
 

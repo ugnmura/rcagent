@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from serenedb_extractor.telemetry.registry import TelemetryStore, TraceTable
+from rcagent.telemetry.registry import TelemetryStore, TraceTable
 from tests.conftest import call, container_parquet
 from tests.telemetry import fixtures as fx
 

@@ -1,9 +1,9 @@
 import psycopg
 import pytest
 
-from serenedb_extractor.catalog.store import CatalogStore
-from serenedb_extractor.query.filters import Filters, MissingRole, build_where, diagnose_empty, parse_time_range
-from serenedb_extractor.tools.describe import known_columns
+from rcagent.catalog.store import CatalogStore
+from rcagent.query.filters import Filters, MissingRole, build_where, diagnose_empty, parse_time_range
+from rcagent.tools.describe import known_columns
 from tests.conftest import call, container_parquet
 from tests.fixtures.data import FX
 

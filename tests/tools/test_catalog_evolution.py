@@ -1,6 +1,6 @@
 import pytest
 
-from serenedb_extractor.catalog.store import CatalogStore
+from rcagent.catalog.store import CatalogStore
 from tests.conftest import call, container_parquet, id_of, ids_in
 from tests.fixtures.data import FX, USERS
 
@@ -50,8 +50,8 @@ async def test_a_narrower_candidate_never_narrows_a_template(mcp, users_lt, data
     shrink the broad template back to it (BGL's CioStream "<*> <*> <*> <*>" vs "Link has been severed")."""
     from datetime import datetime
 
-    from serenedb_extractor.catalog.models import CandidateTemplate
-    from serenedb_extractor.templating.regex import compile_template
+    from rcagent.catalog.models import CandidateTemplate
+    from rcagent.templating.regex import compile_template
 
     def cand(text: str, example: str) -> CandidateTemplate:
         c = compile_template(text)
@@ -70,7 +70,7 @@ async def test_a_narrower_candidate_never_narrows_a_template(mcp, users_lt, data
     assert typed.items[0][1] == "new"
     assert store.resolve("users", wide.items[0][0].template_id).template.template == "open failed: <*>"
     # and the broadest template covering a narrow one is found for ranking
-    from serenedb_extractor.catalog.store import covering
+    from rcagent.catalog.store import covering
 
     assert covering(saved, store.templates("users")).template_id == broad_id
 
@@ -98,8 +98,8 @@ async def test_redirects_stay_one_hop(mcp, users_lt, database):
     # a broader template now swallows bob too (it matches every A example): everything points at the lowest ID
     from datetime import datetime
 
-    from serenedb_extractor.catalog.models import CandidateTemplate
-    from serenedb_extractor.templating.regex import compile_template
+    from rcagent.catalog.models import CandidateTemplate
+    from rcagent.templating.regex import compile_template
 
     compiled = compile_template("login failed for <*> <*>")
     cand = CandidateTemplate("login failed for <*> <*>", compiled.regex, list(compiled.params), "login failed for user zed", None, None, 1)
@@ -162,8 +162,8 @@ async def test_rename_is_permanent_and_unique(mcp, fx_lt, database):
 async def test_rename_survives_generalization(mcp, users_lt, database):
     from datetime import datetime
 
-    from serenedb_extractor.catalog.models import CandidateTemplate
-    from serenedb_extractor.templating.regex import compile_template
+    from rcagent.catalog.models import CandidateTemplate
+    from rcagent.templating.regex import compile_template
 
     store = CatalogStore(database)
     await survey_a(mcp)
@@ -204,8 +204,8 @@ async def test_rename_parameter_is_not_read_only(mcp):
 
 
 def _cand(text, example):
-    from serenedb_extractor.catalog.models import CandidateTemplate
-    from serenedb_extractor.templating.regex import compile_template
+    from rcagent.catalog.models import CandidateTemplate
+    from rcagent.templating.regex import compile_template
 
     c = compile_template(text)
     return CandidateTemplate(text, c.regex, list(c.params), example, None, None, 1)

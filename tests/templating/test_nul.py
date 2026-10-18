@@ -2,7 +2,7 @@
 
 import re2  # type: ignore[import-untyped]
 
-from serenedb_extractor.templating.regex import NUL_MARK, compile_template, without_nul
+from rcagent.templating.regex import NUL_MARK, compile_template, without_nul
 
 
 def test_nul_is_shown_as_a_symbol_and_matched_in_the_data():

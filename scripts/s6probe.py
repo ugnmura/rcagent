@@ -4,16 +4,16 @@ import os
 import sys
 import time
 
-import serenedb_extractor
-from serenedb_extractor.config import Settings
-from serenedb_extractor.context import AppContext
-from serenedb_extractor.query import stats
-from serenedb_extractor.query.filters import parse_time_range, time_clause
-from serenedb_extractor.setup.sniff import relation_columns
-from serenedb_extractor.tools.aggregate import count_logs
-from serenedb_extractor.tools.lookup import search_logs
+import rcagent
+from rcagent.config import Settings
+from rcagent.context import AppContext
+from rcagent.query import stats
+from rcagent.query.filters import parse_time_range, time_clause
+from rcagent.setup.sniff import relation_columns
+from rcagent.tools.aggregate import count_logs
+from rcagent.tools.lookup import search_logs
 
-print("module", serenedb_extractor.__file__)
+print("module", rcagent.__file__)
 ctx = AppContext.from_settings(Settings.from_env(os.environ))
 db = ctx.db
 lt = ctx.store.get_log_table("textbench")

@@ -6,8 +6,8 @@ import re
 
 import pytest
 
-from serenedb_extractor.tools.investigate import omitted_line
-from serenedb_extractor import format as fmt
+from rcagent.tools.investigate import omitted_line
+from rcagent import format as fmt
 from tests.conftest import call, container_parquet, first_occurrence, id_of
 
 # 27 days of FATAL `node <n> failed with code <c>`: day d (2026-03-dd) has 5 + d % 3 entries, one a minute

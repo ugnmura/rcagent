@@ -6,15 +6,15 @@ from typing import Any
 
 import psycopg
 
-from serenedb_extractor import db as dbmod
-from serenedb_extractor import format as fmt
-from serenedb_extractor.config import Settings
-from serenedb_extractor.db import Database
-from serenedb_extractor.instructions import ANSWER_RULES
-from serenedb_extractor.query.filters import TimeRange, shown_zone
-from serenedb_extractor.setup.rawlog import LINE_FORMATS, parse_entries
-from serenedb_extractor.tools import setup_tools
-from serenedb_extractor.tools import sql as sql_tool
+from rcagent import db as dbmod
+from rcagent import format as fmt
+from rcagent.config import Settings
+from rcagent.db import Database
+from rcagent.instructions import ANSWER_RULES
+from rcagent.query.filters import TimeRange, shown_zone
+from rcagent.setup.rawlog import LINE_FORMATS, parse_entries
+from rcagent.tools import setup_tools
+from rcagent.tools import sql as sql_tool
 from tests.test_stats_tables import _copied
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -155,7 +155,7 @@ def test_preceding_period_keeps_local_midnight_across_a_dst_change():
     from datetime import UTC, datetime
     from zoneinfo import ZoneInfo
 
-    from serenedb_extractor.tools.trend import preceding_start
+    from rcagent.tools.trend import preceding_start
 
     la = ZoneInfo("America/Los_Angeles")
     start = datetime(2005, 11, 1, tzinfo=la).astimezone(UTC)
@@ -169,8 +169,8 @@ def test_preceding_period_keeps_local_midnight_across_a_dst_change():
 def test_a_local_time_skipped_by_the_spring_change_is_explained():
     import pytest
 
-    from serenedb_extractor.errors import UserFacingError
-    from serenedb_extractor.query.filters import parse_time_range
+    from rcagent.errors import UserFacingError
+    from rcagent.query.filters import parse_time_range
 
     with pytest.raises(UserFacingError, match="does not exist in America/Los_Angeles"):
         parse_time_range("2005-04-03 02:30", "2005-04-03 04:00", "America/Los_Angeles")
@@ -178,7 +178,7 @@ def test_a_local_time_skipped_by_the_spring_change_is_explained():
 
 
 def test_bucket_labels_name_real_instants_on_the_fall_back_night():
-    from serenedb_extractor.tools.investigate import real_label
+    from rcagent.tools.investigate import real_label
 
     la = "America/Los_Angeles"
     assert real_label("2005-10-30 00:00-08:00", la) == "2005-10-30 01:00-08:00"  # PST starts at 01:00
@@ -190,8 +190,8 @@ def test_bucket_labels_name_real_instants_on_the_fall_back_night():
 def test_a_repeated_local_time_asks_which_one():
     import pytest
 
-    from serenedb_extractor.errors import UserFacingError
-    from serenedb_extractor.query.filters import parse_time_range
+    from rcagent.errors import UserFacingError
+    from rcagent.query.filters import parse_time_range
 
     with pytest.raises(UserFacingError, match="happens twice.*01:30:00-07:00.*01:30:00-08:00"):
         parse_time_range("2005-10-30 01:30", "2005-10-30 04:00", "America/Los_Angeles")

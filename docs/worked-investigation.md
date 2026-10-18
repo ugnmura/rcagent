@@ -3,7 +3,7 @@
 Claude Code, connected to this MCP server, answers one question per role over the base corpus:
 Loghub **BGL** (4,747,963 entries, 2005-06-03 to 2006-01-04) and **OpenStack** (207,636 entries,
 2017-05-14 to 2017-05-17), loaded with `scripts/load_base_corpus.py`. Teams come from the **stand-in** ownership
-table (`src/serenedb_extractor/data/ownership.csv`), a fictional organisation. Import the challenge's table
+table (`src/rcagent/data/ownership.csv`), a fictional organisation. Import the challenge's table
 with `edit_team_ownership` to get its team names.
 
 Every number cites a step of the [transcript](worked-investigation-transcript.md): each tool call, its result

@@ -339,9 +339,9 @@ def setup_tables(sources: dict[str, str], replace: bool, rewritten: set[str]) ->
     """Set up each log table; one whose file was rewritten now (or that points elsewhere, with --replace) is
     registered again so its entry count and roles match the new file (its template catalog starts over)."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-    from serenedb_extractor.config import Settings
-    from serenedb_extractor.context import AppContext
-    from serenedb_extractor.tools import setup_tools
+    from rcagent.config import Settings
+    from rcagent.context import AppContext
+    from rcagent.tools import setup_tools
 
     ctx = AppContext.from_settings(Settings.from_env(os.environ))
     try:

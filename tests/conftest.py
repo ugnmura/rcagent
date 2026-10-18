@@ -14,10 +14,10 @@ from mcp.types import CallToolResult, GetPromptResult, ListPromptsResult, ListTo
 from mcp.shared.memory import create_connected_server_and_client_session
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
-from serenedb_extractor.config import Settings
-from serenedb_extractor.context import AppContext
-from serenedb_extractor.db import Database
-from serenedb_extractor.server import build_server
+from rcagent.config import Settings
+from rcagent.context import AppContext
+from rcagent.db import Database
+from rcagent.server import build_server
 
 TEST_DB = os.environ.get("SERENEDB_TEST_DB", "extractor_test")
 

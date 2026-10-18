@@ -3,11 +3,11 @@
 import math
 from dataclasses import replace
 
-from serenedb_extractor.format import Measured, refusal, render, timeout_message
-from serenedb_extractor.query import cost
-from serenedb_extractor.query.cost import decide
-from serenedb_extractor.query.sampling import block_estimate, clause
-from serenedb_extractor.query.stats import GroupStat, ScopeStats
+from rcagent.format import Measured, refusal, render, timeout_message
+from rcagent.query import cost
+from rcagent.query.cost import decide
+from rcagent.query.sampling import block_estimate, clause
+from rcagent.query.stats import GroupStat, ScopeStats
 
 
 def _groups(n: int, rows: int, per_col: dict[str, int], first: int = 0) -> tuple[GroupStat, ...]:

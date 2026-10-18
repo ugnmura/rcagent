@@ -4,8 +4,8 @@ from typing import Any
 
 import pytest
 
-from serenedb_extractor.query import cost
-from serenedb_extractor.setup import indexes
+from rcagent.query import cost
+from rcagent.setup import indexes
 from tests.conftest import call, container_parquet, token_of
 from tests.fixtures.data import FX
 
@@ -240,7 +240,7 @@ async def test_build_refused_when_the_estimate_exceeds_the_limit(mcp, fx_lt, dat
 
 
 async def test_failed_record_drops_the_new_index(mcp, fx_lt, database, monkeypatch):
-    from serenedb_extractor.catalog.store import CatalogStore
+    from rcagent.catalog.store import CatalogStore
 
     def boom(*a, **k):
         raise RuntimeError("catalog down")
@@ -260,7 +260,7 @@ async def test_leftover_trial_objects_are_swept(mcp, fx_lt, database, monkeypatc
 
 async def test_dictionary_creation_tolerates_a_race(db_url, monkeypatch):
     from tests.conftest import _settings
-    from serenedb_extractor.context import AppContext
+    from rcagent.context import AppContext
 
     ctx = AppContext.from_settings(_settings(db_url))
     try:
@@ -283,7 +283,7 @@ async def test_estimates_are_forgotten_when_setup_reruns(mcp, fx_lt, monkeypatch
 async def test_failed_build_at_setup_is_one_short_line(mcp, fx_path, monkeypatch):
     import psycopg
 
-    from serenedb_extractor.setup import indexes
+    from rcagent.setup import indexes
 
     def fail(ctx, lt, kind):
         raise psycopg.Error("index build failed\nDETAIL:  out of memory\nHINT:  try a smaller table")

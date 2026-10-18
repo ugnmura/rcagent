@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from serenedb_extractor.query import cost
-from serenedb_extractor.query.coverage import untimestamped_note, untimestamped_text
-from serenedb_extractor.query.filters import parse_time_range
+from rcagent.query import cost
+from rcagent.query.coverage import untimestamped_note, untimestamped_text
+from rcagent.query.filters import parse_time_range
 
 from tests.conftest import call, first_occurrence, id_of
 

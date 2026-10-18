@@ -6,8 +6,8 @@ import re
 import psycopg
 import pytest
 
-from serenedb_extractor.query import cost
-from serenedb_extractor.tools import survey as survey_mod
+from rcagent.query import cost
+from rcagent.tools import survey as survey_mod
 from tests.conftest import call, container_parquet, id_of, token_of
 from tests.fixtures.data import FX
 from tests.fixtures.data_t12 import FX_BIG
