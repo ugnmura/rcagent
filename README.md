@@ -20,11 +20,21 @@ the searching and counting; Claude explains the results. Built for *Making Sense
 
 ### 96.9% on 30 sealed held-out questions, at $0.117 per answer
 
-<img src="docs/img/bench-quality.svg" alt="Answer quality on 30 sealed held-out questions: this server scores 96.9% on a blind rubric (v1 92.9%, v2 93.5%), 98% on exact values (94%, 96%), costs $0.117 per answer ($0.459, $0.259) and uses 5.9 tool calls per answer (9.2, 6.6)." width="100%">
+<img src="docs/img/bench-quality.svg" alt="Answer quality on 30 sealed held-out questions: this server scores 96.9% on a blind rubric (full toolkit 92.9%, lean toolkit 93.5%), 98% on exact values (94%, 96%), costs $0.117 per answer ($0.459, $0.259) and uses 5.9 tool calls per answer (9.2, 6.6)." width="100%">
 
 A separate model wrote the questions without seeing this repository; a blind grader scored the answers. These
 finals ran at commit `6cad141`. The current version, rerun on the screening set with Sonnet 5.5, scored 94.4% on
 the rubric and 99% on exact values. Method, confidence intervals and weak spots: [docs/EVALUATION.md](docs/EVALUATION.md).
+
+The three designs are three MCP servers over the same SereneDB data. The team built all three:
+
+| | **This server** (the extractor) | **Full toolkit** ([serenedb-log-mcp](https://github.com/OrFrederick/serenedb-log-mcp)) | **Lean toolkit** ([serenedb-log-mcp-v2](https://github.com/OrFrederick/serenedb-log-mcp-v2)) |
+|---|---|---|---|
+| Data | Parquet/JSON read in place, also from S3; raw text copied once | copied into tables at load | copied into tables at load; TextBench read in place |
+| Templates | at question time: SQL masking, then Drain, kept as stable IDs `T1, T2, …` | at load time: Loghub template regexes, then a regex mask chain | at load time: the regex mask chain only |
+| Tools Claude sees | 8 core tools plus `run_sql` | 18 tools: incidents, precursors, patterns, baselines, … | 7 tools; each extra tool had to win a benchmark |
+| Evidence | every query saved as `Q<n>`, with its SQL | evidence ledger `[E<n>]` plus `verify_answer` | evidence ledger `[E<n>]` |
+| Roles | prompts and slash commands | `role` parameter on every tool | `role` parameter on every tool |
 
 ### 1 billion rows on S3, queried in place
 
@@ -39,6 +49,31 @@ on one shared HPC node. The search index over a billion rows needs more than 64 
 In the worked investigation over BGL and OpenStack (4,955,599 entries, no index), every one of the 25 tool calls
 took between 0.02 s and 1.97 s, 0.25 s at the median, including exact counts over the whole corpus. Each timing is
 in the [transcript](docs/worked-investigation-transcript.md); the machine it ran on was not recorded.
+
+### Templating next to published log parsers
+
+How well log lines are grouped into templates (GA: share of lines in the right group; FGA: F1 over groups;
+higher is better). Our rows score every labelled line of Loghub-2.0's full BGL (4,631,261 lines, 320 templates)
+and OpenStack (207,632 lines, 48 templates) with the team's own scorer. The parser rows are **copied from the
+Loghub-2.0 paper's results**
+([`effectiveness_results.csv`](https://github.com/logpai/loghub-2.0/blob/ac4aad2ea86f561e5a0acbc6587fa28b487259f9/RQs_experiments/RQ2/effectiveness_results.csv),
+full-dataset column): same labelled lines, but their scorer and preprocessing, and we did not rerun them. Read
+them as a reference point, not a head-to-head result.
+
+| Approach | BGL GA | BGL FGA | OpenStack GA | OpenStack FGA |
+|---|---|---|---|---|
+| **This server** (`6cad141`) | 0.929 | **0.745** | 0.355 | 0.682 |
+| Full / lean toolkit (regex mask chain¹) | **0.939** | 0.694 | **1.000** | **1.000** |
+| Drain (published) | 0.919 | 0.624 | 0.752 | 0.007 |
+| AEL (published) | 0.915 | 0.587 | 0.743 | 0.682 |
+| IPLoM (published) | 0.896 | 0.692 | 0.375 | 0.029 |
+| Spell (published) | 0.677 | 0.016 | 0.781 | 0.001 |
+| UniParser (published, trained) | 0.549 | 0.641 | **1.000** | **1.000** |
+| LogPPT (published, trained) | 0.311 | 0.519 | 0.534 | 0.929 |
+
+Our OpenStack GA is low because GET, POST and DELETE request lines fall into one template.
+¹ The full toolkit's default also matches regexes generated from the Loghub-2.0 templates, which would score
+the labels against themselves; that tier is off in this row, so both toolkits give the same result.
 
 ## How it works
 
