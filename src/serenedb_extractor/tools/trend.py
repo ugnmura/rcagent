@@ -197,13 +197,32 @@ def _seen_buckets(
     return out
 
 
+# A gap in the data is a run of empty buckets at least this long: one quiet hour is normal for many logs, while
+# hours on end (or a whole day) with no entry at all means the logs are missing.
+MIN_GAP_RUN = {"hour": 3, "day": 1}
+
+
+def gap_buckets(buckets: list[datetime], seen: set[datetime], whole: Any, unit: Bucket) -> list[datetime]:
+    """The whole buckets that lie in a gap: runs of at least MIN_GAP_RUN consecutive buckets with no entry at all."""
+    out: list[datetime] = []
+    run: list[datetime] = []
+    for b in [*buckets, None]:
+        if b is not None and whole(b) and b not in seen:
+            run.append(b)
+            continue
+        if len(run) >= MIN_GAP_RUN[unit]:
+            out += run
+        run = []
+    return out
+
+
 def _gap_cover(
     cover: Coverage, buckets: list[datetime], seen: set[datetime], whole: Any, unit: Bucket, what: str, zone: Any
 ) -> Coverage:
-    """Downgrade a full coverage when whole buckets inside the period have no entries at all."""
+    """Downgrade a full coverage when the period holds a gap in the data (see MIN_GAP_RUN)."""
     if cover.status != "full":
         return cover
-    empty = [b for b in buckets if whole(b) and b not in seen]
+    empty = gap_buckets(buckets, seen, whole, unit)
     if not empty:
         return cover
     n, total = len(empty), len(buckets)
@@ -365,8 +384,15 @@ def _change(cur: fmt.Measured, prev: fmt.Measured, cur_cover: Coverage, prev_cov
     if cur.exact and cur.value == 0:
         return "-100%"
     pct_change = (cur.value - prev.value) / prev.value * 100
-    text = "no change" if round(pct_change) == 0 else f"{pct_change:+.0f}%"
+    text = "no change" if round(pct_change) == 0 else pct_text(pct_change)
     return text if cur.exact and prev.exact else f"≈{text} (from the two estimates above)"
+
+
+def pct_text(pct: float) -> str:
+    """A change in percent, never rounded to -100% while something is left (or to +0%/-0% while it changed)."""
+    if -100 < pct <= -99.5:
+        return f"{max(pct, -99.9):+.1f}%"
+    return f"{pct:+.0f}%"
 
 
 def _amount(m: fmt.Measured) -> str:

@@ -24,7 +24,9 @@ from serenedb_extractor.ownership import STAND_IN, UNASSIGNED, team_of
 from serenedb_extractor.query import cost
 from serenedb_extractor.query.filters import (
     Filters,
+    MissingRole,
     ScanTooExpensive,
+    diagnose_empty,
     TimeRange,
     build_where,
     data_range,
@@ -51,6 +53,8 @@ from serenedb_extractor.tools.trend import (
     _seen_buckets,
     _tmpl_number,
     _ts_local,
+    gap_buckets,
+    pct_text,
     preceding_start,
 )
 
@@ -141,7 +145,14 @@ def rank_problems(
             raise UserFacingError("There are no log tables yet; set one up first.")
     shown = fmt.clamp_limit(limit, DEFAULT_LIMIT, DEFAULT_LIMIT * ctx.settings.limit_cap)
     n_cand = fmt.clamp_limit(candidates, DEFAULT_CANDIDATES, DEFAULT_CANDIDATES * 4)
-    runs = [_rank_one(ctx, lt, start, end, f, floor, n_cand, shown_zone(lt, timezone), confirmed_cost) for lt in tables]
+    runs: list[TableRun] = []
+    for lt in tables:
+        try:
+            runs.append(_rank_one(ctx, lt, start, end, f, floor, n_cand, shown_zone(lt, timezone), confirmed_cost))
+        except MissingRole as exc:
+            if len(tables) == 1:
+                raise
+            runs.append(TableRun(lt, note=f"not ranked: {exc}"))
     return _render(runs, f, floor, shown)
 
 
@@ -179,6 +190,10 @@ def _rank_one(
             run.asked = levels
             return run
         severe = {v: n for v, n in levels.items() if SEVERITY.get(v.upper(), 0) >= floor}
+        if not levels and f.items():  # the filters matched nothing: say which, as count_logs does
+            why = diagnose_empty(db, lt, cur, f, cols)
+            run.note = "nothing matched the filters in this period" + (": " + " ".join(why) if why else "")
+            return run
         if not levels:
             try:
                 rng = data_range(db, lt, cols)
@@ -249,6 +264,8 @@ def _rank_one(
         run.limited = [c.why for c in (prev_cover, cur_cover) if c.status != "full"]
         run.comparable = not run.limited
         whole_now = {b for b in cur_b if whole(b, cur)}
+        if seen is not None:  # buckets in a gap in the data say nothing about persistence
+            whole_now -= set(gap_buckets(cur_b, seen[1], lambda b: whole(b, cur), run.unit))
         run.whole = len(whole_now)
     for p in run.problems:
         _score(p, run, whole_now)
@@ -334,7 +351,7 @@ def _score(p: Problem, run: TableRun, whole_now: set[Any]) -> None:
     else:
         ratio = (p.now - p.before) / p.before
         change_pts = 3 if ratio >= 0.5 else 2 if ratio >= 0.1 else 1 if ratio > -0.1 else 0
-        p.change = f"{ratio:+.0%} ({p.before:,} -> {p.now:,})"
+        p.change = f"{pct_text(100 * ratio)} ({p.before:,} -> {p.now:,})"
     present = len(p.buckets & whole_now)
     share_present = present / run.whole if run.whole else 0.0
     persistence = 3 if share_present >= 0.75 else 2 if share_present >= 0.4 else 1 if share_present >= 0.1 else 0
@@ -409,7 +426,7 @@ def _render(runs: list[TableRun], f: Filters, floor: int, limit: int) -> str:
             f"{i}. score {p.score}/18  [{p.lt.name} {p.template.template_id}] {fmt.shorten(fmt.template_text(p.template.template), 160)}",
             f"    {p.now:,} entries this period (exact; {levels}), {100 * p.now / r.severe_total:.1f}% of the entries ranked in {p.lt.name}",
             f"    change: {p.change}",
-            f"    present in {len(p.buckets)} of {r.whole} whole {r.unit}s; "
+            f"    present in {len(p.buckets)} of {r.whole} whole {r.unit}s" + (" with data" if r.limited else "") + "; "
             + (
                 f"spread: {p.spots:,} distinct {r.spot}" + ("" if p.spots == 1 else "s")
                 if r.spot != "entry"
