@@ -497,6 +497,32 @@ def _examples(
     return out
 
 
+def tie_note(
+    kept: list[tuple[tuple[str, ...], fmt.Measured]],
+    left: list[tuple[tuple[str, ...], fmt.Measured]],
+    num: Any,
+) -> str | None:
+    """When a cut to the largest groups falls inside a tie (a left-out group as large as the smallest shown one),
+    say so: which of the tied groups are shown is arbitrary."""
+    if not kept or not left:
+        return None
+    low = min(m.value for _, m in kept)
+    others = sum(1 for _, m in left if m.value == low)
+    if not others:
+        return None
+    tied = sum(1 for _, m in kept if m.value == low)
+    each = num(next(m for _, m in kept if m.value == low))
+    who = (
+        "all shown groups" if tied == len(kept)
+        else "the smallest shown group" if tied == 1
+        else f"the {tied:,} smallest shown groups"
+    )
+    return (
+        f"{who} and {others:,} other{'' if others == 1 else 's'} have {each} each; which of them are shown is "
+        "arbitrary (the cut falls inside a tie)"
+    )
+
+
 def _label(groups: list[tuple[str, str]], key: tuple[str, ...]) -> str:
     return ", ".join(key) if groups else "all matching entries"
 
@@ -548,6 +574,8 @@ def _render_locate(
             out.append(f"    showing the {len(items):,} largest of {len(shown[ti]):,} groups{cap}")
             kept = {key for key, _ in items}
             left = [(key, m) for key, m in shown[ti] if key not in kept]
+            if (tie := tie_note(items, left, _num)) is not None:
+                out.append(f"    {tie}")
             out.append(
                 "    " + omitted_line(
                     [g for g, _ in groups], len(left), sum(m.value for _, m in left), all(m.exact for _, m in left), left
