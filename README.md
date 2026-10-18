@@ -189,7 +189,7 @@ Claude picks these from their descriptions. Every result says how it was measure
 There are 18 tools in total, including setup, indexes and team ownership. Each one's inputs and outputs are listed in
 [docs/reference.md](docs/reference.md#tools).
 
-## Why the numbers can be trusted
+## Evidence
 
 - **Counted in the database.** Counts cover every entry in scope, not a handful of examples. An estimate is
   labelled with its margin.
