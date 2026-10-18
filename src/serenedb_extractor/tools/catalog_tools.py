@@ -14,6 +14,6 @@ def rename_parameter(ctx: AppContext, log_table: str, template: str, old_name: s
     if resolved.redirected_from:
         out.append(f"{resolved.redirected_from} was merged into {t.template_id}; renamed there.")
     names = ", ".join(f"{p.name} ({p.kind})" for p in t.params)
-    out.append(f"{t.template_id}  {t.template}")
+    out.append(f"{t.template_id}  {fmt.template_text(t.template)}")
     out.append(f"Parameter '{old_name}' is now '{new_name}' for good; later surveys keep the name. Parameters: {names}.")
     return "\n".join(out)

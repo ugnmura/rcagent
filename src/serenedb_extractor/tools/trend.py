@@ -473,7 +473,7 @@ def trend(
         per_now = [measure(i, 1, [b]) for b in cur_buckets]
         per_before = [measure(i, 0, [b]) for b in prev_buckets]
         present = sum(1 for b, m in zip(cur_buckets, per_now, strict=True) if b in whole_now and m.value > 0)
-        out += ["", f"{t.template_id}  {t.template}"]
+        out += ["", f"{t.template_id}  {fmt.template_text(t.template)}"]
         out.append(f"    this period: {_show(now)}; preceding period: {_show(before)}")
         if truncated is not None:
             now_t, before_t = measure(i, 1, truncated[0]), measure(i, 0, truncated[1])

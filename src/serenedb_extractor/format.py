@@ -47,6 +47,11 @@ def shorten(text: str, max_chars: int = 500) -> str:
     return text if len(text) <= max_chars else text[:max_chars] + "…(cut)"
 
 
+def template_text(text: str) -> str:
+    """A template or example as shown: entries whose message is empty (BGL logs some) get a name, not a blank."""
+    return text if text.strip() else "(empty message)"
+
+
 def _one_line(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 

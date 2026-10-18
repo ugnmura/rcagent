@@ -407,7 +407,7 @@ def _render_locate(
         out.append("Example occurrences come from the sampled blocks.")
     for ti, t in enumerate(sc.templates):
         out.append("")
-        out.append(f"{t.template_id}  {t.template}")
+        out.append(f"{t.template_id}  {fmt.template_text(t.template)}")
         items = cut_groups.get(ti, [])
         if not items:
             out.append("    no matching entries" + ("" if plan.exact else " in the sample (some may exist outside it)"))
@@ -604,7 +604,7 @@ def _render_params(
         )
     ]
     out += [fmt.sentence(n) for n in [*notes, *plan.notes]]
-    out.append(f"{t.template_id}  {t.template}")
+    out.append(f"{t.template_id}  {fmt.template_text(t.template)}")
     out.append(f"    matching entries: {_num(r.matched)}{sampled}")
     if plan.exact and r.matched.value == 0:
         out.append("    no entry matches this template in this scope.")
