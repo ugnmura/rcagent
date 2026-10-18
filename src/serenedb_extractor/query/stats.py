@@ -130,9 +130,18 @@ def _parquet(db: Database, lt: LogTable, tr: TimeRange, has_f: bool, has_s: bool
     what = f"reading the Parquet metadata of {lt.name}"
     skippable = False
     hit: dict[tuple[str, int], bool] = {}
-    groups = db.read(
-        f"SELECT file_name, row_group_id, max(row_group_num_rows) AS n FROM {meta} GROUP BY 1, 2", {}, what=what
+    # One metadata read for both the row counts and the per-column sizes (each read of a remote
+    # file's metadata costs ~0.15 s on TextBench).
+    per_col = db.read(
+        f"SELECT file_name, row_group_id, split_part(path_in_schema, ', ', 1) AS c, "
+        f"sum(total_compressed_size)::bigint AS b, max(row_group_num_rows) AS n FROM {meta} GROUP BY 1, 2, 3",
+        {},
+        what=what,
     ).rows
+    rows_of: dict[tuple[str, int], int] = {}
+    for f, g, _, _, n in per_col:
+        rows_of[(f, g)] = max(rows_of.get((f, g), 0), int(n or 0))
+    groups = [(f, g, n) for (f, g), n in rows_of.items()]
     if tr.bounded and ts_col is not None:
         cols = dict(relation_columns(db, lt.relation, lt.source, rs.remote))
         typ = cols.get(ts_col, "").upper()
@@ -159,15 +168,9 @@ def _parquet(db: Database, lt: LogTable, tr: TimeRange, has_f: bool, has_s: bool
                 what=what,
             ).rows
             hit = {(r[0], r[1]): bool(r[2]) for r in ranges}
-    per_col = db.read(
-        f"SELECT file_name, row_group_id, split_part(path_in_schema, ', ', 1) AS c, "
-        f"sum(total_compressed_size)::bigint AS b FROM {meta} GROUP BY 1, 2, 3",
-        {},
-        what=what,
-    ).rows
     by_col: dict[str, int] = {}
     group_cols: dict[tuple[str, int], dict[str, int]] = {}
-    for f, g, c, b in per_col:
+    for f, g, c, b, _ in per_col:
         if hit.get((f, g), True):
             by_col[c] = by_col.get(c, 0) + int(b or 0)
             group_cols.setdefault((f, g), {})[c] = int(b or 0)
