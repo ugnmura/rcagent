@@ -104,8 +104,16 @@ class Filters:
     @classmethod
     def from_dict(cls, d: dict[str, Any] | None) -> "Filters":
         d = dict(d or {})
-        roles = {r: d.pop(r) for r in FILTER_ROLES if d.get(r) is not None}
         d.pop("columns", None)
+        for key, value in d.items():
+            if value is None:
+                raise UserFacingError(
+                    f"The filter on '{key}' has no value. Filters match given values; to find entries where {key} is "
+                    "missing, use run_sql with IS NULL."
+                )
+            if isinstance(value, list) and not [v for v in value if v is not None]:
+                raise UserFacingError(f"The filter on '{key}' is an empty list: give at least one value.")
+        roles = {r: d.pop(r) for r in FILTER_ROLES if d.get(r) is not None}
         return cls(**roles, columns={k: str(v) for k, v in d.items()})
 
     def items(self) -> list[tuple[str, str | list[str]]]:

@@ -35,7 +35,11 @@ _TOP_ROLES = ("level", "service", "component", "team")
 
 
 def context_scopes(roles: FieldRoles) -> list[str]:
-    scopes = [s for s, role in (("trace", roles.trace), ("service", roles.service), ("host", roles.host)) if role]
+    scopes = [
+        s
+        for s, role in (("trace", roles.trace), ("service", roles.service), ("host", roles.host), ("component", roles.component))
+        if role
+    ]
     return scopes + ["everything"]
 
 

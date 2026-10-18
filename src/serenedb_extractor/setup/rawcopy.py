@@ -118,7 +118,7 @@ def copy_raw(
 
     # Pass 1: count, see which fields exist, and find out whether the file is already in order.
     count = no_ts = 0
-    seen = {"level": False, "component": False, "host": False}
+    seen = {"level": False, "component": False, "host": False, "service": False, "trace": False}
     in_order = True
     last = _sort_key(RawEntry(0, 0, None, None, None, None, "", {}))
     for e in parse_entries(counted(), line_format, tz):
@@ -127,6 +127,8 @@ def copy_raw(
         seen["level"] |= e.level is not None
         seen["component"] |= e.component is not None
         seen["host"] |= e.host is not None
+        seen["service"] |= "service" in e.attrs
+        seen["trace"] |= "trace" in e.attrs
         key = _sort_key(e)
         in_order &= key >= last
         last = key
@@ -152,6 +154,8 @@ def copy_raw(
         level=quote_ident("level") if seen["level"] else None,
         component=quote_ident("component") if seen["component"] else None,
         host=quote_ident("host") if seen["host"] else None,
+        service="attrs ->> 'service'" if seen["service"] else None,
+        trace="attrs ->> 'trace'" if seen["trace"] else None,
         order=quote_ident("entry_id"),
     )
     return RawCopy(relation, count, no_ts, line_format, roles, bad_lines)

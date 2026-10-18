@@ -25,6 +25,7 @@ from serenedb_extractor.query.stats import ScopeStats, collect, role_columns
 from serenedb_extractor.query.tags import tag_entries, tag_text
 from serenedb_extractor.setup.sniff import readable
 from serenedb_extractor.tools.describe import context_scopes, known_columns
+from serenedb_extractor.tools.trend import _filters_text
 from serenedb_extractor.tools.lookup import NARROW, ts_select
 
 DEFAULT_SIDE = 10
@@ -50,9 +51,11 @@ def _choose_scope(lt: LogTable, scope: str | list[str] | None, row: dict[str, An
         return _Scope([], "no narrower context scope is available: everything")
     wanted = [scope] if isinstance(scope, str) else list(scope)
     bad = [s for s in wanted if s not in available]
-    if bad or not wanted:
+    if not wanted:
+        raise UserFacingError(f"Give a scope, or leave it out for the narrowest one. The available scopes are: {', '.join(available)}.")
+    if bad:
         raise UserFacingError(
-            f"This log table has no {', '.join(repr(b) for b in bad) or 'scope'} field to scope by. "
+            f"This log table has no {', '.join(repr(b) for b in bad)} field to scope by. "
             f"The available scopes are: {', '.join(available)}."
         )
     if "everything" in wanted:
@@ -253,13 +256,13 @@ def _fetch_window(
 def _entry_line(lt: LogTable, row: dict[str, Any], tr: TimeRange, mark: str, tag: str) -> str:
     ts = tr.fmt(row["occ_ts"]) if isinstance(row["occ_ts"], datetime) else str(row["occ_ts"])
     roles = " ".join(f"{r}={row[f'occ_{r}']}" for r in FILTER_ROLES if row.get(f"occ_{r}") is not None)
-    parts = [mark, ts, occ_mod.encode_occurrence(lt, row), roles, tag, fmt.shorten(str(row["occ_msg"] or ""))]
+    parts = [mark, ts, occ_mod.encode_occurrence(lt, row), roles, tag, fmt.entry_text(str(row["occ_msg"] or ""))]
     return " ".join(p for p in parts if p)
 
 
 def _render(
     ctx: AppContext, lt: LogTable, tr: TimeRange, ts: datetime, window_minutes: float, scope: _Scope,
-    occ_row: dict[str, Any], win: _Window, before: int, after: int,
+    occ_row: dict[str, Any], win: _Window, before: int, after: int, f: Filters,
 ) -> str:
     templates = ctx.store.templates(lt.name)
     entries = [(" ", r) for r in win.prior] + [("→", occ_row)] + [(" ", r) for r in win.following]
@@ -270,7 +273,7 @@ def _render(
         fmt.how_measured(
             f"exact: the nearest entries around the occurrence within ±{window_minutes:g} min",
             f"{tr.fmt(tr.start)} to {tr.fmt(tr.end)} {tr.tz} (window ±{window_minutes:g} min around {tr.fmt(ts)})",
-            scope.how + (": " + held if held else ""),
+            "; ".join(x for x in (scope.how + (": " + held if held else ""), _filters_text(f)) if x),
             tz=tr.tz,
         ),
         *[fmt.sentence(n) for n in win.plan.notes],
@@ -298,7 +301,8 @@ def get_context(
     timezone = shown_zone(lt, timezone)
     if window_minutes <= 0:
         raise UserFacingError("window_minutes must be greater than 0.")
-    before, after = max(before, 0), max(after, 0)
+    if before < 0 or after < 0:
+        raise UserFacingError("before and after are numbers of entries to show: 0 or more.")
     occ_mod.decode_occurrence(lt, occurrence)  # a malformed ID is explained before any query
     if lt.roles.timestamp is None:
         raise UserFacingError("This log table has no timestamp field, so there is no time window to show around an entry.")
@@ -324,4 +328,4 @@ def get_context(
         win = _fetch_window(ctx, lt, cols, select, shown_cols, occurrence, occ_row, chosen, f, tr, before, after, confirmed_cost, covered)
         if isinstance(win, str):
             return win
-    return _render(ctx, lt, tr, ts, window_minutes, chosen, occ_row, win, before, after)
+    return _render(ctx, lt, tr, ts, window_minutes, chosen, occ_row, win, before, after, f)

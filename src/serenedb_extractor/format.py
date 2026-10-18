@@ -33,8 +33,14 @@ def how_measured(
 
 
 def clamp_limit(requested: int | None, default: int, cap: int) -> int:
-    if requested is None or requested < 1:
+    """A count of things to show: the default when not given; 1 or more when given (anything above `cap` is cut
+    to `cap`, and the result's "showing N of M" line says so)."""
+    if requested is None:
         return default
+    if requested < 1:
+        from serenedb_extractor.errors import UserFacingError
+
+        raise UserFacingError(f"A limit is how many to show: give 1 or more (got {requested}), or leave it out for {default}.")
     return min(requested, cap)
 
 
@@ -46,6 +52,11 @@ def cut(items: list[T], limit: int, noun: str) -> tuple[list[T], str | None]:
 
 def shorten(text: str, max_chars: int = 500) -> str:
     return text if len(text) <= max_chars else text[:max_chars] + "…(cut)"
+
+
+def entry_text(text: str, max_chars: int = 500) -> str:
+    """A message on one line of a listing: line breaks (stack traces) shown as ⏎, then shortened."""
+    return shorten(re.sub(r"\r?\n", " ⏎ ", text), max_chars)
 
 
 def template_text(text: str) -> str:

@@ -178,3 +178,44 @@ async def test_hour_buckets_keep_both_hours_when_clocks_go_back(mcp, tmp_path):
     assert "2005-10-30 01:00-07:00: 1" in out and "2005-10-30 01:00-08:00: 2" in out
     week = await call(mcp, "count_logs", log_tables=["fb"], group_by=["time:7d"])
     assert "2005-10-24: 3" in week  # weeks start on a Monday
+
+
+async def test_input_checks_and_one_line_entries(mcp, corpus):
+    assert "empty list" in await call(mcp, "search_logs", log_table="bgl", filters={"level": []})
+    assert "IS NULL" in await call(mcp, "search_logs", log_table="bgl", filters={"level": None})
+    assert "give 1 or more" in await call(mcp, "search_logs", log_table="bgl", limit=0)
+    found = await call(mcp, "search_logs", log_table="openstack", limit=1)
+    occ = re.search(r"\s(e:\d+|\S+#\d+)\s", found).group(1)
+    out = await call(mcp, "get_context", log_table="openstack", occurrence=occ, scope=["component"],
+                     filters={"level": "INFO"}, before=1, after=1)
+    assert "the same component" in out and "level='INFO'" in out.splitlines()[0]
+    assert "before and after are numbers" in await call(mcp, "get_context", log_table="openstack", occurrence=occ, before=-1)
+
+
+def test_entry_text_keeps_one_line():
+    from serenedb_extractor import format as fmt
+
+    assert fmt.entry_text("Traceback\n  File x\r\n  boom") == "Traceback ⏎   File x ⏎   boom"
+
+
+async def test_an_occurrence_id_may_name_just_the_file(mcp, db_url):
+    from tests.conftest import container_parquet
+    from tests.fixtures.data import FX
+
+    path = container_parquet(db_url, "fx_short", FX)
+    await call(mcp, "setup_log_table", name="fxs", source=path)
+    found = await call(mcp, "search_logs", log_table="fxs", limit=1)
+    occ = re.search(r"\s(\S+#\d+)\s", found).group(1)
+    out = await call(mcp, "get_context", log_table="fxs", occurrence=occ.rsplit("/", 1)[-1], scope="everything")
+    assert "→" in out and occ in out
+
+
+async def test_raw_openstack_logs_get_service_and_trace(mcp, corpus):
+    desc = await call(mcp, "describe_logs", log_table="openstack")
+    assert "service: attrs ->> 'service'" in desc and "trace: attrs ->> 'trace'" in desc
+    counts = await call(mcp, "count_logs", log_tables=["openstack"], group_by=["service"])
+    assert "nova-api:" in counts and "nova-compute:" in counts
+    found = await call(mcp, "search_logs", log_table="openstack", filters={"service": "nova-api"}, limit=1)
+    occ = re.search(r"\s(e:\d+)\s", found).group(1)
+    ctx_out = await call(mcp, "get_context", log_table="openstack", occurrence=occ)
+    assert "the narrowest available context scope: the same trace" in ctx_out
