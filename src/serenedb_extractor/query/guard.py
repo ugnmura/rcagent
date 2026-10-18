@@ -45,6 +45,8 @@ ALLOWED_FUNCTIONS = frozenset(
     """.split()
 )
 # String functions whose result can be much longer than their input; they may not be nested in one another.
+MAX_GROWING_CALLS = 2
+MAX_GROWING_LITERAL = 100
 GROWING_FUNCTIONS = frozenset("replace regexp_replace overlay translate concat concat_ws string_agg group_concat".split())
 # Keywords that may be followed by "(" without being a function call.
 SYNTAX_WORDS = frozenset(
@@ -109,6 +111,7 @@ def _check_tokens(text: str) -> None:
     # Paren depths at which a size-growing string function's arguments are open: one inside another (replace of a
     # replace ...) can multiply a value's size in a single row, which the time-based cost check can't see.
     growing_open: list[int] = []
+    growing_calls = 0
     for i, tok in enumerate(tokens):
         word = tok.text.lower() if "STRING" not in tok.token_type.name else ""
         if word.lstrip("_") in REG_TYPES:  # _regclass is the array type of regclass
@@ -123,6 +126,11 @@ def _check_tokens(text: str) -> None:
             if growing_open and growing_open[-1] == depth:
                 growing_open.pop()
             depth -= 1
+        if growing_open and "STRING" in tok.token_type.name and len(tok.text) > MAX_GROWING_LITERAL:
+            raise SqlRejected(
+                f"a text longer than {MAX_GROWING_LITERAL} characters inside a replace/concat-style function is not "
+                "allowed in run_sql (it can build huge values)"
+            )
         nxt = tokens[i + 1] if i + 1 < len(tokens) else None
         if nxt is not None and nxt.token_type == TokenType.AMP and word == "u":
             raise SqlRejected("unicode-escaped names (U&...) are not allowed in run_sql")
@@ -135,7 +143,13 @@ def _check_tokens(text: str) -> None:
                     f"{word}() inside another replace/concat-style function can build huge values; "
                     "nest at most one of them"
                 )
+            growing_calls += 1
+            if growing_calls > MAX_GROWING_CALLS:  # chained through subqueries or CTEs they multiply as well
+                raise SqlRejected(
+                    f"at most {MAX_GROWING_CALLS} replace/concat-style functions per query (they can build huge values)"
+                )
             growing_open.append(depth + 1)  # its "(" comes next
+
         if word in ALLOWED_FUNCTIONS:
             continue
         if not quoted_or_plain and word.split()[0] in SYNTAX_WORDS:

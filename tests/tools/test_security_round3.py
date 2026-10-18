@@ -249,8 +249,8 @@ def test_a_wildcard_that_could_match_a_hidden_folder_is_refused():
     from serenedb_extractor.errors import UserFacingError
     from serenedb_extractor.setup.paths import check_private_path
 
-    for p in ("/Users/me/*ssh/id.log", "/Users/me/?aws/x.csv", "/Users/me/[.]x/y.log"):
-        with pytest.raises(UserFacingError, match="hidden"):
+    for p in ("/Users/me/*ssh/id.log", "/Users/me/?aws/x.csv", "/Users/me/[.]x/y.log", "/Users/me/x/*.log"):
+        with pytest.raises(UserFacingError, match="hidden|only in the file name"):
             check_private_path(p, p)
 
 
@@ -263,3 +263,14 @@ async def test_export_through_a_linked_folder_is_checked_after_the_link(mcp, tmp
     os.symlink(hidden, link)
     out = await call(mcp, "edit_team_ownership", action="export", csv_path=str(link / "rules.csv"))
     assert "hidden" in out and not (hidden / "rules.csv").exists()
+
+
+def test_wildcards_only_in_the_file_name():
+    import pytest
+
+    from serenedb_extractor.errors import UserFacingError
+    from serenedb_extractor.setup.paths import check_private_path
+
+    with pytest.raises(UserFacingError, match="only in the file name"):
+        check_private_path("/Users/me/lo*/x.log", "/Users/me/lo*/x.log")
+    check_private_path("/data/loghub/part_*.parquet", "/data/loghub/part_*.parquet")

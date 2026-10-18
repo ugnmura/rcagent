@@ -318,3 +318,17 @@ def test_nested_growing_string_functions_are_refused():
         check_read_only("SELECT regexp_replace(concat(message, message), 'a', 'bb') FROM extractor.lt_x")
     check_read_only("SELECT replace(message, 'a', 'b'), concat(level, '-', component) FROM extractor.lt_x")
     check_read_only("SELECT lower(replace(message, 'a', 'b')) FROM extractor.lt_x")
+
+
+def test_growing_functions_are_limited_across_the_statement():
+    import pytest
+
+    from serenedb_extractor.query.guard import SqlRejected, check_read_only
+
+    with pytest.raises(SqlRejected, match="at most 2"):
+        check_read_only(
+            "WITH a AS (SELECT replace(message, 'a', 'bb') AS m FROM extractor.lt_x), "
+            "b AS (SELECT replace(m, 'b', 'cc') AS m FROM a) SELECT replace(m, 'c', 'dd') FROM b"
+        )
+    with pytest.raises(SqlRejected, match="longer than 100"):
+        check_read_only("SELECT replace(message, 'a', '" + "x" * 200 + "') FROM extractor.lt_x")
