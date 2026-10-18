@@ -59,7 +59,7 @@ def _summary(rules: list[Rule]) -> str:
     by_source: dict[str, int] = {}
     for r in rules:
         by_source[r.source or "unknown"] = by_source.get(r.source or "unknown", 0) + 1
-    sources = "; ".join(f"{n} from {s}" for s, n in sorted(by_source.items(), key=lambda kv: -kv[1]))
+    sources = "; ".join(_from(s, n) for s, n in sorted(by_source.items(), key=lambda kv: -kv[1]))
     line = f"{len(rules)} ownership rules for {len(teams)} teams. Where they come from: {sources}."
     if own.STAND_IN in by_source:
         line += (
@@ -67,6 +67,16 @@ def _summary(rules: list[Rule]) -> str:
             "mapping. When you name a team from them, say it comes from the stand-in ownership table."
         )
     return line
+
+
+def _from(source: str, n: int) -> str:
+    """'2 imported from own.csv on 2026-10-18', '1 set by hand on ...', '40 from stand-in (...)': a source that
+    already says how the rules came (imported from, set by hand) is not prefixed with another 'from'."""
+    if source == "unknown":
+        return f"{n} of unknown origin"
+    if source.startswith(("imported from ", "set by hand", "removed by hand", "from ")):
+        return f"{n} {source}"
+    return f"{n} from {source}"
 
 
 def _rule_lines(rules: list[Rule]) -> list[str]:
@@ -82,6 +92,24 @@ def _rule_lines(rules: list[Rule]) -> list[str]:
 
 
 def _coverage(ctx: AppContext, lt: LogTable, confirmed_cost: str | None) -> list[str]:
+    return _coverage_counts(ctx, lt, confirmed_cost) + _dead_rules(ctx, lt)
+
+
+def _dead_rules(ctx: AppContext, lt: LogTable) -> list[str]:
+    """Rules naming this log table on a role it does not have: they can never match, so say so under its coverage."""
+    present = lt.roles.present()
+    dead: dict[str, int] = {}
+    for r in ctx.store.ownership.rules():
+        if r.covers_table(lt.name) and r.role not in present:
+            dead[r.role] = dead.get(r.role, 0) + 1
+    return [
+        f"    {n} rule{'s' if n != 1 else ''} on {role}, which this log table does not have: "
+        f"{'they match' if n != 1 else 'it matches'} nothing"
+        for role, n in sorted(dead.items())
+    ]
+
+
+def _coverage_counts(ctx: AppContext, lt: LogTable, confirmed_cost: str | None) -> list[str]:
     found = ctx.store.ownership.for_table(lt.name, lt.roles.present())
     if found is None:
         roles = [r for r in own.OWNER_ROLES if r in lt.roles.present()]
@@ -186,7 +214,7 @@ def edit_team_ownership(
     else:  # reset
         source = own.STAND_IN
         change = own.plan_change(current, own.packaged_rules(), current)
-    notes += _role_notes(ctx, [*change.added, *(a for _, a in change.updated)])
+    notes += _role_notes(ctx, [*change.added, *(a for _, a in change.updated)], action)
     lines = []
     if change.empty:
         lines.append("Nothing to change: the ownership table already says this.")
@@ -214,7 +242,7 @@ def edit_team_ownership(
     return "\n".join(lines)
 
 
-def _role_notes(ctx: AppContext, rules: list[Rule]) -> list[str]:
+def _role_notes(ctx: AppContext, rules: list[Rule], action: str) -> list[str]:
     """Rules on a role the log tables they name do not have can never match: say so, with the role they do have."""
     out: list[str] = []
     seen: set[tuple[str, str, str]] = set()
@@ -225,16 +253,37 @@ def _role_notes(ctx: AppContext, rules: list[Rule]) -> list[str]:
                 continue
             seen.add((lt.name, r.role, r.log_table))
             other = [ro for ro in own.OWNER_ROLES if ro in present]
-            fix = f"; it has a {other[0]} field, so give role='{other[0]}' (or a role column) when importing" if other else ""
+            fix = f"; it has a {other[0]} field, so " + _role_fix(action, r.role, other[0]) if other else ""
             out.append(f"log table {lt.name} has no {r.role} field, so its rules on {r.role} match nothing{fix}")
     return out
 
 
+def _role_fix(action: str, wrong: str, right: str) -> str:
+    """How to put the rule on the role the log table has, in the terms of the action just taken."""
+    if action == "import":
+        return f"give role='{right}' (or a role column) when importing"
+    if action == "set":
+        return f'write "{right}" in the rule instead of "{wrong}", e.g. {{"log_table": ..., "{right}": ..., "team": ...}}'
+    return f"only rules on {right} can match"
+
+
 def _csv_input(csv_path: str | None, csv_text: str | None) -> tuple[str, str]:
-    if bool(csv_path) == bool(csv_text):
-        raise UserFacingError("Give either csv_path (a CSV file on this machine) or csv_text (the CSV itself), not both.")
-    if csv_text:
-        return csv_text, "pasted CSV"
+    has_path, has_text = bool((csv_path or "").strip()), bool((csv_text or "").strip())
+    if has_path and has_text:
+        raise UserFacingError(
+            "Give csv_path (a CSV file on this machine) or csv_text (the CSV itself), not both: both were given."
+        )
+    if not has_path:
+        if csv_text is not None and not has_text:
+            raise UserFacingError(
+                "The CSV is empty: csv_text has no rows. Paste the CSV with its header line (e.g. "
+                "'dataset,component,team'), or give csv_path for a CSV file on this machine."
+            )
+        if not has_text:
+            raise UserFacingError(
+                "Give either csv_path (a CSV file on this machine) or csv_text (the CSV itself): neither was given."
+            )
+        return csv_text or "", "pasted CSV"
     path = Path(csv_path or "").expanduser()
     if not path.is_file():
         raise UserFacingError(f"There is no file at {path}.")
