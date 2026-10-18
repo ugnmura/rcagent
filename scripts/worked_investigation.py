@@ -160,6 +160,7 @@ async def run() -> None:
         )
         await s.call("count_logs", log_tables=["bgl"], start="2005-12-01", end="2006-01-01",
                      filters={"level": "FATAL"}, group_by=["team", "component"])
+        await s.call("rank_problems", log_tables=["bgl"], start="2005-12-01", end="2006-01-01", limit=6)
 
         s.heading("## Check against the dataset's own labels")
         await s.call("count_logs", log_tables=["bgl"], text="data TLB error interrupt", group_by=["level"])

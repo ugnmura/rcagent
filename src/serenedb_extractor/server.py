@@ -18,7 +18,7 @@ from serenedb_extractor.context import AppContext
 from serenedb_extractor.instructions import SERVER_INSTRUCTIONS
 from serenedb_extractor.prompts import register_prompts
 from serenedb_extractor.query import stats
-from serenedb_extractor.tools import aggregate, catalog_tools, describe, evidence_tools, lookup, ownership_tools, setup_tools
+from serenedb_extractor.tools import aggregate, catalog_tools, describe, evidence_tools, lookup, ownership_tools, rank, setup_tools
 from serenedb_extractor.tools import context as context_tool
 from serenedb_extractor.tools import investigate
 from serenedb_extractor.tools import sql as sql_tool
@@ -330,6 +330,35 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
             filters=filters,
             by=by,
             limit=limit,
+            timezone=timezone,
+            confirmed_cost=confirmed_cost,
+        )
+
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))
+    async def rank_problems(
+        start: str,
+        end: str,
+        log_tables: list[str] | None = None,
+        min_level: str = "warning",
+        filters: dict[str, Any] | None = None,
+        limit: int | None = None,
+        candidates: int | None = None,
+        timezone: str | None = None,
+        confirmed_cost: str | None = None,
+    ) -> str:
+        """Which observed problems deserve attention first: a ranked list, scored by a stated formula on measured severity, change against the preceding period, persistence, spread and share.
+        Use when: a manager asks what to prioritise, or a team lead asks what to investigate first; then explain the top items with their owning team and a next action. Rank first, then dig into the top items with trend, locate_occurrences or search_logs.
+        Inputs: start and end (required; the preceding period of equal length is compared); log_tables (omit for all); min_level "warning" (default), "error" or "fatal"; filters e.g. {"team": "Cloud API"}; limit = problems shown (default 10); candidates = templates considered per log table (default 15).
+        Returns: the scoring rule, then per problem its score (0-18), exact entries and levels, change, presence per day/hour, spread over hosts (or services), components and owning team, and the points behind the score. Candidates come from a survey of the period, saved to the catalog like survey's."""
+        return await runner.run_tool(
+            rank.rank_problems,
+            start=start,
+            end=end,
+            log_tables=log_tables,
+            min_level=min_level,
+            filters=filters,
+            limit=limit,
+            candidates=candidates,
             timezone=timezone,
             confirmed_cost=confirmed_cost,
         )

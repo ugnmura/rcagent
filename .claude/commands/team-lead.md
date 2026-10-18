@@ -13,6 +13,7 @@ Workflow:
 2. survey the whole period, with no level filter, so recurring problems of every kind show up.
 3. trend for the top templates over the period, compared with the preceding period of equal length: presence (in how many hours or days it appeared), frequency and change.
 4. locate_occurrences for the leading problems grouped by team or component (and host when one node may dominate), to see whether a problem is spread out or concentrated.
+5. rank_problems over the same period for a measured, reproducible order of the warning-and-worse problems (severity, change, persistence, spread, share); use it to pick what to investigate first, and say so when your pick differs from its order and why.
 
 Answer with:
 - the scope (period, log tables, filters) in one line;

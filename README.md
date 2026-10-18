@@ -66,7 +66,7 @@ Then start `claude` in this folder and ask, as each role:
 
 `/engineer`, `/team-lead` and `/manager` are project slash commands (`.claude/commands/`). Outside this folder
 the same role prompts are served by the MCP server as `/mcp__serenedb-extractor__engineer` (and `team-lead`,
-`manager`). You can also just ask in your own words. `/mcp` lists the server with its 17 tools and 3 prompts.
+`manager`). You can also just ask in your own words. `/mcp` lists the server with its 18 tools and 3 prompts.
 
 This quick start runs SereneDB with no passwords on 127.0.0.1 and one connection for everything ("single-role
 mode"). For anything shared, use a reader and a writer role and keep passwords out of URLs: see
@@ -192,6 +192,7 @@ footer** (see below).
 | `locate_occurrences` | exact counts of chosen templates by where and when | `templates` (T-ids), `group_by` (team, host, `time:1h` …) | per template the total and per-group counts with example occurrence IDs |
 | `trend` | rising, falling, new or persistent: a period against the one before | `start`, `end`, `templates`, `bucket` hour\|day, `exact` | per template the counts per bucket, change, presence, components and teams; refuses to call anything new across gaps |
 | `extract_params` | the values inside a template (nodes, status codes, latencies) | `template`, `by` | top values per parameter; min / p50 / p95 / max for numbers |
+| `rank_problems` | **what to look at first**: the warning-and-worse problems ranked by a stated, measured score | `start`, `end`, `log_tables`, `min_level` warning\|error\|fatal, `filters`, `limit` | per problem its score (0-18) and the points behind it: exact entries and levels, change against the preceding period, days (or hours) present, distinct hosts, components and owning team |
 | `show_evidence` | the queries and results behind any earlier answer | `ids` (Q-handles) | the tool call, every query with its time and row count, the result |
 | `show_team_ownership` | who owns what, and whether the teams are official | `log_table`, `coverage` | rules by team, their source, recent changes, entries per team and components without a team |
 | `edit_team_ownership` | import the supplied ownership CSV, fix a team, export the rules | `action` import\|set\|remove\|export\|reset, `csv_path`/`csv_text`, `mode`, `rules`, `team`, `dry_run` | the rules added, changed and removed, then coverage |
@@ -213,9 +214,29 @@ is gathered and what is recommended, not only how long the answer is:
 | | engineer | team lead | manager |
 |---|---|---|---|
 | asks | what failed, where, what happened just before and after | what recurs, how often, which teams, trend | what deserves attention first |
-| evidence | quoted messages, one node's or request's timeline, nearby events (`search_logs`, `get_context`) | exact counts by team and level, trends against the preceding period, spread over hosts (`count_logs`, `survey`, `trend`, `locate_occurrences`) | severity by team, trend, persistence, spread, volume (`count_logs`, `trend`) |
+| evidence | quoted messages, one node's or request's timeline, nearby events (`search_logs`, `get_context`) | exact counts by team and level, trends against the preceding period, spread over hosts (`count_logs`, `survey`, `trend`, `locate_occurrences`, `rank_problems`) | a measured ranking: severity, change, persistence, spread, share (`rank_problems`), plus counts by team (`count_logs`) |
 | detail | template IDs and queries on request | template IDs at most | descriptions only |
 | recommends | one concrete next diagnostic check and what each outcome means | what to investigate first, assigned to the owning team, plus runners-up | 3-5 ranked risks, each with an owning team and a next action; a closing line on what the logs don't measure |
+
+### How "what first" is decided
+
+`rank_problems` makes the order measured and checkable instead of the agent's judgement. For each log table it
+surveys the entries at warning level or above in the period, maps each finding to the broadest template the
+catalog already has for it (so its IDs and counts agree with `trend`), and counts every candidate exactly over
+the period and the preceding one. Each gets points from fixed thresholds:
+
+| factor | 3 | 2 | 1 | 0 |
+|---|---|---|---|---|
+| severity (counted twice) | fatal / critical | error / severe / failure | warning | — |
+| change against the preceding period | new, or +50% or more | +10% to +50% | within ±10%, or not comparable (gap in the data) | falling |
+| persistence: share of whole days (or hours) present | 75% or more | 40% or more | 10% or more | less |
+| spread: distinct hosts (else services, else components) | 100 or more | 10 or more | 2 or more | one |
+| share of the entries ranked | 10% or more | 1% or more | 0.1% or more | less |
+
+The result shows each problem's points next to the numbers that earned them. The score orders what to look
+at first. It is not a risk, impact or cost figure, and it counts entries, not incidents. A single-node storm
+scores low on spread even when it holds most entries, so the manager prompt tells the agent to bring such
+items in from the other tools and say why.
 
 All three share the answer rules: plain language; a `[Q]` citation after every measured number; measured
 facts, hypotheses and unknowns kept apart and labelled; estimates always given with their margin; entries

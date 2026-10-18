@@ -51,6 +51,8 @@ Which tool for which question:
 grouped by team, component, level or a time bucket; omit log_tables for the whole corpus).
 - "What kinds of problems are there / what keeps happening?" → survey, then trend for rising, falling or \
 persistent ones.
+- "What should we prioritise / look at first?" → rank_problems (a ranked list by a stated, measured score, \
+with owning teams); explain the top items and give each a next action.
 - "Show me the errors / find this message" → search_logs (full-text with a time window; it returns entries, \
 not frequencies).
 - "What happened around it?" → get_context on an occurrence ID from search_logs or locate_occurrences.
