@@ -273,8 +273,26 @@ def _resolve_field(lt: LogTable, name: str, cols: dict[str, str]) -> tuple[str, 
     )
 
 
+MAX_TEXT_CHARS = 1_000
+
+
+def check_text(text: str) -> None:
+    """Refuse text to look for that can't be searched: a NUL character (SereneDB can't take one in a
+    query) or text so long it is no longer a phrase from a message."""
+    if "\x00" in text:
+        raise UserFacingError(
+            "The text to look for contains a NUL character (\\u0000), which can't be searched for; leave it out."
+        )
+    if len(text) > MAX_TEXT_CHARS:
+        raise UserFacingError(
+            f"The text to look for is {len(text):,} characters long; at most {MAX_TEXT_CHARS:,} can be searched for. "
+            "Use a shorter, distinctive phrase from the message."
+        )
+
+
 def like_pattern(text: str) -> str:
     """An ILIKE pattern (ESCAPE '\\') matching `text` anywhere, with its own % and _ taken literally."""
+    check_text(text)
     return _like_pattern(text)
 
 
@@ -285,8 +303,8 @@ _VALUES_CAP = 1000
 
 def _find_values(
     ctx: AppContext, lt: LogTable, find: dict[str, str], tr: TimeRange, confirmed_cost: str | None = None
-) -> tuple[str, str | None, list[str]]:
-    """(how it was measured, sample label, lines). Cost-checked first; an ask returns the refusal."""
+) -> tuple[str, str | None, list[str], str | None]:
+    """(how it was measured, sample label, lines, index read). Cost-checked first; an ask returns the refusal."""
     # Two spellings: {"level": "err"} (as the tool description shows) or {"role_or_column": "level", "like": "err"}.
     if "role_or_column" in find or "like" in find:
         field, like = find.get("role_or_column"), find.get("like")
@@ -307,7 +325,7 @@ def _find_values(
         db, lt, tr, read, confirmed_cost, indexed=read if via else (), index_hints=ctx.estimates.hints(lt)
     )
     if decision.status == "ask":
-        return cost.ASKED_HOW, None, [decision.message]
+        return cost.ASKED_HOW, None, [decision.message], None
     plan = decision.plan
     params = {**time_params, "like": like_pattern(str(like))}
     timeout = cost.run_timeout(plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
@@ -335,6 +353,7 @@ def _find_values(
     else:
         rows = _sampled_values(db, lt, plan, expr, time_sql, params, timeout, what)
     where_txt = f" between {tr.describe()}" if tr.bounded else ""
+    index_read = via[1] if plan.exact and via else None
     if plan.exact:
         kind, sample = _EXACT_LOOKUP + (" (run as you confirmed)" if plan.confirmed else ""), None
         if via:
@@ -348,7 +367,7 @@ def _find_values(
         out.append(f"  no values like '{like}' in {label}{where_txt}" + ("" if plan.exact else " in the sample") + ".")
         if tr.bounded and plan.exact:
             out += ["  " + line for line in diagnose_empty(db, lt, tr, Filters(), cols)]
-        return kind, sample, out
+        return kind, sample, out, index_read
     shown, note = fmt.cut(rows, 50, "values")
     if len(rows) >= _VALUES_CAP:
         note = f"showing {len(shown)} of more than {_VALUES_CAP:,} matching values (only the first {_VALUES_CAP:,} are counted; a longer word narrows it)"
@@ -357,7 +376,7 @@ def _find_values(
     out += [f"    {v} ({c})" if plan.exact else f"    {v}: {c}" for v, c in shown]
     if note:
         out.append("  " + note)
-    return kind, sample, out
+    return kind, sample, out, index_read
 
 
 def _sampled_values(
@@ -427,8 +446,9 @@ def describe_logs(
     if find_values:
         lt = tables[0]
         with readable(f"the source of log table '{lt.name}'"):
-            kind, sample, lines = _find_values(ctx, lt, find_values, tr, confirmed_cost)
-        return fmt.how_measured(kind, period=period, sample=sample, tz=tz) + "\n" + "\n".join(lines)
+            kind, sample, lines, index_read = _find_values(ctx, lt, find_values, tr, confirmed_cost)
+        head = fmt.how_measured(kind, period=period, sample=sample, index_used=index_read, tz=tz)
+        return head + "\n" + "\n".join(lines)
     body: list[str] = []
     top = _TopSources()
     for lt in tables:

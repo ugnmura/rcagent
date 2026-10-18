@@ -7,6 +7,7 @@
 - table sources: `pk:<value>` of the order role, when the table has one.
 """
 
+import re
 from typing import Any
 
 from serenedb_extractor.catalog.models import LogTable
@@ -50,26 +51,46 @@ class BadOccurrence(UserFacingError):
         super().__init__(f"'{occ}' is not an occurrence ID of this log table; they look like {expected}.")
 
 
+# A row number or entry id is a 64-bit integer: 18 digits always fit, more can't be a position.
+MAX_DIGITS = 18
+
+
+def _number(occ: str, num: str, expected: str) -> int:
+    """The row number or entry id of an occurrence ID (ASCII digits only), refused plainly when it is
+    longer than any entry's position can be."""
+    if not re.fullmatch(r"[0-9]+", num):
+        raise BadOccurrence(occ, expected)
+    digits = num.lstrip("0") or "0"
+    if len(digits) > MAX_DIGITS:
+        shown = occ if len(occ) <= 60 else occ[:60] + "…"
+        raise UserFacingError(
+            f"No entry has the occurrence ID '{shown}': its number has {len(digits):,} digits, more than any "
+            f"entry's position ({MAX_DIGITS} digits at most). Copy the ID from a search_logs or locate_occurrences result."
+        )
+    return int(digits)
+
+
 def decode_occurrence(lt: LogTable, occ: str) -> tuple[str, dict[str, Any]]:
     """A WHERE body (with params) that finds the entry again."""
     text = occ.strip()
     k = kind(lt)
     if k == "file":
         name, sep, num = text.rpartition("#")
-        if not sep or not name or not num.isdigit():
+        if not sep or not name:
             raise BadOccurrence(occ, "<file>#<row>")
+        row = _number(occ, num, "<file>#<row>")
         if "/" not in name and "\\" not in name:  # just the file's name: match it in any folder
             pattern = "%/" + name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             return (
                 "filename LIKE %(occ_file)s ESCAPE '\\' AND file_row_number = %(occ_row)s",
-                {"occ_file": pattern, "occ_row": int(num)},
+                {"occ_file": pattern, "occ_row": row},
             )
-        return "filename = %(occ_file)s AND file_row_number = %(occ_row)s", {"occ_file": name, "occ_row": int(num)}
+        return "filename = %(occ_file)s AND file_row_number = %(occ_row)s", {"occ_file": name, "occ_row": row}
     if k == "entry":
         num = text.removeprefix("e:")
-        if not text.startswith("e:") or not num.isdigit():
+        if not text.startswith("e:"):
             raise BadOccurrence(occ, "e:<number>")
-        return "entry_id = %(occ_row)s", {"occ_row": int(num)}
+        return "entry_id = %(occ_row)s", {"occ_row": _number(occ, num, "e:<number>")}
     if k == "pk":
         if not text.startswith("pk:"):
             raise BadOccurrence(occ, "pk:<value>")
