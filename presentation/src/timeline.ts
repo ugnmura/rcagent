@@ -8,9 +8,6 @@ export const MAX_SECONDS = 299;
 
 // ---- Tunables for handoff 5 (one constant per scene) ----
 
-/** Minimum playback speed of roles.mp4 in the split's proof clip (faster if the recording would not fit its slot). */
-export const PROOF_RATE = 3;
-
 /** Seconds at the end of the close during which the end card (slide 7) shows. */
 export const END_CARD_SECONDS = 9;
 

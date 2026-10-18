@@ -7,6 +7,8 @@ Date: 2026-10-19 · Status: design, awaiting approval · Applies to: `presentati
 Decided by the user after the first build. Where this section conflicts with the original design below, this
 section wins; the conflicting parts below are marked *superseded*.
 
+- Later on 2026-10-19: proof clip removed; the live demo scene shows the real session.
+
 - **One presenter, one take.** B presents the whole three-roles part in one facecam take, `s2-roles.mp4`,
   about 30 s (target ≤ 30 s). A keeps the reveal (`s1-reveal.mp4`, ≤ 40 s), C keeps benchmarks
   (`s6-benchmarks.mp4`, ≤ 15 s), the close stays with all three (`s7-close.mp4` or `s7-close-a/b/c.mp4`).

@@ -1,9 +1,9 @@
-# Handoff 2: Role recordings
+# Handoff 2: Live demo recording
 
-**Goal:** one screen recording of Claude Code answering one question per role with the serenedb-extractor
-MCP server, on the loaded base corpus: `roles.mp4` in `presentation/public/assets/`. The video speeds it up to fit
-a 3–4 s proof clip at the start of the three-way split, presented by B in one take (design:
-`docs/superpowers/specs/2026-10-19-three-way-split-design.md`).
+**Goal:** one screen recording of a real Claude Code session with the serenedb-extractor MCP server, on the
+loaded base corpus: `demo.mp4` in `presentation/public/assets/`. It plays muted as a screen inside the film in
+the live demo scene, between the three-way split and the benchmarks, while B narrates it in the corner
+(`s-demo.mp4`, handoff 3). This replaces the earlier `roles.mp4` proof clip, which is no longer used.
 
 **Wait:** start only after the benchmark runs on this machine have finished. The running `night-*` SereneDB
 containers belong to those runs; do not use, stop or reset them. Use a fresh container as in the README quick
@@ -20,12 +20,12 @@ Terminal for recording: dark theme, font size 18 or larger, window 1920×1080, n
 
 ## The take
 
-Ask the three prompts in turn, in one session or in three fresh sessions cut together into one file, in this
-order. The whole recording is squeezed into 3–4 s on screen, so the tool calls of each role matter more than the
-full answers: the point is that the same agent picks different tools per role. The split's columns then show
-each role's question, tool calls and one-line answer as animation, not from this footage.
+Run a real session; the three role prompts below are a good default, asked in turn in one session or in fresh
+sessions cut together into one file. The point is that the same agent picks different tools per role and every
+answer cites its evidence. The split's columns already show each role's question, tool calls and one-line answer
+as animation, so the demo can stay short and show only the strongest moments.
 
-| part | prompt | must be visible | pause frames (for the script cues) |
+| part | prompt | must be visible | worth showing |
 |---|---|---|---|
 | 1 engineer | `/engineer What failed on BGL on 11 June 2005, and what happened just before?` | node R30-M0-N9-C:J16-U01; 152,229 of 855,501 FATAL; "data TLB error interrupt"; the L2 machine-check line before the run; hypothesis labelled; next check | the `search_logs` result; the `get_context` timeline |
 | 2 team lead | `/team-lead Which problems keep recurring across BGL and OpenStack, and what should we look at first?` | counts by team and level over both log tables; "Link has been severed" on 22 of 31 December days; investigate first: HPC Applications | the `count_logs` table; the `trend` result |
@@ -43,11 +43,11 @@ Compare every number in the answer with `docs/presentation/script.md` and `docs/
 
 ## Editing
 
-- Cut long waiting; the video speeds the clip up itself to fit the 3–4 s proof slot, so a shorter cut plays
-  at a more readable speed.
-- Raw length is free. Export 1920×1080 H.264. Audio is not used.
+- Cut long waiting and speed it up yourself; the video plays it at normal speed. Keep it no longer than the
+  `s-demo.mp4` take (≈ 15–25 s); if it is shorter, its last frame holds.
+- Export 1920×1080 H.264. Audio is not used.
 
 ## Done when
 
-`roles.mp4` exists, `NUMBERS.md` exists (it may say "all numbers match"), and the
+`demo.mp4` exists, `NUMBERS.md` exists (it may say "all numbers match"), and the
 commit SHA used is written at the top of `NUMBERS.md`.

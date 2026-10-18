@@ -34,7 +34,7 @@ export const Slide1: React.FC<{mode: Mode}> = () => (
 );
 
 // ------------------------------------------------------------------ slide 2
-// The split's final frame: all three columns built and lit.
+// The split's final frame: all three cards side by side and lit, with the evidence equation.
 
 export const SlideSplit: React.FC<{mode: Mode}> = () => (
 	<AbsoluteFill style={{backgroundColor: '#030405'}}>
