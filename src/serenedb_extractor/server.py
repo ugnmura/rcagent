@@ -199,7 +199,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         """Full-text search: the actual log entries matching words and/or field filters in a time window — the engineer's evidence.
         Use when: you need to quote real error messages, find the entries behind a count, or look for a word or phrase (e.g. "timeout", "parity error") in a period. Not for counting how often something happens — use count_logs or locate_occurrences for that; a page of examples says nothing about frequency.
         Inputs: text = words the message contains, any case, as a phrase; fuzzy=True also matches near-misses (needs a search index); filters e.g. {"level": "ERROR", "component": "nova.compute.manager"}; order newest|oldest; limit = entries shown (default 50).
-        Returns: the total number of matching entries, then up to limit entries with time, fields (incl. team), message, template tag and an occurrence ID (e:<n>) to pass to get_context; says when the list is cut."""
+        Returns: the total number of matching entries, then up to limit entries with time, fields (incl. team), message, template tag and an occurrence ID (like /data/bgl.parquet#222715 for a table read in place, or e:42 for a copied one) to pass to get_context exactly as shown; says when the list is cut."""
         return await runner.run_tool(
             lookup.search_logs,
             log_table=log_table,
@@ -227,8 +227,8 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         confirmed_cost: str | None = None,
     ) -> str:
         """What happened just before and after one entry — the nearby events an engineer needs to explain a failure.
-        Use when: you have an occurrence ID (e:<n> from search_logs or locate_occurrences) and want the lead-up and aftermath on the same request, node or service.
-        Inputs: scope = which neighbours count: default the narrowest available (same trace/request, else same service and host); "everything" or a list of trace/service/host/component widens it; window_minutes either side (default 5); before/after = entries shown each side (default 10).
+        Use when: you have an occurrence ID (as search_logs or locate_occurrences show it, e.g. /data/bgl.parquet#222715 or e:42) and want the lead-up and aftermath on the same request, node or service.
+        Inputs: scope = which neighbours count: default the narrowest available (same trace/request, else same service and host); "everything", or a list of the table's context scopes (describe_logs lists them: trace, service, host, component) chooses it; window_minutes either side (default 5); before/after = entries shown each side (default 10).
         Returns: the entries in time order with the occurrence marked →, each with its time offset, fields and template tag; long messages shortened."""
         return await runner.run_tool(
             context_tool.get_context,

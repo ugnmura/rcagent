@@ -1,7 +1,7 @@
 """Raw text logs: line formats and multi-line entries."""
 
 import re
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
@@ -29,6 +29,21 @@ class LineFormat:
     # unless setup is told otherwise), and why, in a few words for the setup summary.
     zone: str | None = None
     zone_why: str | None = None
+    # Extra fields read out of the header (e.g. the service from the log file's name), kept in attrs; the
+    # keys "service" and "trace" become those roles of a copied table.
+    derive: Callable[[dict[str, str | None]], dict[str, str]] | None = None
+
+
+def _openstack_fields(head: dict[str, str | None]) -> dict[str, str]:
+    """nova-api.log.1.2017-05-16_13:53:08 -> service nova-api; [req-<uuid> user tenant ...] -> trace req-<uuid>."""
+    out: dict[str, str] = {}
+    record = head.get("logrecord") or ""
+    if ".log" in record:
+        out["service"] = record.split(".log", 1)[0]
+    req = re.match(r"(req-[0-9a-f-]+)", head.get("addr") or "")
+    if req:
+        out["trace"] = req.group(1)
+    return out
 
 
 # Every line that starts with its format's header is an entry of its own, even when parts the header
@@ -65,6 +80,7 @@ LINE_FORMATS: dict[str, LineFormat] = {
         ),
         "<Logrecord> <Date> <Time> <Pid> <Level> <Component> [<ADDR>] <Content>",
         ("date", "time"),
+        derive=_openstack_fields,
     ),
     "generic": LineFormat(
         "generic",
@@ -146,6 +162,8 @@ def parse_entries(lines: Iterable[str], line_format: str, tz: str) -> Iterator[R
         if head is None:
             return None
         attrs = {k: v for k, v in head.items() if k not in consumed and v is not None}
+        if fmt.derive is not None:
+            attrs.update(fmt.derive(head))
         ts_text = " ".join(str(head[f]) for f in fmt.time_fields if head.get(f))
         return RawEntry(
             start,
