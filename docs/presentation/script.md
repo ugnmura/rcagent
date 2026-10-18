@@ -52,7 +52,11 @@ a one-line answer and its next step. At the end all three are lit, with a quick 
 > ranked risks, each with an owner, and no invented cost. And every number is a query: 152,734 counted,
 > 152,734 in BGL's own labels.
 
-## 1:30 – 1:45 · Benchmarks (slide 4)
+## Live demo (demo.mp4)
+
+*A real Claude Code session with the serenedb-extractor MCP server, cut and sped up, shown muted as a screen inside the film; B narrates it live in the corner (take `s-demo.mp4`, ≈ 15–25 s).*
+
+## 1:50 – 2:05 · Benchmarks (slide 4)
 
 *Slide: title "Same questions, graded blind". Three bars, one per design, ours highlighted.*
 
@@ -66,7 +70,7 @@ a one-line answer and its next step. At the end all three are lit, with a quick 
 - [ ] RCAEval result for metrics and traces, if it lands in time
 - [ ] Slide footnote: model, number of questions, runs per question, blind grader
 
-## 1:45 – 2:10 · Close (slide 5)
+## 2:05 – 2:30 · Close (slide 5)
 
 > So, back to that phone call. The engineer gets a cause to check, not a scroll bar. The team lead gets the
 > pattern. The manager gets the priority. And every number is traceable to a query. Thank you.

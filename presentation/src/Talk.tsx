@@ -3,6 +3,7 @@ import {AbsoluteFill, Series} from 'remotion';
 import type {ResolvedAssets} from './assets';
 import type {Benchmarks} from './benchmarks';
 import type {TalkProps} from './calculate-metadata';
+import {DemoScene} from './demo';
 import {MusicBed} from './music';
 import {
 	BenchmarksScene,
@@ -27,6 +28,8 @@ const renderScene = (id: SceneId, p: SceneProps): React.ReactNode => {
 			return <RevealScene {...p} />;
 		case 'split':
 			return <SplitScene assets={p.assets} frames={p.frames} />;
+		case 'demo':
+			return <DemoScene assets={p.assets} frames={p.frames} />;
 		case 'benchmarks':
 			return <BenchmarksScene {...p} />;
 		case 'close':

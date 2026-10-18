@@ -13,7 +13,7 @@ set in `presentation/src/content.ts` (`presenters`).
 | presenter | sections |
 |---|---|
 | A | reveal (s1) |
-| B | the three roles, one split (s2) |
+| B | the three roles, one split (s2); the live demo (sDemo) |
 | C | benchmarks (s6) |
 | all three | close (s7) |
 
@@ -25,6 +25,7 @@ Read the quotes of each section in `docs/presentation/script.md` word for word.
 |---|---|---|---|---|
 | `s1-reveal.mp4` | A | 0:00–1:00, the three quotes after the dialog ("The reveal" … "Let's answer that phone call.") | full screen, then corner | ≤ 40 s |
 | `s2-roles.mp4` | B | Three roles, one split: "B" | corner | about 30 s (target ≤ 30 s) |
+| `s-demo.mp4` | B | Live demo: narrate the `demo.mp4` screen recording as it plays (no name tag, B already appeared) | corner | ≈ 15–25 s |
 | `s6-benchmarks.mp4` | C | Benchmarks | corner | ≤ 15 s |
 | close, see below | all | Close | full screen | ≤ 25 s in total |
 

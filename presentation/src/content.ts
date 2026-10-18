@@ -21,6 +21,7 @@ export const presenters: Record<PresenterId, Presenter> = {
 export const sectionPresenter = {
 	s1: 'A',
 	s2: 'B',
+	sDemo: 'B',
 	s6: 'C',
 	s7a: 'A',
 	s7b: 'B',
@@ -68,14 +69,14 @@ export const coldOpen = {
 		],
 		runMessage: 'data TLB error interrupt',
 	},
-	/** Start and end of each dialog line in public/assets/dialog.mp3, in seconds (measured when the file was stitched:
+	/** Start and end of each dialog line in public/assets/dialog.mp3, in seconds (measured when the file was stitched and checked with whisper.cpp:
 	 * 2 s lead while the caption types, 0.35 s between lines). Used for the subtitles while that file is present. */
 	dialogSeconds: [
-		[2.0, 12.88],
-		[13.23, 14.75],
-		[15.1, 18.62],
-		[18.97, 21.85],
-		[22.2, 23.8],
+		[2.0, 13.72],
+		[14.07, 15.59],
+		[15.94, 20.7],
+		[21.05, 23.93],
+		[24.28, 26.28],
 	] as [number, number][],
 	// script.md, dialog table. Speaker labels are the table's "Voice" column, shortened.
 	dialog: [

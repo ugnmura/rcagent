@@ -25,6 +25,8 @@ Drop files into `public/assets/` under the exact names of the asset contract
 | `s1-reveal.mp4`, `s2-roles.mp4`, `s6-benchmarks.mp4`, `s7-close.mp4` | facecam + narration audio (no s3–s5) | reveal, split, benchmarks, close |
 | `s7-close-a.mp4`, `s7-close-b.mp4`, `s7-close-c.mp4` | one close clip per presenter (≤ 8 s each), used only while the joint take `s7-close.mp4` is missing; played back to back with hard cuts | scene 7 (their sum) |
 | `roles.mp4` | one screen recording (muted), the three role prompts | nothing; sped up to fit the split's 3–4 s proof clip |
+| `demo.mp4` | live demo: one screen recording (muted) of a real Claude Code session with the serenedb-extractor MCP server, already cut and sped up | nothing; last frame holds if shorter than the take |
+| `s-demo.mp4` | facecam + narration audio by B over the live demo | scene 2b (≈ 15–25 s) |
 | `benchmarks.json` | slide 4 numbers | – |
 | `music.mp3` (optional) | music bed under the whole talk: loops, low, ducked under every voice, fades in and out | nothing |
 
