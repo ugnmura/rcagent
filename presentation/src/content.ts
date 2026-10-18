@@ -5,6 +5,38 @@
 
 export const REPO_URL = 'github.com/ugnmura/serenedb-extractor';
 
+// ---------------------------------------------------------------- presenters
+export type PresenterId = 'A' | 'B' | 'C';
+export type Presenter = {id: PresenterId; name: string; role?: string};
+
+/** Placeholder names; fill in the real names (and an optional role line) here. */
+export const presenters: Record<PresenterId, Presenter> = {
+	A: {id: 'A', name: 'Presenter A'},
+	B: {id: 'B', name: 'Presenter B'},
+	C: {id: 'C', name: 'Presenter C'},
+};
+
+/** Who speaks in which facecam take. The close s7 is all three (one joint take, or s7a/b/c). */
+export const sectionPresenter = {
+	s1: 'A',
+	s2: 'A',
+	s3: 'B',
+	s5: 'B',
+	s4: 'C',
+	s6: 'C',
+	s7a: 'A',
+	s7b: 'B',
+	s7c: 'C',
+} as const satisfies Partial<Record<string, PresenterId>>;
+
+/** The take in which each presenter first appears; their name tag shows there once. */
+export const firstAppearance = {s1: 'A', s3: 'B', s4: 'C'} as const;
+
+export const presenterOf = (assetKey: string): Presenter | null => {
+	const id = (sectionPresenter as Record<string, PresenterId | undefined>)[assetKey];
+	return id ? presenters[id] : null;
+};
+
 // ---------------------------------------------------------------- 0 intro card
 export const intro = {
 	event: 'National AI Hackathon 2026',

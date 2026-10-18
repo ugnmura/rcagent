@@ -3,6 +3,7 @@
 import React from 'react';
 import {AbsoluteFill, Easing, interpolate, OffthreadVideo, spring, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
 import {ASSETS, type AssetKey, type ResolvedAssets} from './assets';
+import {presenterOf} from './content';
 import {color, FACECAM_CORNER, font} from './theme';
 
 const clamp = {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'} as const;
@@ -93,6 +94,7 @@ export const SoftPlaceholder: React.FC<{assetKey: AssetKey; note: string; detail
 	style,
 }) => {
 	const a = ASSETS[assetKey];
+	const who = presenterOf(assetKey);
 	return (
 		<div
 			style={{
@@ -111,8 +113,18 @@ export const SoftPlaceholder: React.FC<{assetKey: AssetKey; note: string; detail
 				...style,
 			}}
 		>
-			<div style={{fontSize: compact ? 15 : 22, fontWeight: 800, color: color.placeholder, letterSpacing: 3}}>PLACEHOLDER</div>
-			<div style={{fontSize: compact ? 15 : 30, fontWeight: 600, fontFamily: font.mono, color: color.text}}>{a.file}</div>
+			{compact ? (
+				<>
+					<div style={{fontSize: 15, fontWeight: 800, color: color.placeholder, letterSpacing: 2}}>PLACEHOLDER</div>
+					{who ? <div style={{fontSize: 15, fontWeight: 700, color: color.text}}>{who.name}</div> : null}
+					<div style={{fontSize: 14, fontWeight: 600, fontFamily: font.mono, color: color.text}}>{a.file}</div>
+				</>
+			) : (
+				<div style={{fontSize: 30, fontWeight: 600, color: color.text}}>
+					<span style={{color: color.placeholder, fontWeight: 800, letterSpacing: 3}}>PLACEHOLDER</span>
+					{who ? ` · ${who.name}` : ''} · <span style={{fontFamily: font.mono}}>{a.file}</span>
+				</div>
+			)}
 			{compact ? null : (
 				<div style={{fontSize: 22}}>
 					{note} · target {a.target}
@@ -234,6 +246,48 @@ export const BarSubtitles: React.FC<{cues: readonly {speaker?: string; text: str
 			>
 				{cue.speaker ? <span style={{color: color.accent}}>{cue.speaker}: </span> : null}
 				{cue.text}
+			</div>
+		</div>
+	);
+};
+
+/**
+ * Lower-third name tag: slides in bottom left, holds, slides out (`frames` long). With `hold`, it stays for
+ * the whole sequence (the per-presenter close clips) and only slides in.
+ */
+export const NameTag: React.FC<{assetKey: AssetKey; frames?: number; hold?: boolean; small?: boolean}> = ({
+	assetKey,
+	frames = 90,
+	hold,
+	small,
+}) => {
+	const frame = useCurrentFrame();
+	const who = presenterOf(assetKey);
+	if (!who) {
+		return null;
+	}
+	const inP = ramp(frame, 0, 14, easeOut);
+	const outP = hold ? 0 : ramp(frame, frames - 14, frames, ease);
+	const k = small ? 0.75 : 1;
+	return (
+		<div
+			style={{
+				position: 'absolute',
+				left: 72,
+				bottom: 72,
+				display: 'flex',
+				alignItems: 'stretch',
+				gap: 18 * k,
+				opacity: inP * (1 - outP),
+				transform: `translateX(${(-40 * (1 - inP) - 40 * outP) * k}px)`,
+				fontFamily: font.sans,
+				pointerEvents: 'none',
+			}}
+		>
+			<div style={{width: 6 * k, background: color.accent, borderRadius: 3, transform: `scaleY(${inP})`}} />
+			<div style={{background: 'rgba(3,4,5,0.72)', padding: `${12 * k}px ${22 * k}px`, borderRadius: 8}}>
+				<div style={{fontSize: 40 * k, fontWeight: 700, color: color.text, lineHeight: 1.1}}>{who.name}</div>
+				{who.role ? <div style={{fontSize: 26 * k, color: color.muted, marginTop: 4}}>{who.role}</div> : null}
 			</div>
 		</div>
 	);
