@@ -12,7 +12,7 @@
 
 An MCP server that lets Claude investigate millions of log lines for three people: an **engineer** chasing an
 error, a **team lead** looking for recurring problems, and a **manager** deciding what comes first. SereneDB does
-the searching and counting; Claude explains the results. Built for *Making Sense of Logs* (SereneDB track).
+the searching and counting. Claude explains the results. Built for *Making Sense of Logs* (SereneDB track).
 
 **Demo video:** _link to come_ · **Worked investigation:** [below](#worked-investigation-one-corpus-three-roles) ·
 **Requirements checklist:** [docs/reference.md](docs/reference.md#requirements-checklist)
@@ -24,29 +24,29 @@ it we entered both special awards and added optional extensions from the brief:
 
 | | what we did | result |
 |---|---|---|
-| **Best MCP Server** (special award) | 18 tools whose descriptions say when to use them, their inputs and what they return; capped results that say when they were cut; `/engineer`, `/team-lead`, `/manager` prompts | **96.9%** on 30 sealed held-out questions, blind-graded, at **$0.117** per answer ([evaluation](docs/EVALUATION.md)) |
-| **Working with Huge Datasets** (special award) | One TextBench file, **1 billion rows**, read in place from the public S3 bucket; nothing downloaded | **without an index:** exact search of one minute (of the file's 30) in **2.88 s**; **with an index:** search of the whole file in **4.18 s**, after a one-off **69.9 s** build that needs over 64 GB of RAM ([timings](docs/HUGE_DATASETS.md)) |
-| **Agent-managed indexes** (optional) | `create_index` (with a `dry_run` size and time estimate) and `drop_index`, so the agent builds an index for an investigation and removes it after | index over 1B rows built in **69.9 s**; build time against query time in [docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md#the-trade-off-index-build-time-against-query-time) |
+| **Best MCP Server** (special award) | 18 tools whose descriptions say when to use them, their inputs and what they return. Capped results that say when they were cut. `/engineer`, `/team-lead`, `/manager` prompts | **96.9%** on 30 sealed held-out questions, blind-graded, at **$0.117** per answer ([evaluation](docs/EVALUATION.md)) |
+| **Working with Huge Datasets** (special award) | One TextBench file, **1 billion rows**, read in place from the public S3 bucket, nothing downloaded | one minute searched without an index: **2.88 s**. Whole file searched with an index: **4.18 s**, after a **69.9 s** build needing over 64 GB of RAM ([timings](docs/HUGE_DATASETS.md)) |
+| **Agent-managed indexes** (optional) | `create_index` (with a `dry_run` size and time estimate) and `drop_index`, so the agent builds an index for an investigation and removes it after | index over 1B rows built in **69.9 s**. Build time against query time in [docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md#the-trade-off-index-build-time-against-query-time) |
 | **Fuzzy matching** (optional) | `search_logs` with `fuzzy`, through the search index | |
 | **Template mining** (our own) | Log lines grouped into message templates at question time (SQL masking, then Drain), kept as stable IDs `T1, T2, …` | best BGL grouping score (FGA 0.745) of every approach compared, published parsers included ([table](docs/EVALUATION.md#templating-better-grouping-than-drain-on-the-full-loghub-20-data)) |
 
 <img src="docs/img/bench-quality.svg" alt="Answer quality on 30 sealed held-out questions: this server scores 96.9% on a blind rubric (18 fixed tools 92.9%, 7 fixed tools 93.5%), 98% on exact values (94%, 96%), costs $0.117 per answer ($0.459, $0.259) and uses 5.9 tool calls per answer (9.2, 6.6)." width="100%">
 
-The team built three MCP server designs over the same data and kept the best; the chart compares them
+The team built three MCP server designs over the same data and kept the best. The chart compares them
 ([how they differ](docs/EVALUATION.md#the-three-designs-compared)). A separate model wrote the questions without
-seeing this repository, and a blind grader scored the answers. These finals ran at commit `6cad141`; the current
+seeing this repository, and a blind grader scored the answers. These finals ran at commit `6cad141`. The current
 version, rerun on the screening set with Sonnet 5.5, scored 94.4% on the rubric and 99% on exact values.
 
-<img src="docs/img/bench-textbench.svg" alt="TextBench, 1 billion rows read in place on S3: search of the whole file with the index 4.18 s, exact search of a 60-second window without an index 2.88 s, survey 7.8 s; registering the S3 file 1.97 s, building the search index 69.9 s." width="100%">
+<img src="docs/img/bench-textbench.svg" alt="TextBench, 1 billion rows read in place on S3: search of the whole file with the index 4.18 s, exact search of a 60-second window without an index 2.88 s, survey 7.8 s, registering the S3 file 1.97 s, building the search index 69.9 s." width="100%">
 
 
 ## How it works
 
 <p align="center">
-  <img src="docs/img/flow.svg" alt="You ask Claude a question; Claude calls a serenedb-extractor tool; the tool runs SQL in SereneDB. Counts come back with an evidence ID (Q46), Claude answers citing it, and every query is saved so you can check any number." width="100%">
+  <img src="docs/img/flow.svg" alt="You ask Claude a question. Claude calls a serenedb-extractor tool, and the tool runs SQL in SereneDB. Counts come back with an evidence ID (Q46), Claude answers citing it, and every query is saved so you can check any number." width="100%">
 </p>
 
-Claude only sees query results, never the raw logs. Every query is saved under an ID like `Q46`; the answer cites
+Claude only sees query results, never the raw logs. Every query is saved under an ID like `Q46`. The answer cites
 it, and `show_evidence` shows the exact SQL behind any number.
 
 
@@ -84,7 +84,7 @@ Then run `claude` in this folder and ask:
 /manager What should we prioritise from these logs?
 ```
 
-- **Apple Silicon:** use `serenedb/serenedb:26.09.2` (native arm64) and leave out `--platform`; the pinned image
+- **Apple Silicon:** use `serenedb/serenedb:26.09.2` (native arm64) and leave out `--platform`. The pinned image
   is slow and may crash under emulation.
 - **Why a local SereneDB and our own loader:** the organisers' guidance says there is no pre-built loader, schema,
   ownership table or shared instance, so the quick start runs all of it locally.
@@ -104,7 +104,7 @@ the zone the log was written in.
 
 - **Found by:** `count_logs` on FATAL entries by node, full-text `search_logs`, `get_context`.
 - **What failed:** one compute node, **R30-M0-N9-C:J16-U01**, produced **152,229 of BGL's 855,501 FATAL entries**
-  (17.8%); the next node has 1,567 [step 2]. Almost all of them are `data TLB error interrupt`
+  (17.8%). The next node has 1,567 [step 2]. Almost all of them are `data TLB error interrupt`
   (152,182) [step 3], in one run on 11 June 2005 from 17:17:44 to 23:39:32 PDT [step 4].
 - **Just before:** in the same second, the node logged `machine check interrupt (bit=0x10): L2 DCU read error`
   [step 5]. Nothing else on the machine was logged in the 10 minutes before [step 6]. That error appears only 3 times in the whole log,
@@ -117,7 +117,7 @@ the zone the log was written in.
 
 - **Found by:** `count_logs` over the whole corpus by team and level, `trend` by week and day, `survey`.
 - **Whole-corpus counts by team** (fictional stand-in ownership table) [step 9]: Node OS 626,756 FATAL and HPC
-  Applications 228,536 FATAL on BGL; Virtualization 3,071 WARNING on OpenStack.
+  Applications 228,536 FATAL on BGL, Virtualization 3,071 WARNING on OpenStack.
 - **Recurring:** "Link has been severed" (CioStream socket) on **22 of 31 days** in December, 14,616 entries, +4%
   against November [step 21]. Kernel fault storms are rarer but huge: 62% of all BGL FATAL entries fall in 9-15
   June [step 11]. On OpenStack, an image-cache warning appears in every hour at a steady rate [step 16].
@@ -128,19 +128,19 @@ the zone the log was written in.
 ### Manager: "What should we prioritise, and what happens next?"
 
 - **Found by:** `rank_problems` for December 2005 against November, scored on measured severity, change,
-  persistence, spread and share [step 23]. The score orders the list; it is not a cost figure.
+  persistence, spread and share [step 23]. The score orders the list. It is not a cost figure.
 
 | # | risk (measured) | owner | next action |
 |---|---|---|---|
 | 1 | Broken links between compute and I/O nodes: FATAL, 22 of 31 days, 1,024 nodes, 31% of December's severe entries | HPC Applications | trace which I/O-node links drop |
 | 2 | Failing job launches ("permission denied"), up 91% (7,296 → 13,952) | HPC Applications | review program-image permissions |
 | 3 | Lustre mounts failing, up 716% (230 → 1,877) on 924 nodes | Node OS | check the mounts and their servers for those 4 days |
-| 4 | One faulty node in June: 17.8% of all FATAL entries | Node OS | hardware diagnostics; keep it out of service until it passes |
+| 4 | One faulty node in June: 17.8% of all FATAL entries | Node OS | hardware diagnostics, out of service until it passes |
 
 ### What the data does and does not establish
 
 Every number above is an exact count over every entry in scope. The counts are log entries, not incidents. Causes
-are hypotheses; downtime, cost and customer impact are not in the logs. A check against ground truth: a full-text
+are hypotheses. Downtime, cost and customer impact are not in the logs. A check against ground truth: a full-text
 count of "data TLB error interrupt" over all of BGL gives **152,734**, exactly the number of lines BGL's own
 labels mark as `KERNDTLB` [steps 24, 25].
 
@@ -159,8 +159,8 @@ Claude picks these from their descriptions. Every result says how it was measure
 
 | tool | what it does |
 |---|---|
-| `describe_logs` | lists the log tables, their fields and time ranges; the starting point |
-| `search_logs` | full-text search in a time window; returns matching entries |
+| `describe_logs` | lists the log tables, their fields and time ranges. The starting point |
+| `search_logs` | full-text search in a time window, returns matching entries |
 | `get_context` | the events just before and after one entry |
 | `count_logs` | exact counts by team, component, level or time, over one log table or all of them |
 | `survey` | the most common kinds of message |
@@ -186,9 +186,9 @@ There are 18 tools in total, including setup, indexes and team ownership. Each o
 ## Limitations
 
 - Counts are log entries, not incidents.
-- The team-ownership table is a fictional stand-in; `edit_team_ownership` imports a real one.
-- Log tables are snapshots; they are not refreshed.
-- The benchmarks ran at commit `6cad141`; later changes were only rerun on the smaller screening set.
+- The team-ownership table is a fictional stand-in. `edit_team_ownership` imports a real one.
+- Log tables are snapshots and are not refreshed.
+- The benchmarks ran at commit `6cad141`. Later changes were only rerun on the smaller screening set.
 
 Full list: [docs/reference.md](docs/reference.md#known-limits).
 
@@ -199,4 +199,4 @@ Full list: [docs/reference.md](docs/reference.md#known-limits).
 - [docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md): TextBench at 1 billion rows
 - [docs/reference.md](docs/reference.md): requirements checklist, all tools, configuration, security, tests
 
-Data: Loghub (Zhu et al., ISSRE 2023; BGL: Oliner & Stearley, DSN 2007), research use only.
+Data: Loghub (Zhu et al., ISSRE 2023. BGL: Oliner & Stearley, DSN 2007), research use only.
