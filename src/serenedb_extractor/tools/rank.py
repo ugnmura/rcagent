@@ -69,10 +69,12 @@ SCORING = (
     "score = 2 x severity + change + persistence + spread + share (0-18). severity: fatal/critical 3, "
     "error/severe/failure 2, warning 1 (the level most of its entries have). change against the preceding "
     "period: new or +50% or more 3, +10% to +50% 2, within ±10% 1, falling 0, not comparable (the data does not "
-    "cover both periods) 1. persistence, the share of whole {unit}s it appears in: 75% or more 3, 40% 2, 10% 1, "
-    "else 0. spread, distinct {spot}s: 100 or more 3, 10 or more 2, 2 or more 1, one 0. share of all entries at "
+    "cover both periods) 1. persistence, the share of whole {unit}s with data it appears in: 75% or more 3, 40% 2, "
+    "10% 1, else 0; measured in hours when fewer than 3 whole days have data, and not judged (0) when fewer than 3 "
+    "whole hours have data either. spread, distinct {spot}s: 100 or more 3, 10 or more 2, 2 or more 1, one 0. share of all entries at "
     "the levels ranked: 10% or more 3, 1% 2, 0.1% 1, else 0. Ties: more entries first."
 )
+MIN_PERSISTENCE_BUCKETS = 3  # fewer whole buckets with data than this say nothing about persistence
 DEFAULT_LIMIT = 10
 DEFAULT_CANDIDATES = 15
 NARROW = "narrow it: a shorter period (start/end), fewer log tables, or a higher min_level."
@@ -108,6 +110,9 @@ class TableRun:
     spot: str = "component"
     comparable: bool = True
     limited: list[str] = field(default_factory=list)
+    gaps: bool = False  # whole buckets in a gap in the data were left out of persistence
+    judged: bool = True  # persistence was judged (enough whole buckets with data)
+    persistence_note: str = ""
     period: str = ""
     owner_role: str | None = None
     owner_rules: list[Any] = field(default_factory=list)
@@ -252,22 +257,53 @@ def _rank_one(
         cur_cover = _coverage(rng, checked, cur.start, cur.end, cur, "this period")
         prev_cover = _coverage(rng, checked, prev_start, cur.start, cur, "the preceding period")
         zone = get_zone(tz)
-        cur_b, prev_b = _buckets(cur.start, cur.end, zone, run.unit), _buckets(prev_start, cur.start, zone, run.unit)
 
-        def whole(b: Any, period: TimeRange) -> bool:
-            lo, hi = _bounds(b, zone, run.unit)
+        def whole(b: Any, period: TimeRange, unit: Bucket) -> bool:
+            lo, hi = _bounds(b, zone, unit)
             assert period.start is not None and period.end is not None
             return period.start <= lo and hi <= period.end and (rng is None or (rng.first <= lo and hi <= rng.last))
 
-        seen = _seen_buckets(db, lt, cols, tr_all, cur.start, run.unit, tz, timeout)
+        cs, ce = cur.start, cur.end
+
+        def with_data(unit: Bucket, seen: dict[int, set[Any]] | None) -> tuple[set[Any], bool]:
+            """The whole buckets of this period with data (buckets in a gap in the data say nothing about
+            persistence), and whether a gap took some out."""
+            cur_b = _buckets(cs, ce, zone, unit)
+            out = {b for b in cur_b if whole(b, cur, unit)}
+            if seen is None:
+                return out, False
+            gapped = set(gap_buckets(cur_b, seen[1], lambda b: whole(b, cur, unit), unit))
+            return out - gapped, bool(gapped)
+
+        cur_b, prev_b = _buckets(cs, ce, zone, run.unit), _buckets(prev_start, cs, zone, run.unit)
+        seen = _seen_buckets(db, lt, cols, tr_all, cs, run.unit, tz, timeout)
         if seen is not None:
-            prev_cover = _gap_cover(prev_cover, prev_b, seen[0], lambda b: whole(b, prev), run.unit, "the preceding period", zone)
-            cur_cover = _gap_cover(cur_cover, cur_b, seen[1], lambda b: whole(b, cur), run.unit, "this period", zone)
+            prev_cover = _gap_cover(prev_cover, prev_b, seen[0], lambda b: whole(b, prev, run.unit), run.unit, "the preceding period", zone)
+            cur_cover = _gap_cover(cur_cover, cur_b, seen[1], lambda b: whole(b, cur, run.unit), run.unit, "this period", zone)
         run.limited = [c.why for c in (prev_cover, cur_cover) if c.status != "full"]
         run.comparable = not run.limited
-        whole_now = {b for b in cur_b if whole(b, cur)}
-        if seen is not None:  # buckets in a gap in the data say nothing about persistence
-            whole_now -= set(gap_buckets(cur_b, seen[1], lambda b: whole(b, cur), run.unit))
+        whole_now, run.gaps = with_data(run.unit, seen)
+        # Persistence over one or two whole days says nothing (a problem seen once would score in full): measure it
+        # in hours when they give enough whole buckets with data, else do not judge it.
+        if len(whole_now) < MIN_PERSISTENCE_BUCKETS and run.unit == "day":
+            hours, hour_gaps = with_data("hour", _seen_buckets(db, lt, cols, tr_all, cs, "hour", tz, timeout))
+            if len(hours) >= MIN_PERSISTENCE_BUCKETS:
+                run.persistence_note = (
+                    f"only {len(whole_now)} whole day{'' if len(whole_now) == 1 else 's'} of this period "
+                    f"{'has' if len(whole_now) == 1 else 'have'} data, so persistence is measured in hours"
+                )
+                run.unit, whole_now, run.gaps = "hour", hours, hour_gaps
+                hourly = {p.template.template_id: p for p in _measure(
+                    ctx, lt, cols, tr_all, cur.start, sf, chosen, spot_role, run.owner_role, "hour", tz, timeout)}
+                for p in run.problems:
+                    p.buckets = hourly[p.template.template_id].buckets if p.template.template_id in hourly else set()
+        if len(whole_now) < MIN_PERSISTENCE_BUCKETS:
+            run.judged = False
+            run.persistence_note = (
+                f"persistence not judged: too few whole days or hours of this period with data ({len(whole_now)} whole "
+                f"{run.unit}{'' if len(whole_now) == 1 else 's'}; at least {MIN_PERSISTENCE_BUCKETS} are needed), so it "
+                "scores 0"
+            )
         run.whole = len(whole_now)
     for p in run.problems:
         _score(p, run, whole_now)
@@ -357,6 +393,8 @@ def _score(p: Problem, run: TableRun, whole_now: set[Any]) -> None:
     present = len(p.buckets & whole_now)
     share_present = present / run.whole if run.whole else 0.0
     persistence = 3 if share_present >= 0.75 else 2 if share_present >= 0.4 else 1 if share_present >= 0.1 else 0
+    if not run.judged:
+        persistence = 0
     spread = 3 if p.spots >= 100 else 2 if p.spots >= 10 else 1 if p.spots >= 2 else 0
     share = p.now / run.severe_total if run.severe_total else 0.0
     volume = 3 if share >= 0.10 else 2 if share >= 0.01 else 1 if share >= 0.001 else 0
@@ -411,8 +449,11 @@ def _render(runs: list[TableRun], f: Filters, floor: int, limit: int) -> str:
             out.append(f"Log table {r.lt.name}: TOO EXPENSIVE to rank. {r.asked}")
         elif r.note:
             out.append(f"Log table {r.lt.name}: {r.note.rstrip('.')}.")
-        elif r.limited:
-            out.append(f"Log table {r.lt.name}: limited comparison: {'; '.join(r.limited)}. No change is given there.")
+        else:
+            if r.limited:
+                out.append(f"Log table {r.lt.name}: limited comparison: {'; '.join(r.limited)}. No change is given there.")
+            if r.persistence_note:
+                out.append(f"Log table {r.lt.name}: {r.persistence_note}.")
     if not ranked:
         out.append("Nothing to rank.")
         return "\n".join(out)
@@ -429,7 +470,9 @@ def _render(runs: list[TableRun], f: Filters, floor: int, limit: int) -> str:
             f"    {p.now:,} {'entry' if p.now == 1 else 'entries'} this period (exact; {levels}), "
             f"{100 * p.now / r.severe_total:.1f}% of the entries ranked in {p.lt.name}",
             f"    change: {p.change}",
-            f"    present in {len(p.buckets)} of {r.whole} whole {r.unit}s" + (" with data" if r.limited else "") + "; "
+            f"    present in {len(p.buckets)} of {r.whole} whole {r.unit}{'' if r.whole == 1 else 's'}"
+            + (" with data" if r.limited or r.gaps else "")
+            + ("" if r.judged else " (too few to judge persistence)") + "; "
             + (
                 f"spread: {p.spots:,} distinct {r.spot}" + ("" if p.spots == 1 else "s")
                 if r.spot != "entry"

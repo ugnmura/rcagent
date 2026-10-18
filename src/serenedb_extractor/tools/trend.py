@@ -220,16 +220,25 @@ def gap_buckets(buckets: list[datetime], seen: set[datetime], whole: Any, unit: 
 def _gap_cover(
     cover: Coverage, buckets: list[datetime], seen: set[datetime], whole: Any, unit: Bucket, what: str, zone: Any
 ) -> Coverage:
-    """Downgrade a full coverage when the period holds a gap in the data (see MIN_GAP_RUN)."""
-    if cover.status != "full":
+    """Downgrade a coverage when the period holds a gap in the data (see MIN_GAP_RUN). A full coverage becomes
+    partial (or none); a partial one (the period runs past the data's edge) keeps its reason and also names the
+    gaps inside the data's span, which `whole` limits the search to."""
+    if cover.status not in ("full", "partial"):
         return cover
     empty = gap_buckets(buckets, seen, whole, unit)
     if not empty:
         return cover
     n, total = len(empty), len(buckets)
+    shown = ", ".join(_label(b, zone, unit) for b in empty[:3]) + (", …" if n > 3 else "")
+    if cover.status == "partial":
+        spanned = sum(1 for b in buckets if whole(b))
+        return Coverage(
+            "partial",
+            f"{cover.why}; and inside the data's span the logs have no entries at all in {n} of the {spanned} whole "
+            f"{unit}s ({shown}): a gap in the data",
+        )
     if n == total:
         return Coverage("none", f"the logs have no entries at all in {what} (a gap in the data)")
-    shown = ", ".join(_label(b, zone, unit) for b in empty[:3]) + (", …" if n > 3 else "")
     return Coverage(
         "partial",
         f"the logs have no entries at all in {n} of the {total} {unit}s of {what} ({shown}): a gap in the data, "
@@ -608,8 +617,18 @@ def trend(
             else "so those days have 23 or 25 hours"
         )
         out.append(f"clock change in {timezone} on {', '.join(changes)}: {effect}.")
-    whole_now = [b for b in cur_buckets if complete(b, cur)]
-    edge = len(cur_buckets) - len(whole_now)
+    whole_cur = [b for b in cur_buckets if complete(b, cur)]
+    # Buckets in a gap in the data (no entry of any kind) say nothing about whether a problem was there, so
+    # presence is counted over the whole buckets with data, as rank_problems does.
+    gapped = set(gap_buckets(cur_buckets, seen[1], lambda b: complete(b, cur), unit)) if seen is not None else set()
+    whole_now = [b for b in whole_cur if b not in gapped]
+    edge = len(cur_buckets) - len(whole_cur)
+    left_out = [f"{edge} partial {unit}{'' if edge == 1 else 's'} at the edge of the period or the data"] if edge else []
+    if gapped:
+        g = len(gapped)
+        left_out.append(f"{g} {unit}{'' if g == 1 else 's'} in a gap in the data with no entries at all")
+    skipped = f" (not counted: {'; '.join(left_out)})" if left_out else ""
+    with_data = " with data" if gapped else ""
     for i, t in enumerate(chosen):
         now, before = measure(i, 1, cur_buckets), measure(i, 0, prev_buckets)
         per_now = [measure(i, 1, [b]) for b in cur_buckets]
@@ -629,8 +648,7 @@ def trend(
         if not plan.exact:
             blind = sum(1 for b, m in zip(cur_buckets, per_now, strict=True) if b in whole_now and _unsampled(m))
             late = f" in the sample (a {unit} with no sampled entry may still have some; {blind} had no sampled entries at all)"
-        skipped = f" ({edge} partial {unit}{'' if edge == 1 else 's'} at the edge of the period or the data not counted)" if edge else ""
-        out.append(f"    present in {present} of {len(whole_now)} {unit}s{late}{skipped}")
+        out.append(f"    present in {present} of {len(whole_now)} {unit}s{with_data}{late}{skipped}")
         out.append("    " + _components(series[i], lt, plan))
         if (teams := _teams(ctx, series[i], lt, plan)) is not None:
             out.append("    " + teams)
