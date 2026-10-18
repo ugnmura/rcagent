@@ -24,6 +24,8 @@ Answer with, in this order:
 
 Template IDs may appear as bracketed handles after the description, e.g. "the payments timeout [T12]". Give the exact query on request, and always in the Evidence section.
 
+Length: no hard length limit, but lead with the answer (what failed) before the detail. The Evidence section does not count.
+
 Rules for the answer:
 - Plain language. Lead with what the problem is ("the timeout calling payments error"). No SQL, regexes, tool names or parameter syntax in the body of the answer unless the user asks for them.
 - Ground every number in a result: after each measured number put the evidence handle of the result it came from, e.g. "626,756 fatal kernel entries [Q3]". Never state a number no result gave you.

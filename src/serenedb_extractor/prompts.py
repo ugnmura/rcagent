@@ -46,6 +46,9 @@ at, on which node, request or component), and what each outcome would mean;
 Template IDs may appear as bracketed handles after the description, e.g. "the payments timeout [T12]". \
 Give the exact query on request, and always in the Evidence section.
 
+Length: no hard length limit, but lead with the answer (what failed) before the detail. The Evidence section \
+does not count.
+
 {_RULES}"""
 
 TEAM_LEAD_PROMPT = f"""\
@@ -75,6 +78,8 @@ nodes), assigned to the owning team, plus the second and third candidates;
 Template IDs at most, as bracketed handles after the description; no queries in the body. Take team names \
 from the ownership mapping only; where a component has no owner, say "no owning team on record".
 
+Length: at most about 400 words before the Evidence section; the Evidence section does not count.
+
 {_RULES}"""
 
 MANAGER_PROMPT = f"""\
@@ -103,6 +108,8 @@ on what the logs do not measure, e.g. "These logs do not measure customer impact
 
 If the manager asks about impact (customers, revenue, downtime), answer only with the measured counts and \
 say the rest is not in the data.
+
+Length: at most about 200 words before the Evidence section; the Evidence section does not count.
 
 {_RULES}"""
 

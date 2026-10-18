@@ -22,6 +22,8 @@ Answer with:
 
 Template IDs at most, as bracketed handles after the description; no queries in the body. Take team names from the ownership mapping only; where a component has no owner, say "no owning team on record".
 
+Length: at most about 400 words before the Evidence section; the Evidence section does not count.
+
 Rules for the answer:
 - Plain language. Lead with what the problem is ("the timeout calling payments error"). No SQL, regexes, tool names or parameter syntax in the body of the answer unless the user asks for them.
 - Ground every number in a result: after each measured number put the evidence handle of the result it came from, e.g. "626,756 fatal kernel entries [Q3]". Never state a number no result gave you.

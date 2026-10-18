@@ -7,6 +7,7 @@ from serenedb_extractor.catalog.models import ROLE_FIELDS, FieldRoles, LogTable
 from serenedb_extractor.context import AppContext
 from serenedb_extractor.db import Database, quote_ident
 from serenedb_extractor.errors import UserFacingError
+from serenedb_extractor.ownership import UNASSIGNED
 from serenedb_extractor.query.templatematch import _like_pattern
 from serenedb_extractor.query.filters import (
     FILTER_ROLES,
@@ -144,7 +145,7 @@ def _describe_one(ctx: AppContext, lt: LogTable, tr: TimeRange, top: _TopSources
     out = [f"log table {lt.name}", f"  source: {lt.source} ({lt.source_format})", f"  mode: {mode}"]
     out.append("  roles:")
     out += role_lines(lt.roles, "    ")
-    out.append("    " + _team_line(ctx, lt))
+    out += ["    " + line for line in _team_line(ctx, lt)]
     out.append(f"  entries: {lt.row_count:,}" if lt.row_count is not None else "  entries: not counted")
     out.append("  " + _zone_line(lt))
     out.append("  " + _time_range_line(db, lt, cols, tr))
@@ -216,13 +217,17 @@ def _describe_one(ctx: AppContext, lt: LogTable, tr: TimeRange, top: _TopSources
     return out + lines
 
 
-def _team_line(ctx: AppContext, lt: LogTable) -> str:
+def _team_line(ctx: AppContext, lt: LogTable) -> list[str]:
     found = ctx.store.ownership.for_table(lt.name, lt.roles.present())
     if found is None:
-        return "team: absent (no ownership rule covers this log table)"
+        return ["team: absent (no ownership rule covers this log table)"]
     role, rules = found
     teams = sorted({r.team for r in rules})
-    return f"team: from the ownership table on {role} ({len(rules)} rules; teams: {', '.join(teams)})"
+    return [
+        f"team: from the ownership table on {role} ({len(rules)} rules; teams: {', '.join(teams)})",
+        'team mapping: a fictional demo organisation from data/ownership.csv; entries no rule covers are in team '
+        f'"{UNASSIGNED}"',
+    ]
 
 
 def _resolve_field(lt: LogTable, name: str, cols: dict[str, str]) -> tuple[str, str]:
