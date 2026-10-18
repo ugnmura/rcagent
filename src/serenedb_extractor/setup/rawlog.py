@@ -180,7 +180,7 @@ def parse_entries(lines: Iterable[str], line_format: str, tz: str) -> Iterator[R
 
     for n, raw in enumerate(lines, 1):
         line = raw.rstrip("\r\n").replace("\x00", "")
-        m = fmt.regex.match(line)
+        m = fmt.regex.match(line) if line.strip() else None  # a blank line never starts an entry
         if m:
             done = finish()
             if done is not None:

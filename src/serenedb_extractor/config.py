@@ -22,6 +22,9 @@ class Settings:
     sample_size: int = 100_000
     limit_cap: int = 10
     allow_sql: bool = False  # SERENEDB_ALLOW_SQL=1: run_sql may run on a single (unrestricted) role
+    # SERENEDB_SOURCE_DIRS: folders on SereneDB's disk that may be read in place (comma-separated); unset = any
+    # non-private folder. Links on SereneDB's disk can't be checked from here, so set it to be sure.
+    source_dirs: tuple[str, ...] = ()
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> "Settings":
@@ -51,4 +54,5 @@ class Settings:
             allow_sql=env.get("SERENEDB_ALLOW_SQL", "").strip() == "1",
             logs_host_dir=host_dir,
             logs_container_dir=container_dir,
+            source_dirs=tuple(d.strip().rstrip("/") for d in env.get("SERENEDB_SOURCE_DIRS", "").split(",") if d.strip()),
         )

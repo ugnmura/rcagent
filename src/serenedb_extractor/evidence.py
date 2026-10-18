@@ -38,7 +38,9 @@ _CATALOG_ONLY = re.compile(
 )
 _DATA_RELATION = re.compile(r"\bextractor\.(lt_|ix_|sx_)|read_parquet|read_json|read_csv|parquet_", re.I)
 
-FOOTER_QUERIES = 4  # queries shown in the footer; show_evidence has them all
+UNIQUE_VIOLATION = "23505"  # SQLSTATE of a duplicate key
+STORE_ATTEMPTS = 5  # ids tried when other server processes keep taking the next one
+FOOTER_QUERIES = 4 # queries shown in the footer; show_evidence has them all
 FOOTER_SQL_CHARS = 400
 _ID = re.compile(r"^\s*\[?q?(\d+)\]?\s*$", re.I)
 
@@ -135,28 +137,53 @@ class EvidenceLog:
         self._next += 1
         return n
 
+    def _resync(self) -> None:
+        """Number on from the stored maximum again: another server process on the same database took ids."""
+        if self._db is None:
+            return
+        try:
+            top = int(self._db.read("SELECT coalesce(max(id), 0) FROM extractor.evidence", {}).scalar() or 0)
+        except Exception:
+            return
+        self._next = max(self._next or 0, top + 1)
+
     def record(self, tool: str, args: dict[str, Any], queries: list[Query], result: str) -> Record:
         with self._lock:
             rec = Record(self._next_id(), tool, args, list(queries), result, datetime.now(UTC).replace(tzinfo=None))
-            self._memory[rec.id] = rec
             if self._persist and self._db is not None:
-                try:
-                    self._db.write(
-                        "INSERT INTO extractor.evidence (id, tool, args, queries, result, created_at) "
-                        "VALUES (%(id)s, %(tool)s, %(args)s, %(queries)s, %(result)s, %(at)s)",
-                        {
-                            "id": rec.id,
-                            "tool": tool,
-                            "args": _json(args),
-                            "queries": _json([q.as_dict() for q in rec.queries]),
-                            "result": result,
-                            "at": rec.created_at,
-                        },
-                    )
-                except Exception as exc:
-                    logging.getLogger("serenedb_extractor").warning("evidence not stored in SereneDB: %s", exc)
-                    self._persist = False
+                self._store(rec)
+            self._memory[rec.id] = rec
             return rec
+
+    def _store(self, rec: Record) -> None:
+        """Insert `rec`; when its id was taken meanwhile by another process (duplicate key), take the next
+        free one and try again, so a handle never names someone else's record. Other failures leave the
+        record in memory only."""
+        assert self._db is not None
+        log = logging.getLogger("serenedb_extractor")
+        for _ in range(STORE_ATTEMPTS):
+            try:
+                self._db.write(
+                    "INSERT INTO extractor.evidence (id, tool, args, queries, result, created_at) "
+                    "VALUES (%(id)s, %(tool)s, %(args)s, %(queries)s, %(result)s, %(at)s)",
+                    {
+                        "id": rec.id,
+                        "tool": rec.tool,
+                        "args": _json(rec.args),
+                        "queries": _json([q.as_dict() for q in rec.queries]),
+                        "result": rec.result,
+                        "at": rec.created_at,
+                    },
+                )
+                return
+            except Exception as exc:
+                if getattr(exc, "sqlstate", None) != UNIQUE_VIOLATION:
+                    log.warning("evidence not stored in SereneDB: %s", exc)
+                    self._persist = False
+                    return
+                self._resync()
+                rec.id = self._next_id()
+        log.warning("evidence not stored in SereneDB: no free id after %d attempts", STORE_ATTEMPTS)
 
     def get(self, ident: int) -> Record | None:
         with self._lock:

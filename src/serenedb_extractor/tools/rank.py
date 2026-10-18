@@ -64,15 +64,17 @@ SEVERITY = {
     **dict.fromkeys(("ERROR", "ERR", "SEVERE", "FAILURE", "FAIL"), 2),
     **dict.fromkeys(("WARNING", "WARN"), 1),
 }
-MIN_LEVELS = {"warning": 1, "error": 2, "fatal": 3}
+MIN_LEVELS = {"warning": 1, "error": 2, "fatal": 3, "critical": 3}
 SCORING = (
     "score = 2 x severity + change + persistence + spread + share (0-18). severity: fatal/critical 3, "
     "error/severe/failure 2, warning 1 (the level most of its entries have). change against the preceding "
     "period: new or +50% or more 3, +10% to +50% 2, within ±10% 1, falling 0, not comparable (the data does not "
-    "cover both periods) 1. persistence, the share of whole {unit}s it appears in: 75% or more 3, 40% 2, 10% 1, "
-    "else 0. spread, distinct {spot}s: 100 or more 3, 10 or more 2, 2 or more 1, one 0. share of all entries at "
+    "cover both periods) 1. persistence, the share of whole {unit}s with data it appears in: 75% or more 3, 40% 2, "
+    "10% 1, else 0; measured in hours when fewer than 3 whole days have data, and not judged (0) when fewer than 3 "
+    "whole hours have data either. spread, distinct {spot}s: 100 or more 3, 10 or more 2, 2 or more 1, one 0. share of all entries at "
     "the levels ranked: 10% or more 3, 1% 2, 0.1% 1, else 0. Ties: more entries first."
 )
+MIN_PERSISTENCE_BUCKETS = 3  # fewer whole buckets with data than this say nothing about persistence
 DEFAULT_LIMIT = 10
 DEFAULT_CANDIDATES = 15
 NARROW = "narrow it: a shorter period (start/end), fewer log tables, or a higher min_level."
@@ -108,9 +110,14 @@ class TableRun:
     spot: str = "component"
     comparable: bool = True
     limited: list[str] = field(default_factory=list)
+    gaps: bool = False  # whole buckets in a gap in the data were left out of persistence
+    judged: bool = True  # persistence was judged (enough whole buckets with data)
+    persistence_note: str = ""
     period: str = ""
     owner_role: str | None = None
     owner_rules: list[Any] = field(default_factory=list)
+    considered: int = 0  # the largest templates of the period that were ranked (the candidates)
+    surveyed: int = 0  # all templates the survey found at the levels ranked
 
 
 def rank_problems(
@@ -144,7 +151,9 @@ def rank_problems(
         if not tables:
             raise UserFacingError("There are no log tables yet; set one up first.")
     shown = fmt.clamp_limit(limit, DEFAULT_LIMIT, DEFAULT_LIMIT * ctx.settings.limit_cap)
-    n_cand = fmt.clamp_limit(candidates, DEFAULT_CANDIDATES, DEFAULT_CANDIDATES * 4)
+    if candidates is not None and candidates < 1:
+        raise UserFacingError(f"candidates is how many templates to consider per log table: 1 or more (default {DEFAULT_CANDIDATES}).")
+    n_cand, cand_cap = fmt.limit_and_note(candidates, DEFAULT_CANDIDATES, DEFAULT_CANDIDATES * 4)
     runs: list[TableRun] = []
     for lt in tables:
         try:
@@ -153,7 +162,7 @@ def rank_problems(
             if len(tables) == 1:
                 raise
             runs.append(TableRun(lt, note=f"not ranked: {exc}"))
-    return _render(runs, f, floor, shown)
+    return _render(runs, f, floor, shown, n_cand, cand_cap)
 
 
 def _rank_one(
@@ -173,7 +182,7 @@ def _rank_one(
     prev = TimeRange(prev_start, cur.start, tz)
     tr_all = TimeRange(prev_start, cur.end, tz)
     run.period = f"{cur.describe()} against {prev.describe()}"
-    run.unit = "day" if cur.end - cur.start >= timedelta(days=3) else "hour"
+    run.unit = "day" if cur.end - cur.start >= timedelta(days=2) else "hour"  # trend's default is days, too
     spot_role = next((r for r in ("host", "service", "component") if getattr(lt.roles, r) is not None), None)
     run.spot = spot_role or "entry"
     found = ctx.store.ownership.for_table(lt.name, lt.roles.present())
@@ -199,7 +208,7 @@ def _rank_one(
                 rng = data_range(db, lt, cols)
             except ScanTooExpensive:
                 rng = None
-            where = f"; the data covers {cur.fmt(rng.first)} to {cur.fmt(rng.last)} {tz}" if rng else ""
+            where = f"; the data covers {cur.fmt(rng.first)} to {cur.fmt(rng.last)} {tz.rstrip('.')}" if rng else ""
             run.note = f"no entries at all in this period{where}"
             return run
         if not severe:
@@ -220,6 +229,7 @@ def _rank_one(
             return run
         # A survey of one period can find a narrower form of a template the catalog already holds (one variant of
         # a message family): rank the catalog's broadest covering template, so IDs and counts agree with trend.
+        run.considered, run.surveyed = min(n_cand, len(got)), len(got)
         catalog = ctx.store.templates(lt.name)
         chosen = sorted({covering(t, catalog).template_id: covering(t, catalog) for t, _ in got[:n_cand]}.values(), key=_tmpl_number)
         # 3. Exact counts of every candidate over both periods.
@@ -250,22 +260,53 @@ def _rank_one(
         cur_cover = _coverage(rng, checked, cur.start, cur.end, cur, "this period")
         prev_cover = _coverage(rng, checked, prev_start, cur.start, cur, "the preceding period")
         zone = get_zone(tz)
-        cur_b, prev_b = _buckets(cur.start, cur.end, zone, run.unit), _buckets(prev_start, cur.start, zone, run.unit)
 
-        def whole(b: Any, period: TimeRange) -> bool:
-            lo, hi = _bounds(b, zone, run.unit)
+        def whole(b: Any, period: TimeRange, unit: Bucket) -> bool:
+            lo, hi = _bounds(b, zone, unit)
             assert period.start is not None and period.end is not None
             return period.start <= lo and hi <= period.end and (rng is None or (rng.first <= lo and hi <= rng.last))
 
-        seen = _seen_buckets(db, lt, cols, tr_all, cur.start, run.unit, tz, timeout)
+        cs, ce = cur.start, cur.end
+
+        def with_data(unit: Bucket, seen: dict[int, set[Any]] | None) -> tuple[set[Any], bool]:
+            """The whole buckets of this period with data (buckets in a gap in the data say nothing about
+            persistence), and whether a gap took some out."""
+            cur_b = _buckets(cs, ce, zone, unit)
+            out = {b for b in cur_b if whole(b, cur, unit)}
+            if seen is None:
+                return out, False
+            gapped = set(gap_buckets(cur_b, seen[1], lambda b: whole(b, cur, unit), unit))
+            return out - gapped, bool(gapped)
+
+        cur_b, prev_b = _buckets(cs, ce, zone, run.unit), _buckets(prev_start, cs, zone, run.unit)
+        seen = _seen_buckets(db, lt, cols, tr_all, cs, run.unit, tz, timeout)
         if seen is not None:
-            prev_cover = _gap_cover(prev_cover, prev_b, seen[0], lambda b: whole(b, prev), run.unit, "the preceding period", zone)
-            cur_cover = _gap_cover(cur_cover, cur_b, seen[1], lambda b: whole(b, cur), run.unit, "this period", zone)
+            prev_cover = _gap_cover(prev_cover, prev_b, seen[0], lambda b: whole(b, prev, run.unit), run.unit, "the preceding period", zone)
+            cur_cover = _gap_cover(cur_cover, cur_b, seen[1], lambda b: whole(b, cur, run.unit), run.unit, "this period", zone)
         run.limited = [c.why for c in (prev_cover, cur_cover) if c.status != "full"]
         run.comparable = not run.limited
-        whole_now = {b for b in cur_b if whole(b, cur)}
-        if seen is not None:  # buckets in a gap in the data say nothing about persistence
-            whole_now -= set(gap_buckets(cur_b, seen[1], lambda b: whole(b, cur), run.unit))
+        whole_now, run.gaps = with_data(run.unit, seen)
+        # Persistence over one or two whole days says nothing (a problem seen once would score in full): measure it
+        # in hours when they give enough whole buckets with data, else do not judge it.
+        if len(whole_now) < MIN_PERSISTENCE_BUCKETS and run.unit == "day":
+            hours, hour_gaps = with_data("hour", _seen_buckets(db, lt, cols, tr_all, cs, "hour", tz, timeout))
+            if len(hours) >= MIN_PERSISTENCE_BUCKETS:
+                run.persistence_note = (
+                    f"only {len(whole_now)} whole day{'' if len(whole_now) == 1 else 's'} of this period "
+                    f"{'has' if len(whole_now) == 1 else 'have'} data, so persistence is measured in hours"
+                )
+                run.unit, whole_now, run.gaps = "hour", hours, hour_gaps
+                hourly = {p.template.template_id: p for p in _measure(
+                    ctx, lt, cols, tr_all, cur.start, sf, chosen, spot_role, run.owner_role, "hour", tz, timeout)}
+                for p in run.problems:
+                    p.buckets = hourly[p.template.template_id].buckets if p.template.template_id in hourly else set()
+        if len(whole_now) < MIN_PERSISTENCE_BUCKETS:
+            run.judged = False
+            run.persistence_note = (
+                f"persistence not judged: too few whole days or hours of this period with data ({len(whole_now)} whole "
+                f"{run.unit}{'' if len(whole_now) == 1 else 's'}; at least {MIN_PERSISTENCE_BUCKETS} are needed), so it "
+                "scores 0"
+            )
         run.whole = len(whole_now)
     for p in run.problems:
         _score(p, run, whole_now)
@@ -345,7 +386,7 @@ def _score(p: Problem, run: TableRun, whole_now: set[Any]) -> None:
     level = max(p.levels, key=lambda v: (p.levels[v], SEVERITY.get(v.upper(), 0)))
     severity = SEVERITY.get(level.upper(), 0)
     if not run.comparable:
-        change_pts, p.change = 1, "not comparable (the data does not cover both periods)"
+        change_pts, p.change = 1, "not comparable (a gap in the data in one of the periods; see above)"
     elif p.before == 0:
         change_pts, p.change = 3, f"new: none in the preceding period ({p.now:,} now)"
     else:
@@ -355,6 +396,8 @@ def _score(p: Problem, run: TableRun, whole_now: set[Any]) -> None:
     present = len(p.buckets & whole_now)
     share_present = present / run.whole if run.whole else 0.0
     persistence = 3 if share_present >= 0.75 else 2 if share_present >= 0.4 else 1 if share_present >= 0.1 else 0
+    if not run.judged:
+        persistence = 0
     spread = 3 if p.spots >= 100 else 2 if p.spots >= 10 else 1 if p.spots >= 2 else 0
     share = p.now / run.severe_total if run.severe_total else 0.0
     volume = 3 if share >= 0.10 else 2 if share >= 0.01 else 1 if share >= 0.001 else 0
@@ -382,7 +425,9 @@ def _teams(p: Problem, run: TableRun) -> str | None:
     return f"owning team: {text}" + (" (from the stand-in ownership table, not an official mapping)" if stand_in else "")
 
 
-def _render(runs: list[TableRun], f: Filters, floor: int, limit: int) -> str:
+def _render(
+    runs: list[TableRun], f: Filters, floor: int, limit: int, n_cand: int = DEFAULT_CANDIDATES, cand_cap: str | None = None
+) -> str:
     ranked = sorted(
         (p for r in runs for p in r.problems), key=lambda p: (-p.score, -p.now, p.lt.name, _tmpl_number(p.template))
     )
@@ -408,9 +453,21 @@ def _render(runs: list[TableRun], f: Filters, floor: int, limit: int) -> str:
         if r.asked:
             out.append(f"Log table {r.lt.name}: TOO EXPENSIVE to rank. {r.asked}")
         elif r.note:
-            out.append(f"Log table {r.lt.name}: {r.note}.")
-        elif r.limited:
-            out.append(f"Log table {r.lt.name}: limited comparison: {'; '.join(r.limited)}. No change is given there.")
+            out.append(f"Log table {r.lt.name}: {r.note.rstrip('.')}.")
+        else:
+            if r.surveyed:
+                level = _floor_name(floor)
+                out.append(
+                    f"Log table {r.lt.name}: considered the {r.considered:,} largest of {r.surveyed:,} {level}-and-worse "
+                    f"templates of this period (candidates={n_cand}"
+                    + (f"; {cand_cap}" if cand_cap else "")
+                    + (")." if r.considered == r.surveyed else "); smaller ones are not ranked: raise candidates, "
+                       "or narrow the period or filters, to rank them.")
+                )
+            if r.limited:
+                out.append(f"Log table {r.lt.name}: limited comparison: {'; '.join(r.limited)}. No change is given there.")
+            if r.persistence_note:
+                out.append(f"Log table {r.lt.name}: {r.persistence_note}.")
     if not ranked:
         out.append("Nothing to rank.")
         return "\n".join(out)
@@ -424,9 +481,12 @@ def _render(runs: list[TableRun], f: Filters, floor: int, limit: int) -> str:
         out += [
             "",
             f"{i}. score {p.score}/18  [{p.lt.name} {p.template.template_id}] {fmt.shorten(fmt.template_text(p.template.template), 160)}",
-            f"    {p.now:,} entries this period (exact; {levels}), {100 * p.now / r.severe_total:.1f}% of the entries ranked in {p.lt.name}",
+            f"    {p.now:,} {'entry' if p.now == 1 else 'entries'} this period (exact; {levels}), "
+            f"{100 * p.now / r.severe_total:.1f}% of the entries ranked in {p.lt.name}",
             f"    change: {p.change}",
-            f"    present in {len(p.buckets)} of {r.whole} whole {r.unit}s" + (" with data" if r.limited else "") + "; "
+            f"    present in {len(p.buckets)} of {r.whole} whole {r.unit}{'' if r.whole == 1 else 's'}"
+            + (" with data" if r.limited or r.gaps else "")
+            + ("" if r.judged else " (too few to judge persistence)") + "; "
             + (
                 f"spread: {p.spots:,} distinct {r.spot}" + ("" if p.spots == 1 else "s")
                 if r.spot != "entry"

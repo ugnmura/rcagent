@@ -7,8 +7,13 @@ from serenedb_extractor.errors import UserFacingError
 
 def rename_parameter(ctx: AppContext, log_table: str, template: str, old_name: str, new_name: str) -> str:
     lt = ctx.store.get_log_table(log_table)
-    if old_name.strip() == new_name.strip():
+    old_name, new_name = old_name.strip(), new_name.strip()
+    if old_name == new_name:
         raise UserFacingError(f"'{old_name}' already has that name; give a different new_name.")
+    before = ctx.store.resolve(lt.name, template).template
+    # the name as stored (old_name matches in any case), for the answer below
+    if all(p.name != old_name for p in before.params):
+        old_name = next((p.name for p in before.params if p.name.lower() == old_name.lower()), old_name)
     resolved = ctx.store.rename_parameter(lt.name, template, old_name, new_name)
     t = resolved.template
     out = [

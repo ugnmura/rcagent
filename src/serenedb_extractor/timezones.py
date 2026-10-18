@@ -9,8 +9,10 @@ _UTC_NAMES = {"UTC", "ETC/UTC", "GMT", "ETC/GMT", "UCT", "ETC/UCT", "UNIVERSAL",
 
 
 def get_zone(tz: str) -> ZoneInfo:
+    if tz.strip().upper() in ("UTC", "Z", "GMT", "ETC/UTC"):
+        return ZoneInfo("UTC")
     try:
-        return ZoneInfo(tz)
+        return ZoneInfo(tz.strip())
     except (ZoneInfoNotFoundError, ValueError, OSError):
         raise UserFacingError(f"'{tz}' is not a time zone I know; use an IANA name like UTC or Europe/Paris.") from None
 

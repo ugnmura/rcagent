@@ -4,6 +4,7 @@ Roles are SQL expressions that later get interpolated into queries, so a stored 
 restricted to an existing column or `<existing column> ->> '<literal>'`.
 """
 
+import json
 import re
 from collections.abc import Mapping, Sequence
 
@@ -53,8 +54,83 @@ def is_text(type_name: str) -> bool:
     return t.startswith("VARCHAR") or t in ("TEXT", "STRING") or t.startswith("CHAR")
 
 
+_NESTED_TYPE = re.compile(r"^(MAP|STRUCT|UNION|JSON)\b|\[\]$|^LIST\b", re.I)
+
+
+def is_nested(type_name: str) -> bool:
+    """A struct, map, list or JSON column: it holds fields, not one value to show or filter on."""
+    return bool(_NESTED_TYPE.search(type_name.strip()))
+
+
+def _split_top(text: str) -> list[str]:
+    """Split on commas outside brackets and double quotes."""
+    parts, depth, quoted, cur = [], 0, False, ""
+    for ch in text:
+        if ch == '"':
+            quoted = not quoted
+        elif not quoted and ch in "([":
+            depth += 1
+        elif not quoted and ch in ")]":
+            depth -= 1
+        elif not quoted and depth == 0 and ch == ",":
+            parts.append(cur.strip())
+            cur = ""
+            continue
+        cur += ch
+    return parts + ([cur.strip()] if cur.strip() else [])
+
+
+def struct_fields(type_name: str) -> list[tuple[str, str]]:
+    """(name, type) of the top-level fields of a STRUCT(...) type; [] for any other type."""
+    t = type_name.strip()
+    if not t.upper().startswith("STRUCT(") or not t.endswith(")"):
+        return []
+    out = []
+    for part in _split_top(t[len("STRUCT(") : -1]):
+        m = re.match(r'^("(?:[^"]|"")+"|\S+)\s+(.+)$', part)
+        if m:
+            out.append((unquote_ident(m.group(1)), m.group(2).strip()))
+    return out
+
+
+def _json_objects(values: Sequence[str]) -> list[dict[str, object]]:
+    out = []
+    for v in values:
+        try:
+            obj = json.loads(v)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(obj, dict):
+            out.append(obj)
+    return out
+
+
+def _nested_fields(
+    columns: Sequence[tuple[str, str]], samples: Mapping[str, Sequence[str]]
+) -> dict[tuple[str, str], list[str]]:
+    """{(column, field): sample values} for the text fields inside struct and JSON columns. A struct's fields come
+    from its type, a JSON or map column's from the sample entries (shown as JSON text)."""
+    out: dict[tuple[str, str], list[str]] = {}
+    for col, typ in columns:
+        if not is_nested(typ):
+            continue
+        objs = _json_objects(samples.get(col, []))
+        fields = struct_fields(typ)
+        if fields:
+            names = [f for f, ft in fields if is_text(ft) or ft.upper() == "JSON"]
+        else:
+            names = list(dict.fromkeys(k for o in objs for k, v in o.items() if isinstance(v, str)))
+        for name in names:
+            out[(col, name)] = [str(o[name]) for o in objs if isinstance(o.get(name), str)]
+    return out
+
+
+def _json_path(col: str, field: str) -> str:
+    return f"{quote_ident(col)} ->> '{field.replace(chr(39), chr(39) * 2)}'"
+
+
 def _pick(columns: Sequence[tuple[str, str]], names: tuple[str, ...], taken: set[str], temporal: bool) -> str | None:
-    by_lower = {c.lower(): c for c, _ in columns if c not in taken}
+    by_lower = {c.lower(): c for c, t in columns if c not in taken and not is_nested(t)}
     types = dict(columns)
     for n in names:
         col = by_lower.get(n)
@@ -87,25 +163,44 @@ def propose_roles(
             taken.add(col)
             picked[role] = col
             evidence[role] = f"column name '{col}'"
-    if "message" not in picked and not given.get("message"):
+    # Fields inside struct or JSON columns, e.g. {"log": {"level": ..., "msg": ...}}: used as JSON paths
+    # (log ->> 'msg') for the roles no plain column took.
+    nested = _nested_fields(cols, samples)
+    paths: dict[str, str] = {}
+    for role in ("message", "level", "service", "host", "component", "trace"):
+        if role in picked:
+            continue
+        free = [k for k in nested if _json_path(*k) not in paths.values()]
+        hit = next((k for want in CANDIDATES[role] for k in free if k[1].lower() == want), None)
+        if hit is not None:
+            paths[role] = _json_path(*hit)
+            ex = list(dict.fromkeys(v[:80] for v in nested[hit] if v))[:3]
+            evidence[role] = f"field '{hit[1]}' inside column '{hit[0]}'" + (
+                "; e.g. " + ", ".join(repr(v) for v in ex) if ex else ""
+            )
+    if "message" not in picked and "message" not in paths and not given.get("message"):
         text_cols = [c for c, t in cols if is_text(t) and c not in taken]
         if text_cols:
             widest = max(text_cols, key=lambda c: max((len(v) for v in samples.get(c, [])), default=0))
             picked["message"] = widest
             evidence["message"] = f"widest text column '{widest}'"
-    if "message" not in picked and not given.get("message"):
+    if "message" not in picked and "message" not in paths and not given.get("message"):
         raise UserFacingError(
             "I could not find a text column to use as the log message. Name one with roles "
             "(for example roles={'message': 'text_column'})."
         )
     if any(c == "file_row_number" for c, _ in columns):
         picked["order"] = "file_row_number"
-        evidence["order"] = "the reader's file_row_number position"
+        evidence["order"] = (
+            "the reader's file_row_number, a position that keeps the file's order (for CSV a position in the file, "
+            "not a row number)"
+        )
     for role, col in picked.items():
         samp = list(dict.fromkeys(v for v in samples.get(col, []) if v))[:3]
         if samp:
             evidence[role] += "; e.g. " + ", ".join(repr(s) for s in samp)
     stored: dict[str, str | None] = {r: quote_ident(c) for r, c in picked.items()}
+    stored.update(paths)
     for role, expr in given.items():
         stored[role] = expr
         evidence[role] = "given by you" if expr is not None else "removed by you"

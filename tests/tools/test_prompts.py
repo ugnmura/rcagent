@@ -15,7 +15,7 @@ async def test_eighteen_tools_and_annotations(mcp_no_db):
                           "extract_params", "trend", "get_context", "search_logs", "run_sql", "rename_parameter",
                           "count_logs", "show_evidence", "drop_index", "show_team_ownership", "edit_team_ownership", "rank_problems"}
     assert tools["create_index"].annotations.destructiveHint and tools["setup_log_table"].annotations.destructiveHint
-    assert tools["survey"].annotations.readOnlyHint is False and tools["trend"].annotations.readOnlyHint is True
+    assert tools["survey"].annotations.readOnlyHint is False and tools["trend"].annotations.readOnlyHint is False
 
 
 async def test_prompts_without_arguments(mcp_no_db):
