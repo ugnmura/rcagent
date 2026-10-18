@@ -409,7 +409,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
     @mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
     async def create_index(log_table: str, kind: str, dry_run: bool = False) -> str:
         """Build an index so repeated questions on a big log table answer faster. Only when the user asks for one.
-        Use when: the user wants faster filters (kind="filter": exact value lists, nearly free filters) or faster/fuzzy text search (kind="search"), or asks what an index would cost (dry_run=True: a trial build on a sample, nothing kept).
+        Use when: the user wants exact, instant value lists in describe_logs (kind="filter") or faster and fuzzy text search in search_logs (kind="search"); counts, surveys and trends still read the entries either way, or asks what an index would cost (dry_run=True: a trial build on a sample, nothing kept).
         Returns: the index's size on disk and build time (measured, or estimated for dry_run)."""
         return await runner.run_tool(setup_tools.create_index, log_table=log_table, kind=kind, dry_run=dry_run)
 
