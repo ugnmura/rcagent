@@ -366,7 +366,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
     async def show_evidence(ids: list[str] | None = None, include_result: bool = True) -> str:
         """The executed queries and results behind earlier answers, for checking — every other tool's result ends with an evidence handle [Q<n>].
-        Use when: the user asks how a number was obtained or to see the queries, or when you write the "Evidence" section of an answer.
+        Use when: the user asks how a number was obtained or to see the queries. Not unasked.
         Inputs: ids = Q<n> handles (omit to list the recent ones); include_result=False shows only the queries.
         Returns: per handle the tool and arguments, every query that ran with its time and row count, and the result it produced."""
         return await runner.run_tool(evidence_tools.show_evidence, ids=ids, include_result=include_result)

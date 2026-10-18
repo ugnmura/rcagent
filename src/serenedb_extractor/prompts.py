@@ -49,7 +49,7 @@ at, on which node, request or component), and what each outcome would mean;
 - what the logs do not establish.
 
 Template IDs may appear as bracketed handles after the description, e.g. "the payments timeout [T12]". \
-Give the exact query on request, and always in the Evidence section.
+Give the exact query only on request.
 
 {_RULES}"""
 
