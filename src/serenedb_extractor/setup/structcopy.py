@@ -1,5 +1,6 @@
 """Structured files outside the mounted folder: read here (Parquet via pyarrow, JSON/JSONL) and copied."""
 
+import csv
 import json
 import re
 from collections.abc import Callable, Iterator
@@ -19,6 +20,33 @@ from serenedb_extractor.timezones import get_zone
 
 _ISO_FULL = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?$")
 SCHEMA_ROWS = 1000
+
+
+_INT = re.compile(r"^[+-]?\d{1,18}$")
+_FLOAT = re.compile(r"^[+-]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?$")
+
+
+def _csv_value(v: str | None) -> Any:
+    """A CSV field as JSON-like data, so the JSON schema inference applies: numbers as numbers, empty as missing."""
+    if v is None or v == "":
+        return None
+    if _INT.match(v):
+        return int(v)
+    if _FLOAT.match(v):
+        return float(v)
+    return v
+
+
+def _csv_records(path: str) -> Iterator[dict[str, Any]]:
+    with open_local(path) as f:
+        head = f.read(65536)
+        f.seek(0)
+        try:
+            dialect: Any = csv.Sniffer().sniff(head.splitlines()[0] if head else "", delimiters=",;\t|")
+        except csv.Error:
+            dialect = csv.excel
+        for row in csv.DictReader(f, dialect=dialect):
+            yield {k: _csv_value(v) for k, v in row.items() if k}
 
 
 def _json_records(path: str) -> Iterator[dict[str, Any]]:
@@ -153,6 +181,11 @@ def open_structured(rs: ResolvedSource, source: str, schema_limit: int | None = 
     if rs.kind == "parquet":
         cols, rows, total = _parquet_rows(rs.db_path)
         return StructuredSource(cols, rows, total)
+    if rs.kind == "csv":
+        cols = _infer_json(_csv_records(rs.db_path), schema_limit)
+        if not cols:
+            raise UserFacingError(f"{source} has no CSV rows to copy.")
+        return StructuredSource(cols, _csv_records(rs.db_path))
     cols = _infer_json(_json_records(rs.db_path), schema_limit)
     if not cols:
         raise UserFacingError(f"{source} has no JSON entries to copy.")

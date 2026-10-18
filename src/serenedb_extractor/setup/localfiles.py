@@ -62,7 +62,7 @@ def copy_needed(rs: ResolvedSource) -> bool:
     here), a structured local file when it is outside the mounted folder and exists on this machine."""
     if rs.kind == "raw_text":
         return True
-    return rs.kind in ("parquet", "json") and not rs.remote and rs.host_path is None and os.path.isfile(rs.db_path)
+    return rs.kind in ("parquet", "json", "csv") and not rs.remote and rs.host_path is None and os.path.isfile(rs.db_path)
 
 
 def large_input_notes(rs: ResolvedSource) -> list[str]:

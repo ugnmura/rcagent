@@ -233,3 +233,32 @@ async def test_a_timestamp_role_on_a_column_without_times_is_refused(mcp, db_url
     await call(mcp, "setup_log_table", name="goodts", source=path)
     again = await call(mcp, "setup_log_table", name="goodts", source=path, roles={"timestamp": "service"})
     assert "holds values that are not times" in again
+
+
+CSV_TEXT = 'ts,level,service,msg\n2026-03-01T00:00:00Z,INFO,web,hello world\n2026-03-01T00:00:05Z,ERROR,pay,"timeout, again"\n'
+
+
+async def test_a_local_csv_is_copied(mcp, tmp_path):
+    p = tmp_path / "events.csv"
+    p.write_text(CSV_TEXT, encoding="utf-8")
+    out = await call(mcp, "setup_log_table", name="csvlocal", source=str(p))
+    assert "Set up log table 'csvlocal'" in out and "message: msg" in out and "timestamp: ts" in out
+    counts = await call(mcp, "count_logs", log_tables=["csvlocal"], group_by=["level"])
+    assert "ERROR: 1" in counts and "INFO: 1" in counts
+
+
+async def test_a_csv_sereneDB_sees_is_read_in_place(mcp, db_url):
+    import psycopg
+
+    with psycopg.connect(db_url, autocommit=True) as conn:
+        conn.execute(  # type: ignore[call-overload]
+            "COPY (SELECT * FROM (VALUES (TIMESTAMPTZ '2026-03-01 00:00:00+00', 'INFO', 'web', 'hello'), "
+            "(TIMESTAMPTZ '2026-03-01 00:00:05+00', 'ERROR', 'pay', 'timeout, again')) t(ts, level, service, msg)) "
+            "TO '/tmp/t_inplace.csv' (FORMAT CSV, HEADER)"
+        )
+    out = await call(mcp, "setup_log_table", name="csvin", source="/tmp/t_inplace.csv")
+    assert "read in place" in out.lower() or "reads the source directly" in out
+    found = await call(mcp, "search_logs", log_table="csvin", text="timeout")
+    assert "1 matching entries" in found or "1 matching entry" in found
+    occ = re.search(r"\s(\S+#\d+)\s", found).group(1)
+    assert "→" in await call(mcp, "get_context", log_table="csvin", occurrence=occ, scope="everything")
