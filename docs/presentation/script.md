@@ -58,8 +58,9 @@ a one-line answer and its next step. At the end all three are lit, with a quick 
 
 ## 1:50 – 2:10 · Benchmarks (slide 4)
 
-*Video: three steps, one column each (pipeline chips, a score bar that climbs, "+N pts" between steps), then
-cost per answer per step ("+93%", "−67%"), then "3× cheaper … and the top score". Slide: the three designs in
+*Video, two calm shots to talk over (plain fades, no sound effects): the three steps appear one column at a
+time as you name them (pipeline, score, "+N pts"), about 4 s apart; then cost per answer per step with "+93%",
+"−67%" and the caption "3× cheaper … with the top score". Slide: the three designs in
 the same order. Numbers in the video come from `benchmarks.json`; say the final ones.*
 
 > How did we get here? Same sealed questions, graded blind, at every step. We started small: seven fixed tools.

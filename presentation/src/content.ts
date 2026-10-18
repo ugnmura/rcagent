@@ -281,9 +281,9 @@ export const benchmarks = {
 	title: 'Same questions, graded blind',
 	todo: 'Numbers pending: final benchmark run',
 	placeholder: 'PLACEHOLDER NUMBERS · benchmarks still running',
-	setup: {designs: 'designs', questions: 'sealed questions', runs: 'runs each · graded blind'},
+	setup: {questions: 'sealed questions', runs: 'runs each', blind: 'graded blind'},
 	costTitle: 'Cost per answer',
-	andTop: 'and the top score:',
+	andTop: 'with the top score:',
 	cheaper: 'cheaper per answer than',
 	cues: [
 		'How did we get here? Same sealed questions, graded blind, at every step.',
