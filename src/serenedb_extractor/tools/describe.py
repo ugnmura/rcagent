@@ -328,7 +328,7 @@ def _find_values(
         return kind, sample, out
     shown, note = fmt.cut(rows, 50, "values")
     if len(rows) >= _VALUES_CAP:
-        note = f"showing {len(shown)} of at least {_VALUES_CAP} values"
+        note = f"showing {len(shown)} of more than {_VALUES_CAP:,} matching values (only the first {_VALUES_CAP:,} are counted; a longer word narrows it)"
     counts = "exact counts" if plan.exact else "found in the sample, estimated counts"
     out.append(f"  values like '{like}' in {label}{where_txt} ({counts}):")
     out += [f"    {v} ({c})" if plan.exact else f"    {v}: {c}" for v, c in shown]

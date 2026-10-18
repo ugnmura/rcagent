@@ -293,6 +293,8 @@ def locate_occurrences(
     timezone: str | None = None,
     confirmed_cost: str | None = None,
 ) -> str:
+    if examples_per_group < 0 or examples_per_group > 20:
+        raise UserFacingError("examples_per_group is how many example IDs to show per group: 0 to 20.")
     if not templates:
         raise UserFacingError(NEED_TEMPLATE)
     lt = ctx.store.get_log_table(log_table)
@@ -301,7 +303,7 @@ def locate_occurrences(
     f = Filters.from_dict(filters)
     tpls, notes = _resolve_templates(ctx, lt.name, templates)
     shown_limit = fmt.clamp_limit(limit, DEFAULT_GROUPS, DEFAULT_GROUPS * ctx.settings.limit_cap)
-    per_group = max(0, min(int(examples_per_group), 20))
+    per_group = int(examples_per_group)
     db = ctx.db
     with readable(f"the source of log table '{lt.name}'"):
         sc = _scope(ctx, lt, tr, f, timezone, tpls)

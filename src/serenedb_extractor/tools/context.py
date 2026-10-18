@@ -32,6 +32,8 @@ DEFAULT_SIDE = 10
 SAME_TS_CAP = 200
 _TICK = timedelta(microseconds=1)  # timestamps come back with microsecond precision
 
+MAX_SIDE = 200  # entries shown at most on each side of the occurrence
+
 
 @dataclass(frozen=True)
 class _Scope:
@@ -59,6 +61,8 @@ def _choose_scope(lt: LogTable, scope: str | list[str] | None, row: dict[str, An
             f"The available scopes are: {', '.join(available)}."
         )
     if "everything" in wanted:
+        if len(wanted) > 1:
+            raise UserFacingError("scope 'everything' means no limit, so it can't be combined with other scopes; give one or the other.")
         return _Scope([], "everything (no scope limit)")
     for r in wanted:
         if row.get(f"occ_{r}") is None:
@@ -263,6 +267,10 @@ def _entry_line(lt: LogTable, row: dict[str, Any], tr: TimeRange, mark: str, tag
     return " ".join(p for p in parts if p)
 
 
+def _minutes(m: float) -> str:
+    return f"{m:,.0f}" if float(m).is_integer() else f"{m:,g}"
+
+
 def _render(
     ctx: AppContext, lt: LogTable, tr: TimeRange, ts: datetime, window_minutes: float, scope: _Scope,
     occ_row: dict[str, Any], win: _Window, before: int, after: int, f: Filters,
@@ -274,13 +282,13 @@ def _render(
     assert tr.start is not None and tr.end is not None
     out = [
         fmt.how_measured(
-            f"exact: the nearest entries around the occurrence within ±{window_minutes:g} min",
-            f"{tr.fmt(tr.start)} to {tr.fmt(tr.end)} {tr.tz} (window ±{window_minutes:g} min around {tr.fmt(ts)})",
+            f"exact: the nearest entries around the occurrence within ±{_minutes(window_minutes)} min",
+            f"{tr.fmt(tr.start)} to {tr.fmt(tr.end)} {tr.tz} (window ±{_minutes(window_minutes)} min around {tr.fmt(ts)})",
             "; ".join(x for x in (scope.how + (": " + held if held else ""), _filters_text(f)) if x),
             tz=tr.tz,
         ),
         *[fmt.sentence(n) for n in win.plan.notes],
-        f"Window: ±{window_minutes:g} min around the occurrence; context scope: {scope.how}.",
+        f"Window: ±{_minutes(window_minutes)} min around the occurrence; context scope: {scope.how}.",
         f"showing {len(win.prior)} of up to {before} entries before and {len(win.following)} of up to {after} entries after "
         "the occurrence (nearest first when more exist); → marks the occurrence",
     ]
@@ -304,8 +312,8 @@ def get_context(
     timezone = shown_zone(lt, timezone)
     if window_minutes <= 0:
         raise UserFacingError("window_minutes must be greater than 0.")
-    if before < 0 or after < 0:
-        raise UserFacingError("before and after are numbers of entries to show: 0 or more.")
+    if before < 0 or after < 0 or before > MAX_SIDE or after > MAX_SIDE:
+        raise UserFacingError(f"before and after are numbers of entries to show: 0 to {MAX_SIDE} each.")
     occ_mod.decode_occurrence(lt, occurrence)  # a malformed ID is explained before any query
     if lt.roles.timestamp is None:
         raise UserFacingError("This log table has no timestamp field, so there is no time window to show around an entry.")

@@ -185,3 +185,15 @@ def test_bucket_labels_name_real_instants_on_the_fall_back_night():
     assert real_label("2005-10-30 00:00-07:00", la) == "2005-10-30 00:00-07:00"
     assert real_label("2005-10-30 02:00-08:00", la) == "2005-10-30 02:00-08:00"
     assert real_label("2005-10-30 00:00", "UTC") == "2005-10-30 00:00"
+
+
+def test_a_repeated_local_time_asks_which_one():
+    import pytest
+
+    from serenedb_extractor.errors import UserFacingError
+    from serenedb_extractor.query.filters import parse_time_range
+
+    with pytest.raises(UserFacingError, match="happens twice.*01:30:00-07:00.*01:30:00-08:00"):
+        parse_time_range("2005-10-30 01:30", "2005-10-30 04:00", "America/Los_Angeles")
+    assert parse_time_range("2005-10-30 01:30-08:00", "2005-10-30 04:00", "America/Los_Angeles").start is not None
+    assert parse_time_range(None, None, "utc").tz == "UTC"

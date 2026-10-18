@@ -78,6 +78,17 @@ def _parse_moment(text: str, zone: ZoneInfo, what: str) -> datetime:
     if dt.tzinfo is not None:
         return dt.astimezone(UTC)
     local = dt.replace(tzinfo=zone)
+    first, second = local.replace(fold=0), local.replace(fold=1)
+    exists = local.astimezone(UTC).astimezone(zone).replace(tzinfo=None) == dt
+    if exists and first.utcoffset() != second.utcoffset():
+        def at(x: datetime) -> str:
+            off = x.strftime("%z")
+            return f"{dt:%Y-%m-%dT%H:%M:%S}{off[:3]}:{off[3:]}"
+
+        raise UserFacingError(
+            f"{what.capitalize()} '{text}' happens twice in {zone.key}: the clocks went back an hour that night. "
+            f"Say which one with its UTC offset: {at(first)} (the first) or {at(second)} (the second)."
+        )
     if local.astimezone(UTC).astimezone(zone).replace(tzinfo=None) != dt:
         raise UserFacingError(
             f"{what.capitalize()} '{text}' does not exist in {zone.key}: the clocks moved forward an hour that night. "
@@ -87,12 +98,13 @@ def _parse_moment(text: str, zone: ZoneInfo, what: str) -> datetime:
 
 
 def shown_zone(lt: LogTable, given: str | None) -> str:
-    """The zone a tool reads and shows times in: the one asked for, else the log table's own."""
-    return given or lt.timezone
+    """The zone a tool reads and shows times in: the one asked for (by its canonical name), else the table's own."""
+    return get_zone(given).key if given else lt.timezone
 
 
 def parse_time_range(start: str | None, end: str | None, tz: str = "UTC") -> TimeRange:
     zone = get_zone(tz)
+    tz = zone.key
     s = _parse_moment(start, zone, "the start") if start else None
     e = _parse_moment(end, zone, "the end") if end else None
     if s and e and s >= e:
@@ -115,6 +127,13 @@ class Filters:
         d = dict(d or {})
         d.pop("columns", None)
         for key, value in d.items():
+            if key.strip().lower() in ("message", "msg", "text"):
+                raise UserFacingError(
+                    "Filters match whole field values; to find entries whose message contains words, use text='...' "
+                    "(any case) instead of a message filter."
+                )
+            if isinstance(value, dict) or (isinstance(value, list) and any(isinstance(v, (dict, list)) for v in value)):
+                raise UserFacingError(f"The filter on '{key}' must be a value or a list of values, e.g. {{\"{key}\": [\"A\", \"B\"]}}.")
             if value is None:
                 raise UserFacingError(
                     f"The filter on '{key}' has no value. Filters match given values; to find entries where {key} is "

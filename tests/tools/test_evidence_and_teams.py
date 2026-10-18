@@ -288,3 +288,14 @@ async def test_copied_files_check_the_timestamp_and_epochs_are_times(mcp, tmp_pa
     await call(mcp, "setup_log_table", name="clate", source=str(one_bad), roles={"timestamp": "when", "message": "msg"})
     counted = await call(mcp, "count_logs", log_tables=["clate"], start="2024-03-01", end="2024-03-02")
     assert "50 matching entries" in counted  # the odd value is an entry without a time, not an error
+
+
+async def test_more_input_checks(mcp, corpus):
+    assert "use text=" in await call(mcp, "search_logs", log_table="bgl", filters={"message": "parity"})
+    assert "a value or a list of values" in await call(mcp, "search_logs", log_table="bgl", filters={"level": {"a": 1}})
+    assert "0 to 20" in await call(mcp, "locate_occurrences", log_table="bgl", templates=["T1"], examples_per_group=-1)
+    found = await call(mcp, "search_logs", log_table="bgl", limit=1)
+    occ = re.search(r"\s(e:\d+)\s", found).group(1)
+    assert "can't be combined" in await call(mcp, "get_context", log_table="bgl", occurrence=occ, scope=["host", "everything"])
+    assert "0 to 200" in await call(mcp, "get_context", log_table="bgl", occurrence=occ, before=1000)
+    assert "times in UTC" in await call(mcp, "search_logs", log_table="bgl", limit=1, timezone="utc")
