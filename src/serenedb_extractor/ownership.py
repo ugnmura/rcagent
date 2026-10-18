@@ -302,7 +302,7 @@ _KNOWN_HEADERS = frozenset((*_TABLE_HEADERS, *_VALUE_HEADERS, *_TEAM_HEADERS, *_
 
 def _found_columns(fieldnames: list[str]) -> str:
     """Which columns the header has, naming only the recognised ones: an unknown header is file text."""
-    known = [h for h in fieldnames if _norm(h) in _KNOWN_HEADERS]
+    known = list(dict.fromkeys(_norm(h) for h in fieldnames if _norm(h) in _KNOWN_HEADERS))
     other = len(fieldnames) - len(known)
     if not fieldnames:
         return "Its first line has no column names."

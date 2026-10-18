@@ -26,7 +26,7 @@ from serenedb_extractor.query.stats import role_columns
 from serenedb_extractor.query import indexcover
 from serenedb_extractor.setup.roles import resolve_column, role_column, role_lines
 from serenedb_extractor.setup.sniff import readable, relation_columns
-from serenedb_extractor.ownership import STAND_IN
+from serenedb_extractor.ownership import STAND_IN, team_of
 from serenedb_extractor.timezones import is_utc
 
 SAMPLE_ROWS = 10_000
@@ -68,6 +68,57 @@ def _top_values(
     where_seen = "" if exact else " in the sample"
     more = f", … ({distinct} distinct{where_seen})" if distinct > len(rows) else ""
     return shown + more
+
+
+_FULL_CAP = 100_000  # distinct values per field fetched in one counting pass; more falls back to per-field counts
+
+
+def _format_top(counts: dict[str, int]) -> str:
+    vals = sorted(((v, c) for v, c in counts.items() if v is not None), key=lambda vc: (-vc[1], vc[0]))
+    if not vals:
+        return "no values in the sample"
+    shown = ", ".join(f"{v} ({c:,})" for v, c in vals[:TOP_N])
+    return shown + (f", … ({len(vals)} distinct)" if len(vals) > TOP_N else "")
+
+
+def _all_counts(
+    db: Database, lt: LogTable, roles: list[str], where: str, params: dict[str, object]
+) -> dict[str, dict[str, int]] | None:
+    """Every value's count for each of `roles`, counted over every entry in scope in ONE scan (GROUPING SETS),
+    or None when a field has too many distinct values to fetch (the caller then counts per field)."""
+    if not roles:
+        return {}
+    cols = ", ".join(f"({role_sql(lt, r)})::varchar AS r{i}" for i, r in enumerate(roles))
+    flags = ", ".join(f"GROUPING(r{i}) AS g{i}" for i in range(len(roles)))
+    keys = ", ".join(f"r{i}" for i in range(len(roles)))
+    sets = ", ".join(f"(r{i})" for i in range(len(roles)))
+    rows = db.read(
+        f"SELECT {flags}, {keys}, count(*) AS c FROM (SELECT {cols} FROM {lt.relation} WHERE {where}) "
+        f"GROUP BY GROUPING SETS ({sets}) LIMIT {_FULL_CAP * len(roles) + 1}",
+        params,
+    ).rows
+    if len(rows) > _FULL_CAP * len(roles):
+        return None
+    n = len(roles)
+    out: dict[str, dict[str, int]] = {r: {} for r in roles}
+    for row in rows:
+        i = next(k for k in range(n) if row[k] == 0)  # the set this row belongs to
+        value = row[n + i]
+        if value is not None:
+            out[roles[i]][str(value)] = out[roles[i]].get(str(value), 0) + int(row[-1])
+    return out
+
+
+def _team_counts(ctx: AppContext, lt: LogTable, counts: dict[str, dict[str, int]]) -> dict[str, int] | None:
+    """Entries per team, from the owner field's counts (no scan of its own), or None when not derivable."""
+    found = ctx.store.ownership.for_table(lt.name, lt.roles.present())
+    if found is None or found[0] not in counts:
+        return None
+    teams: dict[str, int] = {}
+    for value, c in counts[found[0]].items():
+        t = team_of(value, found[1])
+        teams[t] = teams.get(t, 0) + c
+    return teams
 
 
 def _top_values_indexed(
@@ -194,15 +245,26 @@ def _describe_one(ctx: AppContext, lt: LogTable, tr: TimeRange, top: _TopSources
     present = [r for r in _TOP_ROLES if getattr(lt.roles, r) is not None]
     full_cols = [c for r in present for c in role_columns(getattr(lt.roles, r))] + (ts_cols if tr.bounded else [])
     full = bool(present) and _affordable(db, lt, tr, full_cols) is None
+    indexed = {r: v for r in present if (v := _top_values_indexed(ctx, lt, r, tr, cols)) is not None}
+    # Exact counts for the rest in one scan; team from the owner field's counts, not a scan of its own.
+    plain = [r for r in present if r not in indexed and r != "team"]
+    owner = ctx.store.ownership.for_table(lt.name, lt.roles.present())
+    if "team" in present and "team" not in indexed and owner is not None and owner[0] not in plain:
+        plain.append(owner[0])  # needed for the teams even when it is not shown (e.g. service without a role row)
+    counts = _all_counts(db, lt, plain, where, params) if full else None
+    teams = _team_counts(ctx, lt, counts) if counts is not None and "team" in present else None
     for role in _TOP_ROLES:
         if getattr(lt.roles, role) is None:
             if role != "team":
                 found.append((role, "absent", "absent"))
             continue
-        via = _top_values_indexed(ctx, lt, role, tr, cols)
-        if via is not None:
-            used.add(via[1])
-            found.append((role, via[0], "index"))
+        if role in indexed:
+            used.add(indexed[role][1])
+            found.append((role, indexed[role][0], "index"))
+        elif counts is not None and role in counts:
+            found.append((role, _format_top(counts[role]), "counted"))
+        elif role == "team" and teams is not None:
+            found.append((role, _format_top(teams), "counted"))
         elif full:
             found.append((role, _top_values(db, lt, role, where, params, exact=True), "counted"))
         else:

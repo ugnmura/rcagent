@@ -1,0 +1,851 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - button "Collapse left sidebar" [expanded] [ref=e7]
+      - generic [ref=e10]:
+        - button [ref=e11]
+        - button "File" [ref=e15]
+        - button "View" [ref=e16]
+        - button "Composition" [ref=e17]
+        - button "Tools" [ref=e18]
+        - button "Help" [ref=e19]
+    - group "/Users/eugene/coding/serenedb-test/.claude/worktrees/presentation/presentation" [ref=e20]:
+      - text: presentation
+      - generic [ref=e23]:
+        - button "Open in Zed" [ref=e25]
+        - button "Open in..." [ref=e29]
+    - generic [ref=e32]:
+      - button "Settings" [ref=e34]
+      - button "Collapse right sidebar" [expanded] [ref=e39]
+  - generic [ref=e42]:
+    - generic [ref=e44]:
+      - generic [ref=e46]:
+        - generic [ref=e48]:
+          - generic [ref=e50]:
+            - button "Compositions" [ref=e51]
+            - button "Assets" [ref=e52]
+          - generic [ref=e53]:
+            - generic [ref=e54]:
+              - button "Search... ⌘+K" [ref=e55]:
+                - text: Search...
+                - generic "⌘+K" [ref=e56]: ⌘K
+              - button "More composition actions" [ref=e59]
+            - generic [ref=e62]:
+              - generic "Talk" [ref=e66]:
+                - button "More actions" [ref=e73]
+                - button "Render" [ref=e77]
+              - generic "Slide1" [ref=e83]:
+                - button "More actions" [ref=e90]
+                - button "Render" [ref=e94]
+              - generic "Slide2" [ref=e100]:
+                - button "More actions" [ref=e107]
+                - button "Render" [ref=e111]
+              - generic "Slide3" [ref=e117]:
+                - button "More actions" [ref=e124]
+                - button "Render" [ref=e128]
+              - generic "Slide4" [ref=e134]:
+                - button "More actions" [ref=e141]
+                - button "Render" [ref=e145]
+              - generic "Slide5" [ref=e151]:
+                - button "More actions" [ref=e158]
+                - button "Render" [ref=e162]
+              - generic "Slide6" [ref=e168]:
+                - button "More actions" [ref=e175]
+                - button "Render" [ref=e179]
+              - generic "Slide7" [ref=e185]:
+                - button "More actions" [ref=e192]
+                - button "Render" [ref=e196]
+        - generic [ref=e201]:
+          - generic [ref=e203]:
+            - button "Talk Close Talk tab" [ref=e208]:
+              - generic [ref=e209]: Talk
+              - button "Close Talk tab" [ref=e211]
+            - generic [ref=e223]:
+              - generic [ref=e224]: NATIONAL AI HACKATHON 2026
+              - generic [ref=e226]:
+                - generic [ref=e227]: SchubKI
+                - generic [ref=e228]: ×
+          - generic [ref=e232]:
+            - generic [ref=e234]:
+              - button "Inspector" [ref=e235]
+              - button "Jobs" [ref=e236]
+            - generic [ref=e238]:
+              - generic [ref=e239]:
+                - group "Inspector source location" [ref=e243]:
+                  - generic [ref=e244]:
+                    - group "Talk" [ref=e245]
+                    - button "src/Root.tsx:12" [ref=e248]:
+                      - generic [ref=e253]: Root.tsx:12
+                    - button "src/Talk.tsx:48" [ref=e254]:
+                      - generic [ref=e258]: Talk.tsx:48
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - button "Open in Zed"
+                        - generic:
+                          - button "Open in..."
+                    - button "Copy context for agents" [ref=e259]
+                - button "Collapse Metadata" [expanded] [ref=e264]:
+                  - generic [ref=e265]: Metadata
+                - generic [ref=e268]:
+                  - generic [ref=e269]:
+                    - generic [ref=e270]: Dimensions
+                    - generic [ref=e274]:
+                      - button "Width" [ref=e276]: "1920"
+                      - button "Height" [ref=e278]: "1080"
+                  - generic [ref=e279]:
+                    - generic [ref=e280]: Frame rate
+                    - button "Frame rate" [ref=e286]: 30fps
+                  - generic [ref=e287]:
+                    - generic [ref=e288]: Duration
+                    - generic [ref=e291]: 04:58.09
+              - generic [ref=e294]:
+                - generic [ref=e296]:
+                  - button "Collapse Default Props" [expanded] [ref=e297]:
+                    - generic [ref=e298]: Default Props
+                  - generic [ref=e301]:
+                    - button "Schema" [pressed] [ref=e302]
+                    - button "JSON" [ref=e303]
+                - generic [ref=e309]:
+                  - generic [ref=e310]:
+                    - generic [ref=e311]: "assets:"
+                    - emphasis [ref=e314]: "null"
+                  - generic [ref=e315]:
+                    - generic [ref=e316]: "scenes:"
+                    - emphasis [ref=e319]: "null"
+                  - generic [ref=e320]:
+                    - generic [ref=e321]: "benchmarks:"
+                    - emphasis [ref=e324]: "null"
+                  - generic [ref=e325]:
+                    - generic [ref=e326]: "report:"
+                    - emphasis [ref=e329]: "null"
+              - button "Collapse Actions" [expanded] [ref=e332]:
+                - generic [ref=e333]: Actions
+              - generic [ref=e336]:
+                - button "Add Solid" [ref=e337]
+                - button "Add text" [ref=e342]
+                - button "Add asset..." [ref=e347]
+                - button "Add composition..." [ref=e354]
+                - button "Generate with agent..." [ref=e360]
+                - button "Browse Elements" [ref=e366]
+      - generic [ref=e374]:
+        - generic [ref=e375]:
+          - button "Zoom" [ref=e379]:
+            - group [ref=e382]: Fit
+          - button "Playback rate" [ref=e388]:
+            - group [ref=e391]: 1x
+        - button "Loop" [pressed] [ref=e396]
+        - button "Mute video" [ref=e401]
+        - generic [ref=e404]:
+          - generic [ref=e405]:
+            - button "In point" [disabled]
+          - button "Out point" [ref=e407]
+        - generic [ref=e410]:
+          - button "Go to beginning" [ref=e412]
+          - button "Go back 1 frame" [ref=e416]
+          - button "Play" [ref=e420]
+          - button "Go forward 1 frame" [ref=e424]
+        - button "Show transparency as checkerboard" [pressed] [ref=e429]
+        - button "Disable snapping" [pressed] [ref=e434]
+        - button "View options" [ref=e440]
+        - button "Enter fullscreen preview" [ref=e445]
+        - generic [ref=e450]:
+          - button "Export the current composition (R)" [ref=e451]:
+            - generic [ref=e452]: Render
+          - button "Select render type" [ref=e456]
+    - generic [ref=e463]:
+      - generic [ref=e465]:
+        - generic [ref=e471]:
+          - button "Collapse children of <AbsoluteFill>" [expanded] [ref=e475]
+          - generic "<AbsoluteFill>" [ref=e480]
+        - generic [ref=e488]:
+          - button "Collapse children of <Series>" [expanded] [ref=e492]
+          - group "<Series>" [ref=e497]
+        - generic [ref=e498]:
+          - generic [ref=e504]:
+            - button "Collapse children of <AbsoluteFill>" [expanded] [ref=e508]
+            - generic "<AbsoluteFill>" [ref=e513]
+          - generic [ref=e521]:
+            - button "Collapse children of <AbsoluteFill>" [expanded] [ref=e525]
+            - generic "<AbsoluteFill>" [ref=e530]
+          - generic [ref=e538]:
+            - button "Collapse children of <AbsoluteFill>" [expanded] [ref=e542]
+            - generic "<AbsoluteFill>" [ref=e547]
+          - generic [ref=e560]:
+            - generic "<Img>" [ref=e561]
+            - group "assets/logos/serenedb-on-dark.svg" [ref=e564]: serenedb-on-dark.svg
+          - generic "<AbsoluteFill>" [ref=e576]
+          - generic "<AbsoluteFill>" [ref=e590]
+          - generic "<AbsoluteFill>" [ref=e604]
+      - generic [ref=e608]:
+        - generic [ref=e609]:
+          - button "0" [ref=e611]:
+            - generic [ref=e612]: 00:00.00
+          - button "Show timeline ticks as frames" [ref=e614]: "0"
+        - generic [ref=e615]:
+          - button "Zoom out timeline" [ref=e617]
+          - slider "Timeline zoom (0.1px/frame)" [ref=e620]: "0"
+          - button "Zoom in timeline" [ref=e622]
+      - generic [ref=e630]:
+        - generic [ref=e633]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e636]
+                - separator "Drag to change duration" [ref=e637]
+        - generic [ref=e639]:
+          - generic:
+            - generic:
+              - group "0 Intro card":
+                - separator "Drag to trim start" [ref=e644]
+          - generic:
+            - generic:
+              - group "1a Cold open":
+                - separator "Drag to trim start" [ref=e649]
+          - generic:
+            - generic:
+              - group "1b Reveal":
+                - separator "Drag to trim start" [ref=e654]
+          - generic:
+            - generic:
+              - group "2 Engineer":
+                - separator "Drag to trim start" [ref=e659]
+          - generic:
+            - generic:
+              - group "3 Team lead":
+                - separator "Drag to trim start" [ref=e664]
+          - generic:
+            - generic:
+              - group "4 Manager":
+                - separator "Drag to trim start" [ref=e669]
+          - generic:
+            - generic:
+              - group "5 Evidence":
+                - separator "Drag to trim start" [ref=e674]
+          - generic:
+            - generic:
+              - group "6 Benchmarks":
+                - separator "Drag to trim start" [ref=e679]
+          - generic:
+            - generic:
+              - group "7 Close":
+                - separator "Drag to trim start" [ref=e684]
+          - generic:
+            - generic:
+              - group "8 Star gag":
+                - separator "Drag to trim start" [ref=e689]
+        - generic [ref=e693]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - separator "Drag to change duration" [ref=e696]
+        - generic [ref=e700]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - separator "Drag to change duration" [ref=e703]
+        - generic [ref=e707]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - separator "Drag to change duration" [ref=e710]
+        - generic [ref=e714]:
+          - generic:
+            - group "<Img>":
+              - separator "Drag to change duration" [ref=e719]
+        - generic [ref=e723]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - separator "Drag to change duration" [ref=e726]
+        - generic [ref=e730]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - separator "Drag to change duration" [ref=e733]
+        - generic [ref=e737]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - separator "Drag to change duration" [ref=e740]
+        - generic [ref=e744]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e747]
+                - separator "Drag to change duration" [ref=e748]
+        - generic [ref=e752]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e755]
+                - separator "Drag to change duration" [ref=e756]
+        - generic [ref=e760]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e763]
+                - separator "Drag to change duration" [ref=e764]
+        - generic [ref=e768]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e771]
+                - separator "Drag to change duration" [ref=e772]
+        - generic [ref=e776]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e779]
+                - separator "Drag to change duration" [ref=e780]
+        - generic [ref=e784]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e787]
+                - separator "Drag to change duration" [ref=e788]
+        - generic [ref=e792]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e795]
+                - separator "Drag to change duration" [ref=e796]
+        - generic [ref=e800]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e803]
+                - separator "Drag to change duration" [ref=e804]
+        - generic [ref=e808]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e811]
+                - separator "Drag to change duration" [ref=e812]
+        - generic [ref=e816]:
+          - generic:
+            - group:
+              - separator "Drag to trim start" [ref=e819]
+        - generic [ref=e823]:
+          - generic:
+            - group "dialog.mp3"
+        - generic [ref=e831]:
+          - generic:
+            - group
+        - generic [ref=e837]:
+          - generic:
+            - group "cold-type-1.wav"
+        - generic [ref=e845]:
+          - generic:
+            - group "cold-type-2.wav"
+        - generic [ref=e853]:
+          - generic:
+            - group "cold-type-3.wav"
+        - generic [ref=e861]:
+          - generic:
+            - group:
+              - separator "Drag to trim start" [ref=e864]
+        - generic [ref=e868]:
+          - generic:
+            - group "cold-drone.wav"
+        - generic [ref=e876]:
+          - generic:
+            - group:
+              - separator "Drag to trim start" [ref=e879]
+        - generic [ref=e883]:
+          - generic:
+            - group "cold-keys.wav"
+        - generic [ref=e891]:
+          - generic:
+            - group
+        - generic [ref=e897]:
+          - generic:
+            - group "cold-click.wav"
+        - generic [ref=e905]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e908]
+                - separator "Drag to change duration" [ref=e909]
+        - generic [ref=e913]:
+          - generic:
+            - group "counter":
+              - separator "Drag to trim start" [ref=e916]
+        - generic [ref=e920]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e923]
+                - separator "Drag to change duration" [ref=e924]
+        - generic [ref=e928]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e931]
+                - separator "Drag to change duration" [ref=e932]
+        - generic [ref=e936]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e939]
+                - separator "Drag to change duration" [ref=e940]
+        - generic [ref=e944]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e947]
+                - separator "Drag to change duration" [ref=e948]
+        - generic [ref=e952]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e955]
+                - separator "Drag to change duration" [ref=e956]
+        - generic [ref=e960]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e963]
+                - separator "Drag to change duration" [ref=e964]
+        - generic [ref=e968]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e971]
+                - separator "Drag to change duration" [ref=e972]
+        - generic [ref=e976]:
+          - generic:
+            - group "name tag":
+              - separator "Drag to change duration" [ref=e979]
+        - generic [ref=e983]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e986]
+                - separator "Drag to change duration" [ref=e987]
+        - generic [ref=e991]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e994]
+                - separator "Drag to change duration" [ref=e995]
+        - generic [ref=e999]:
+          - generic:
+            - group "chapter card":
+              - separator "Drag to change duration" [ref=e1002]
+        - generic [ref=e1006]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - separator "Drag to change duration" [ref=e1009]
+        - generic [ref=e1013]:
+          - generic:
+            - group "node":
+              - separator "Drag to trim start" [ref=e1016]
+        - generic [ref=e1020]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - separator "Drag to change duration" [ref=e1023]
+        - generic [ref=e1027]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - separator "Drag to change duration" [ref=e1030]
+        - generic [ref=e1034]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1037]
+                - separator "Drag to change duration" [ref=e1038]
+        - generic [ref=e1042]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1045]
+                - separator "Drag to change duration" [ref=e1046]
+        - generic [ref=e1050]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1053]
+                - separator "Drag to change duration" [ref=e1054]
+        - generic [ref=e1058]:
+          - generic:
+            - group "recording":
+              - separator "Drag to trim start" [ref=e1061]
+        - generic [ref=e1065]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1068]
+                - separator "Drag to change duration" [ref=e1069]
+        - generic [ref=e1073]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1076]
+                - separator "Drag to change duration" [ref=e1077]
+        - generic [ref=e1081]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1084]
+                - separator "Drag to change duration" [ref=e1085]
+        - generic [ref=e1089]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1092]
+                - separator "Drag to change duration" [ref=e1093]
+        - generic [ref=e1097]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1100]
+                - separator "Drag to change duration" [ref=e1101]
+        - generic [ref=e1105]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1108]
+                - separator "Drag to change duration" [ref=e1109]
+        - generic [ref=e1113]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1116]
+                - separator "Drag to change duration" [ref=e1117]
+        - generic [ref=e1121]:
+          - generic:
+            - group "chapter card":
+              - separator "Drag to change duration" [ref=e1124]
+        - generic [ref=e1128]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - separator "Drag to change duration" [ref=e1131]
+        - generic [ref=e1135]:
+          - generic:
+            - group "fatal by team":
+              - separator "Drag to trim start" [ref=e1138]
+        - generic [ref=e1142]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - separator "Drag to change duration" [ref=e1145]
+        - generic [ref=e1149]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - separator "Drag to change duration" [ref=e1152]
+        - generic [ref=e1156]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - separator "Drag to change duration" [ref=e1159]
+        - generic [ref=e1163]:
+          - generic:
+            - group "<AbsoluteFill>"
+        - generic [ref=e1169]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - separator "Drag to change duration" [ref=e1172]
+        - generic [ref=e1176]:
+          - generic:
+            - group "recording":
+              - separator "Drag to trim start" [ref=e1179]
+        - generic [ref=e1183]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1186]
+                - separator "Drag to change duration" [ref=e1187]
+        - generic [ref=e1191]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1194]
+                - separator "Drag to change duration" [ref=e1195]
+        - generic [ref=e1199]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1202]
+                - separator "Drag to change duration" [ref=e1203]
+        - generic [ref=e1207]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1210]
+                - separator "Drag to change duration" [ref=e1211]
+        - generic [ref=e1215]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1218]
+                - separator "Drag to change duration" [ref=e1219]
+        - generic [ref=e1223]:
+          - generic:
+            - group "name tag":
+              - separator "Drag to change duration" [ref=e1226]
+        - generic [ref=e1230]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1233]
+                - separator "Drag to change duration" [ref=e1234]
+        - generic [ref=e1238]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1241]
+                - separator "Drag to change duration" [ref=e1242]
+        - generic [ref=e1246]:
+          - generic:
+            - group "chapter card":
+              - separator "Drag to change duration" [ref=e1249]
+        - generic [ref=e1253]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - separator "Drag to change duration" [ref=e1256]
+        - generic [ref=e1260]:
+          - generic:
+            - group "five risks":
+              - separator "Drag to trim start" [ref=e1263]
+        - generic [ref=e1267]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1270]
+                - separator "Drag to change duration" [ref=e1271]
+        - generic [ref=e1275]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1278]
+                - separator "Drag to change duration" [ref=e1279]
+        - generic [ref=e1283]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1286]
+                - separator "Drag to change duration" [ref=e1287]
+        - generic [ref=e1291]:
+          - generic:
+            - group "recording":
+              - separator "Drag to trim start" [ref=e1294]
+        - generic [ref=e1298]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1301]
+                - separator "Drag to change duration" [ref=e1302]
+        - generic [ref=e1306]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1309]
+                - separator "Drag to change duration" [ref=e1310]
+        - generic [ref=e1314]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1317]
+                - separator "Drag to change duration" [ref=e1318]
+        - generic [ref=e1322]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1325]
+                - separator "Drag to change duration" [ref=e1326]
+        - generic [ref=e1330]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1333]
+                - separator "Drag to change duration" [ref=e1334]
+        - generic [ref=e1338]:
+          - generic:
+            - group "name tag":
+              - separator "Drag to change duration" [ref=e1341]
+        - generic [ref=e1345]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1348]
+                - separator "Drag to change duration" [ref=e1349]
+        - generic [ref=e1353]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1356]
+                - separator "Drag to change duration" [ref=e1357]
+        - generic [ref=e1361]:
+          - generic:
+            - group "citation":
+              - separator "Drag to trim start" [ref=e1364]
+        - generic [ref=e1368]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1371]
+                - separator "Drag to change duration" [ref=e1372]
+        - generic [ref=e1376]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1379]
+                - separator "Drag to change duration" [ref=e1380]
+        - generic [ref=e1384]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1387]
+                - separator "Drag to change duration" [ref=e1388]
+        - generic [ref=e1392]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1395]
+                - separator "Drag to change duration" [ref=e1396]
+        - generic [ref=e1400]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1403]
+                - separator "Drag to change duration" [ref=e1404]
+        - generic [ref=e1408]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1411]
+                - separator "Drag to change duration" [ref=e1412]
+        - generic [ref=e1416]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1419]
+                - separator "Drag to change duration" [ref=e1420]
+        - generic [ref=e1424]:
+          - generic:
+            - group "bars":
+              - separator "Drag to trim start" [ref=e1427]
+        - generic [ref=e1431]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1434]
+                - separator "Drag to change duration" [ref=e1435]
+        - generic [ref=e1439]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1442]
+                - separator "Drag to change duration" [ref=e1443]
+        - generic [ref=e1447]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1450]
+                - separator "Drag to change duration" [ref=e1451]
+        - generic [ref=e1455]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1458]
+                - separator "Drag to change duration" [ref=e1459]
+        - generic [ref=e1463]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1466]
+                - separator "Drag to change duration" [ref=e1467]
+        - generic [ref=e1471]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1474]
+                - separator "Drag to change duration" [ref=e1475]
+        - generic [ref=e1479]:
+          - generic:
+            - group "end card":
+              - separator "Drag to trim start" [ref=e1482]
+        - generic [ref=e1486]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - separator "Drag to change duration" [ref=e1489]
+        - generic [ref=e1493]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - separator "Drag to change duration" [ref=e1496]
+        - generic [ref=e1500]:
+          - generic:
+            - group "<Img>":
+              - separator "Drag to change duration" [ref=e1505]
+        - generic [ref=e1509]:
+          - generic:
+            - group "s7-close-a.mp4":
+              - separator "Drag to trim start" [ref=e1512]
+        - generic [ref=e1516]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1519]
+                - separator "Drag to change duration" [ref=e1520]
+        - generic [ref=e1524]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1527]
+                - separator "Drag to change duration" [ref=e1528]
+        - generic [ref=e1532]:
+          - generic:
+            - group "name tag s7a":
+              - separator "Drag to trim start" [ref=e1535]
+        - generic [ref=e1539]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - separator "Drag to trim start" [ref=e1542]
+        - generic [ref=e1546]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1549]
+                - separator "Drag to change duration" [ref=e1550]
+        - generic [ref=e1554]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1557]
+                - separator "Drag to change duration" [ref=e1558]
+        - generic [ref=e1562]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1565]
+                - separator "Drag to change duration" [ref=e1566]
+        - generic [ref=e1570]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1573]
+                - separator "Drag to change duration" [ref=e1574]
+        - generic [ref=e1578]:
+          - generic:
+            - group:
+              - generic:
+                - separator "Drag to trim start" [ref=e1581]
+                - separator "Drag to change duration" [ref=e1582]
+        - generic [ref=e1626]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1629]
+                - separator "Drag to change duration" [ref=e1630]
+        - generic [ref=e1634]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1637]
+                - separator "Drag to change duration" [ref=e1638]
+        - generic [ref=e1642]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1645]
+                - separator "Drag to change duration" [ref=e1646]
+        - generic [ref=e1650]:
+          - generic:
+            - group "<AbsoluteFill>":
+              - generic:
+                - separator "Drag to trim start" [ref=e1653]
+                - separator "Drag to change duration" [ref=e1654]

@@ -1,0 +1,33 @@
+[    1909ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3000/bundle.js:37639
+[    5193ms] [LOG] Scene lengths:
+  0  Intro card  0:03.0  fixed        (timeline.ts)
+  1a Cold open   0:25.3  asset        (dialog)
+  1b Reveal      0:40.0  placeholder  (s1)
+  2  Engineer    0:45.0  placeholder  (s2)
+  3  Team lead   0:40.0  placeholder  (s3)
+  4  Manager     0:40.0  placeholder  (s4)
+  5  Evidence    0:35.0  placeholder  (s5)
+  6  Benchmarks  0:40.0  placeholder  (s6)
+  7  Close       0:24.0  placeholder  (s7a + s7b + s7c)
+    s7a          0:08.0  placeholder
+    s7b          0:08.0  placeholder
+    s7c          0:08.0  placeholder
+  8  Star gag    0:06.0  fixed        (timeline.ts)
+  TOTAL          4:58.3  limit 4:59.0
+  music.mp3      absent, optional (silence) @ http://localhost:3000/bundle.js:633
+[    5297ms] [LOG] Scene lengths:
+  0  Intro card  0:03.0  fixed        (timeline.ts)
+  1a Cold open   0:25.3  asset        (dialog)
+  1b Reveal      0:40.0  placeholder  (s1)
+  2  Engineer    0:45.0  placeholder  (s2)
+  3  Team lead   0:40.0  placeholder  (s3)
+  4  Manager     0:40.0  placeholder  (s4)
+  5  Evidence    0:35.0  placeholder  (s5)
+  6  Benchmarks  0:40.0  placeholder  (s6)
+  7  Close       0:24.0  placeholder  (s7a + s7b + s7c)
+    s7a          0:08.0  placeholder
+    s7b          0:08.0  placeholder
+    s7c          0:08.0  placeholder
+  8  Star gag    0:06.0  fixed        (timeline.ts)
+  TOTAL          4:58.3  limit 4:59.0
+  music.mp3      absent, optional (silence) @ http://localhost:3000/bundle.js:633
