@@ -56,7 +56,7 @@ Claude sees query results, never raw logs. Each query is saved as `Q<n>`, and `s
 
 ## Quick start
 
-You need Docker, [uv](https://docs.astral.sh/uv/) and Claude Code.
+You need Docker, [uv](https://docs.astral.sh/uv/) and Claude Code or Codex.
 
 ```sh
 git clone https://github.com/ugnmura/serenedb-extractor && cd serenedb-extractor
@@ -73,14 +73,20 @@ export SERENEDB_READER_URL=postgresql://postgres@localhost:7890/postgres
 export LOGS_HOST_DIR=~/logs LOGS_CONTAINER_DIR=/logs
 uv run python scripts/load_base_corpus.py
 
-# 3. connect Claude Code
+# 3a. connect Claude Code
 claude mcp add serenedb-extractor \
   -e SERENEDB_READER_URL=$SERENEDB_READER_URL -e SERENEDB_ALLOW_SQL=1 \
   -e LOGS_HOST_DIR=$HOME/logs -e LOGS_CONTAINER_DIR=/logs \
   -- uv run --directory "$PWD" serenedb-extractor
+
+# 3b. or connect Codex
+codex mcp add serenedb-extractor \
+  --env SERENEDB_READER_URL=$SERENEDB_READER_URL --env SERENEDB_ALLOW_SQL=1 \
+  --env LOGS_HOST_DIR=$HOME/logs --env LOGS_CONTAINER_DIR=/logs \
+  -- uv run --directory "$PWD" serenedb-extractor
 ```
 
-Then run `claude` in this folder and ask:
+Then run `claude` in this folder and ask (the role commands live in `.claude/commands/`):
 
 ```text
 /engineer What failed on BGL on 11 June 2005, and what happened just before?
@@ -88,6 +94,8 @@ Then run `claude` in this folder and ask:
 /manager What should we prioritise from these logs?
 ```
 
+- **Codex:** there are no role commands. Name the role in the question, for example "As the engineer: what failed
+  on BGL on 11 June 2005?". `/mcp` lists the connected server.
 - **Apple Silicon:** use `serenedb/serenedb:26.09.2` (native arm64) and leave out `--platform`. The pinned image
   is slow and may crash under emulation.
 - **Local SereneDB and our own loader:** the organisers supplied no loader, schema, ownership table or instance.
@@ -190,4 +198,14 @@ Full list: [docs/reference.md](docs/reference.md#known-limits).
 - [docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md): TextBench at 1 billion rows
 - [docs/reference.md](docs/reference.md): requirements checklist, all tools, configuration, security, tests
 
-Data: Loghub (Zhu et al., ISSRE 2023. BGL: Oliner & Stearley, DSN 2007), research use only.
+## References
+
+- **Data:** J. Zhu et al., *Loghub: A Large Collection of System Log Datasets for AI-driven Log Analytics*,
+  ISSRE 2023 (research use only). BGL: A. Oliner and J. Stearley, *What Supercomputers Say: A Study of Five System
+  Logs*, DSN 2007.
+- **Huge dataset:** TextBench, OpenTelemetry demo logs published by ClickHouse (Apache-2.0).
+- **Template scores:** Z. Jiang et al., *A Large-Scale Evaluation for Log Parsing Techniques: How Far Are We?*,
+  ISSTA 2024 (Loghub-2.0).
+- **Template mining:** P. He et al., *Drain: An Online Log Parsing Approach with Fixed Depth Tree*, ICWS 2017,
+  through [Drain3](https://github.com/logpai/Drain3).
+- **Database and protocol:** [SereneDB](https://serenedb.com), [Model Context Protocol](https://modelcontextprotocol.io).
