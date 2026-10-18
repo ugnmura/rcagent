@@ -11,30 +11,35 @@ export const MAX_SECONDS = 299;
 /** Seconds the slide shows before the screen recording takes over (the first quote of the section). */
 export const SLIDE_SECONDS: Record<'engineer' | 'teamLead' | 'manager', number> = {
 	engineer: 20,
-	teamLead: 12,
+	teamLead: 16,
 	manager: 22,
 };
 
 /** Seconds at the end of the close during which the end card (slide 7) shows. */
 export const END_CARD_SECONDS = 9;
 
+/** Fixed-length scenes without an asset: the intro card before the cold open, the star gag at the very end. */
+export const INTRO_SECONDS = 3;
+export const STAR_SECONDS = 4;
+
 /** Silence the facecam takes start and end with (handoff 3), excluded from subtitle timing. */
 export const TAKE_PADDING_SECONDS = 1;
 /** Ring before the first dialog line in dialog.mp3. */
 export const DIALOG_LEAD_SECONDS = 2;
 
-export type SceneId = 'coldOpen' | 'reveal' | 'engineer' | 'teamLead' | 'manager' | 'evidence' | 'benchmarks' | 'close';
+export type SceneId = 'intro' | 'star' | 'coldOpen' | 'reveal' | 'engineer' | 'teamLead' | 'manager' | 'evidence' | 'benchmarks' | 'close';
 
 export type SceneTiming = {
 	id: SceneId;
 	label: string;
-	/** Asset whose length sets the scene length. */
-	lengthFrom: AssetKey;
+	/** Asset whose length sets the scene length; null for a fixed-length scene. */
+	lengthFrom: AssetKey | null;
 	frames: number;
 	placeholder: boolean;
 };
 
-const SCENES: {id: SceneId; label: string; lengthFrom: AssetKey}[] = [
+const SCENES: {id: SceneId; label: string; lengthFrom: AssetKey | null; fixedSeconds?: number}[] = [
+	{id: 'intro', label: '0  Intro card', lengthFrom: null, fixedSeconds: INTRO_SECONDS},
 	{id: 'coldOpen', label: '1a Cold open', lengthFrom: 'dialog'},
 	{id: 'reveal', label: '1b Reveal', lengthFrom: 's1'},
 	{id: 'engineer', label: '2  Engineer', lengthFrom: 's2'},
@@ -43,15 +48,16 @@ const SCENES: {id: SceneId; label: string; lengthFrom: AssetKey}[] = [
 	{id: 'evidence', label: '5  Evidence', lengthFrom: 's5'},
 	{id: 'benchmarks', label: '6  Benchmarks', lengthFrom: 's6'},
 	{id: 'close', label: '7  Close', lengthFrom: 's7'},
+	{id: 'star', label: '8  Star gag', lengthFrom: null, fixedSeconds: STAR_SECONDS},
 ];
 
 export const secondsToFrames = (s: number) => Math.max(1, Math.ceil(s * FPS));
 
 export const buildTimeline = (assets: ResolvedAssets): SceneTiming[] =>
-	SCENES.map((s) => ({
+	SCENES.map(({fixedSeconds, ...s}) => ({
 		...s,
-		frames: secondsToFrames(assets[s.lengthFrom].seconds),
-		placeholder: !assets[s.lengthFrom].present,
+		frames: secondsToFrames(s.lengthFrom ? assets[s.lengthFrom].seconds : (fixedSeconds ?? 1)),
+		placeholder: s.lengthFrom ? !assets[s.lengthFrom].present : false,
 	}));
 
 export const totalFrames = (scenes: SceneTiming[]) => scenes.reduce((a, s) => a + s.frames, 0);
@@ -66,7 +72,7 @@ export const fmt = (frames: number) => {
 export const describeTimeline = (scenes: SceneTiming[], assets: ResolvedAssets): string => {
 	const lines = scenes.map(
 		(s) =>
-			`  ${s.label.padEnd(14)} ${fmt(s.frames).padStart(6)}  ${s.placeholder ? 'placeholder' : 'asset      '}  (${s.lengthFrom})`,
+			`  ${s.label.padEnd(14)} ${fmt(s.frames).padStart(6)}  ${s.lengthFrom === null ? 'fixed      ' : s.placeholder ? 'placeholder' : 'asset      '}  (${s.lengthFrom ?? 'timeline.ts'})`,
 	);
 	const total = totalFrames(scenes);
 	lines.push(`  ${'TOTAL'.padEnd(14)} ${fmt(total).padStart(6)}  limit ${fmt(MAX_SECONDS * FPS)}`);

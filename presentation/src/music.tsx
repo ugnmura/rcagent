@@ -17,7 +17,7 @@ const voiceWindows = (scenes: SceneTiming[]): [number, number][] => {
 	return scenes.map((s) => {
 		const lead = Math.round((s.id === 'coldOpen' ? DIALOG_LEAD_SECONDS : TAKE_PADDING_SECONDS) * FPS);
 		const tail = Math.round((s.id === 'coldOpen' ? 0.5 : TAKE_PADDING_SECONDS) * FPS);
-		const w: [number, number] = [at + lead, at + s.frames - tail];
+		const w: [number, number] = s.lengthFrom === null ? [at, at] : [at + lead, at + s.frames - tail];
 		at += s.frames;
 		return w;
 	});
