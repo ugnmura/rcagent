@@ -65,7 +65,8 @@ async def test_inspect_source_is_read_only_and_gives_rough_sizes(mcp, fx_path, d
     assert "rough, from column sizes" in out and "create_index with dry_run measures it" in out
     assert "nothing was created or changed" in out.splitlines()[0]
     assert database.read("SELECT table_name FROM information_schema.tables WHERE table_schema = 'extractor'", {}).rows == [] or all(
-        r[0] in ("log_tables", "templates", "template_redirects", "log_index_columns", "evidence", "ownership", "ownership_changes")
+        r[0] in ("log_tables", "templates", "template_redirects", "log_index_columns", "evidence", "ownership", "ownership_changes",
+                 "metric_tables", "trace_tables")
         for r in database.read("SELECT table_name FROM information_schema.tables WHERE table_schema = 'extractor'", {}).rows
     )
     with pytest.raises(Exception, match="log_dict"):

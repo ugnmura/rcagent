@@ -25,9 +25,49 @@ LOG_TABLES_DDL = f"""CREATE TABLE IF NOT EXISTS extractor.log_tables (
         roles_updated_at   TIMESTAMP NOT NULL
     )"""
 
+# Metric and trace tables have their own registries; log_tables is never touched for them (ADR-0004).
+METRIC_TABLES_DDL = """CREATE TABLE IF NOT EXISTS extractor.metric_tables (
+        name                 VARCHAR PRIMARY KEY,
+        source               VARCHAR NOT NULL,
+        source_format        VARCHAR NOT NULL,
+        relation             VARCHAR NOT NULL,
+        role_timestamp       VARCHAR NOT NULL,
+        role_timestamp_unit  VARCHAR,
+        role_service         VARCHAR,
+        role_metric          VARCHAR NOT NULL,
+        role_value           VARCHAR NOT NULL,
+        row_count            BIGINT,
+        timezone             VARCHAR NOT NULL DEFAULT 'UTC',
+        created_at           TIMESTAMP NOT NULL
+    )"""
+
+TRACE_TABLES_DDL = """CREATE TABLE IF NOT EXISTS extractor.trace_tables (
+        name                 VARCHAR PRIMARY KEY,
+        source               VARCHAR NOT NULL,
+        source_format        VARCHAR NOT NULL,
+        relation             VARCHAR NOT NULL,
+        role_trace_id        VARCHAR NOT NULL,
+        role_span_id         VARCHAR NOT NULL,
+        role_parent_span_id  VARCHAR,
+        role_service         VARCHAR NOT NULL,
+        role_operation       VARCHAR NOT NULL,
+        role_start           VARCHAR NOT NULL,
+        role_start_unit      VARCHAR,
+        role_duration        VARCHAR NOT NULL,
+        role_duration_unit   VARCHAR NOT NULL,
+        role_status          VARCHAR,
+        row_count            BIGINT,
+        orphan_spans         BIGINT,
+        setup_seconds        DOUBLE,
+        timezone             VARCHAR NOT NULL DEFAULT 'UTC',
+        created_at           TIMESTAMP NOT NULL
+    )"""
+
 DDL = [
     "CREATE SCHEMA IF NOT EXISTS extractor",
     LOG_TABLES_DDL,
+    METRIC_TABLES_DDL,
+    TRACE_TABLES_DDL,
     """CREATE TABLE IF NOT EXISTS extractor.log_index_columns (
         log_table          VARCHAR NOT NULL,
         kind               VARCHAR NOT NULL,

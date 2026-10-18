@@ -18,6 +18,7 @@ from serenedb_extractor.context import AppContext
 from serenedb_extractor.instructions import SERVER_INSTRUCTIONS
 from serenedb_extractor.prompts import register_prompts
 from serenedb_extractor.query import stats
+from serenedb_extractor.telemetry import register_telemetry_tools
 from serenedb_extractor.tools import aggregate, catalog_tools, describe, evidence_tools, lookup, ownership_tools, rank, setup_tools
 from serenedb_extractor.tools import context as context_tool
 from serenedb_extractor.tools import investigate
@@ -289,7 +290,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
     ) -> str:
         """Is a problem rising, falling, new or persistent? Compares templates over a period with the preceding period of equal length.
         Use when: a team lead or manager asks what recurs, what got worse, or what to prioritise; run after survey.
-        Inputs: start and end (required; the preceding period has the same calendar days and clock hours, so it still starts at local midnight across a daylight-saving change); templates = T<n> IDs (default: the period's own largest top_n (default 10) under the filters, found by a survey of the period, which saves them to the catalog like survey does); bucket hour|day (hours are real hours labelled with their UTC offset); exact=True insists on counting every entry (by default it counts every entry when that fits the time budget, else estimates from a sample, said so).
+        Inputs: start and end (required; the preceding period has the same calendar days and clock hours, so it still starts at local midnight across a daylight-saving change); templates = T<n> IDs (default: the period's own largest top_n (default 10) under the filters, found by a survey of the period, which saves them to the catalog like survey does); bucket minute|hour|day (hours are real hours labelled with their UTC offset); exact=True insists on counting every entry (by default it counts every entry when that fits the time budget, else estimates from a sample, said so).
         Returns: per template the count per bucket, change against the preceding period, on how many buckets it was present (persistence), and the components and teams affected. Marks the comparison limited when the data does not cover the earlier period or has a gap (3 or more hours, or a whole day, with no entries) — then nothing may be called new across it. Templates that overlap are explained (an entry counts once, under the lowest ID)."""
         return await runner.run_tool(
             trend_tool.trend,
@@ -501,6 +502,7 @@ def build_server(ctx_factory: Callable[[], AppContext]) -> FastMCP:
     mcp = FastMCP("serenedb-extractor", instructions=SERVER_INSTRUCTIONS)
     runner = ToolRunner(ctx_factory)
     register_tools(mcp, runner)
+    register_telemetry_tools(mcp, runner)
     register_prompts(mcp)
     return mcp
 
