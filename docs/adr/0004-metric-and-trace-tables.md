@@ -11,13 +11,14 @@ All aggregation (per series, per operation, per caller-callee edge, per time win
 - **Generalise log tables into "telemetry tables"** — one registry with a kind column. Rejected: it renames and reshapes what log users rely on, and the mandatory message role and the template catalog make no sense for metrics or spans.
 - **Force metrics and spans into log tables** with a synthetic message — rejected: templating and surveys would run over fake messages.
 - **Pre-aggregate spans into time buckets at setup** (what v2 did) — rejected: the agent can no longer look at one trace, and the bucket size is fixed before the question is known.
-- **Trace tables in place, self time in the view** — kept as the fallback if the measured join cost is small; the pilot measures it.
+- **Trace tables in place, self time in the view** — kept as the alternative if the measured join cost is small. It is measured while building the trace tools, on synthetic data and on real benchmark cases, and decided before the tools are frozen.
 - **A `system` column on log tables** — rejected: it changes the log table schema. A separate systems registry was also deferred; the prefix is enough for now.
 
 ## Consequences
 
-- Log users see no change: same tools, same schema, same outputs. Existing tests must stay byte-identical.
+- Log users see no change: same tools, same schema, same outputs, apart from a `minute` bucket in `trend` and one added sentence in the server instructions pointing to `telemetry_overview`. All other existing tests stay byte-identical.
 - Trace setup costs one join and the storage of a copy. Setup reports both.
 - Metric and trace tables accept integer epoch timestamps with an explicit unit (s, ms, µs, ns), guessed from magnitude and confirmable at setup. Log tables keep today's behaviour; epoch support for logs would be a separate change with its own regression proof.
 - Every change tool reports coverage per service (logs / metrics / traces: yes or no), so "no data" is never shown as "no change".
+- Self time alone would blame a caller for a slow network to its callee, because that wait sits in the caller's client span. Edges therefore also report network time: the caller's client span minus the callee's matching server span.
 - Wide metric files (one column per series) are not read; converting them to long format is the data owner's job. The extractor never parses column names for meaning.

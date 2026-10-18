@@ -107,7 +107,7 @@ A span's duration minus the time covered by its child spans: the time the servic
 _Avoid_: Exclusive time, own time
 
 **Edge**:
-A caller → callee pair of services seen in parent and child spans, with the latency and errors of those calls.
+A caller → callee pair of services seen in parent and child spans, with the latency and errors of those calls, and their network time: the caller's client span minus the callee's matching server span, where a slow network between them shows up.
 _Avoid_: Link, dependency
 
 **Pivot**:
@@ -115,14 +115,14 @@ The time an investigation compares around: the window before it is the baseline,
 _Avoid_: Detect time (in tool names), anchor
 
 **Change**:
-How far a series, operation or log rate moved from before the pivot to after it, as a robust z-score: the shift of the median in units of the baseline's typical deviation (1.4826 × MAD). A change says what moved, never what caused it.
+How far a series, operation or log rate moved from before the pivot to after it, as a robust z-score: the shift of the median in units of the baseline's typical deviation (1.4826 × MAD, or the standard deviation when MAD is 0, never less than 1% of the baseline median). A series whose baseline is all zero and then is not has "risen from zero" and is listed apart, not ranked by z. A change says what moved, never what caused it.
 _Avoid_: Anomaly score, root cause score
 
 **Coverage**:
 Which of logs, metrics and traces exist for a service. Tools report it so that "no data" is never read as "no change".
 
 **Table prefix**:
-The shared start of the names of one system's log, metric and trace tables (`rca_07_`), which is how tools find the tables that belong together.
+The shared start of the names of one system's log, metric and trace tables (`rca_07_`), which is how tools find the tables that belong together. A prefix ends in `_`.
 _Avoid_: Group, case (outside the benchmark)
 
 ### Indexes
