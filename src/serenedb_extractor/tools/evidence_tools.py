@@ -25,9 +25,9 @@ def show_evidence(ctx: AppContext, ids: list[str] | None = None, include_result:
     out: list[str] = []
     for raw in ids:
         n = evidence.parse_id(raw)
-        rec = ctx.evidence.get(n)
-        if rec is None:
+        found = ctx.evidence.get(n)
+        if found is None:
             out.append(f"[Q{n}] not found: it may come from another database or was never recorded.")
             continue
-        out.append(evidence.full_text(rec, include_result))
+        out.append(evidence.full_text(found, include_result))
     return "\n\n".join(out)

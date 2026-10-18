@@ -139,14 +139,14 @@ def _share(part: fmt.Measured, whole: fmt.Measured | None) -> str:
 
 
 def _how(tables: list[TableCount], tr: TimeRange, f: Filters, text: str | None, tz: str) -> str:
-    counted = [t for t in tables if t.plan is not None]
-    exact = all(t.plan.exact for t in counted) if counted else True
+    plans = [t.plan for t in tables if t.plan is not None]
+    exact = all(p.exact for p in plans)
     kind = (
         "exact count: every entry in scope of each log table was counted inside SereneDB"
         if exact
         else "count per log table: exact where marked exact, else estimated from a block sample (said per table)"
     )
-    if any(t.plan is not None and t.plan.confirmed for t in counted):
+    if any(p.confirmed for p in plans):
         kind += " (run as you confirmed)"
     sample = None if exact else "block sample where marked"
     return fmt.how_measured(kind, tr.describe() if tr.bounded else None, _scope_text(f, text), sample, tz=tz)
