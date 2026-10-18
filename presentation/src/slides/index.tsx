@@ -92,7 +92,7 @@ export const SlideHowItWorks: React.FC<{mode: Mode}> = () => (
 );
 
 // ------------------------------------------------------------------ slides 6–7 (the roles, the live demo)
-// The split's final frame: all three cards side by side and lit, with the evidence equation.
+// The split's final frame: all three cards side by side and lit.
 
 export const SlideSplit: React.FC<{mode: Mode}> = () => (
 	<AbsoluteFill style={{backgroundColor: '#030405'}}>

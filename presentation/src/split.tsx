@@ -34,8 +34,6 @@ const SIDE = {cx: [250, 1670], cy: 440, s: 0.6, dim: 0.42};
 const Y = {icon: 34, role: 122, line: 192, question: 212, answer: 298, fact: 300, factStep: 78};
 const ENTER_STAGGER = 7;
 const COUNT_FRAMES = 24;
-/** The equals sign fades in this many frames after the evidence line arrives (once both sides have counted up). */
-const EQ_DELAY = 28;
 
 /** Scene-relative frames of each beat. */
 export type SplitTimes = {
@@ -44,11 +42,10 @@ export type SplitTimes = {
 	spot: [number, number, number];
 	allLit: number;
 	/** 152,734 = 152,734 arrives under the cards. */
-	evidence: number;
 };
 
 /** Everything landed, all three cards back in the row and lit, no transient effect running: the slides PDF page. */
-export const DONE_TIMES: SplitTimes = {liftoff: -1000, spot: [-1000, -1000, -1000], allLit: -1000, evidence: -1000};
+export const DONE_TIMES: SplitTimes = {liftoff: -1000, spot: [-1000, -1000, -1000], allLit: -1000};
 
 /** Frames at which each role's facts land: spread over its time at centre stage, roughly following B's sentence. */
 const factTimes = (T: SplitTimes) =>
@@ -257,39 +254,7 @@ const Card: React.FC<{i: number; role: SplitRole; pose: Pose; T: SplitTimes; fac
 	);
 };
 
-/** "152,734 = 152,734" under the cards: both sides count up, the equals sign fades in, then the caption. */
-const EvidenceLine: React.FC<{at: number}> = ({at}) => {
-	const frame = useCurrentFrame();
-	const {fps} = useVideoConfig();
-	const inS = spring({frame: frame - at, fps, config: LAND});
-	const count = ramp(frame, at + 2, at + EQ_DELAY, easeOut);
-	const eq = ramp(frame, at + EQ_DELAY, at + EQ_DELAY + 10, easeOut);
-	const cap = ramp(frame, at + EQ_DELAY + 4, at + EQ_DELAY + 22, easeOut);
-	const ev = split.evidence;
-	const big: React.CSSProperties = {fontSize: 72, fontWeight: 800, color: color.text, fontVariantNumeric: 'tabular-nums', letterSpacing: -1};
-	return (
-		<div
-			style={{
-				position: 'absolute',
-				left: 0,
-				right: 0,
-				top: ROW_TOP + LIT_H + 44,
-				textAlign: 'center',
-				opacity: Math.min(1, inS * 1.3),
-				transform: `translateY(${(1 - inS) * 16}px)`,
-			}}
-		>
-			<div style={{display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 30}}>
-				<span style={{...big, minWidth: 280, textAlign: 'right', color: color.accent}}>{countUp(ev.left, count)}</span>
-				<span style={{...big, color: color.muted, fontWeight: 600, opacity: eq}}>=</span>
-				<span style={{...big, minWidth: 280, textAlign: 'left', color: color.accent}}>{countUp(ev.right, count)}</span>
-			</div>
-			<div style={{fontSize: 28, color: color.muted, marginTop: 6, opacity: cap, transform: `translateY(${(1 - cap) * 10}px)`}}>{ev.caption}</div>
-		</div>
-	);
-};
-
-/** The header, the three cards and the evidence line. */
+/** The header and the three cards. */
 export const SplitBoard: React.FC<{times: SplitTimes}> = ({times: T}) => {
 	const frame = useCurrentFrame();
 	const {fps} = useVideoConfig();
@@ -311,7 +276,6 @@ export const SplitBoard: React.FC<{times: SplitTimes}> = ({times: T}) => {
 				.map((i) => (
 					<Card key={i} i={i} role={split.roles[i]} pose={poses[i]} T={T} facts={facts[i]} />
 				))}
-			<EvidenceLine at={T.evidence} />
 		</AbsoluteFill>
 	);
 };
@@ -337,7 +301,6 @@ return {
 liftoff: Math.max(intro[0] + 30, intro[1] - 24),
 spot: [c[at.engineer] + 14, c[at.teamLead], c[at.manager]],
 		allLit: c[at.allLit],
-		evidence: c[at.allLit] + 30,
 	};
 };
 
@@ -367,7 +330,6 @@ export const SplitScene: React.FC<{assets: ResolvedAssets; frames: number}> = ({
 					<Sfx key={`c${j}`} name="click" from={f} volume={0.15} />
 				))}
 			<Sfx name="chime" from={T.allLit} volume={0.3} />
-			<Sfx name="click" from={T.evidence + EQ_DELAY} volume={0.15} />
 			<Vignette />
 			<Grain />
 			<BlackFades frames={frames} fadeIn={12} fadeOut={18} />

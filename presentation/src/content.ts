@@ -410,8 +410,6 @@ export const split = {
 			],
 		},
 	] as SplitRole[],
-	/** The evidence beat under the cards: the engineer's full-text count against BGL's own labels. */
-	evidence: {left: evidence.left.value, right: evidence.right.value, caption: evidence.snapCaption}, // WI [steps 23, 24]
 	cues: [
 		'Same agent, same logs, three people asking at once.',
 		'The engineer gets a cause: one node, data TLB errors, and an L2 cache read error just before. Next check: processor diagnostics.',
