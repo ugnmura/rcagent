@@ -46,6 +46,7 @@ class TableCount:
     note: str | None = None  # why the table was not counted, or something to know about its count
     asked: str | None = None  # a TOO EXPENSIVE message
     empty_why: list[str] | None = None
+    n_groups: int | None = None  # all groups, when only the first ones were fetched
 
 
 def _scope_text(f: Filters, text: str | None) -> str | None:
@@ -64,7 +65,10 @@ def _count_one(
     group_by: list[str],
     tz: str,
     confirmed_cost: str | None,
+    keep: int | None = None,
 ) -> TableCount:
+    """`keep`: fetch only the first `keep` groups in reading order (exact counts only), with the number of
+    all groups, so a grouping with millions of groups costs one scan and not millions of rows here."""
     db = ctx.db
     with readable(f"the source of log table '{lt.name}'"):
         cols = known_columns(db, lt)
@@ -101,6 +105,8 @@ def _count_one(
             if gcols
             else f"SELECT count(*) AS n FROM ({inner})"
         )
+        if keep is not None and plan.exact and key_names:
+            return _top_groups(db, lt, plan, labels, key_names, inner, params, timeout, what, keep, note)
         rows = db.read(sql, params, timeout_s=timeout, what=what, how_to_narrow=NARROW).rows
         per_key: dict[tuple[str, ...], list[tuple[int, int]]] = {}
         all_blocks: dict[int, int] = {}
@@ -129,6 +135,33 @@ def _count_one(
         if plan.exact and total.value == 0 and (f.items() or tr.bounded) and not text:
             empty_why = diagnose_empty(db, lt, tr, f, cols)
         return TableCount(lt, plan, total, measured, labels, note=note, empty_why=empty_why)
+
+
+def _top_groups(
+    db: Any, lt: LogTable, plan: cost.Plan, labels: list[str], key_names: list[str], inner: str,
+    params: dict[str, Any], timeout: float, what: str, keep: int, note: str | None,
+) -> TableCount:
+    """The first `keep` groups in the order `ordered` gives, ordered and cut inside SereneDB."""
+    timed = [k for k, lbl in zip(key_names, labels, strict=True) if lbl.startswith("time:")]
+    rest = [k for k in key_names if k not in timed]
+    if not timed:
+        order = "n DESC, " + ", ".join(key_names)
+    elif not rest:
+        order = ", ".join(timed)
+    else:
+        order = "series DESC, " + ", ".join(rest + timed)
+    series = f", sum(n) OVER (PARTITION BY {', '.join(rest)}) AS series" if timed and rest else ""
+    gcols = ", ".join(key_names)
+    sql = (
+        f"SELECT {gcols}, n, count(*) OVER () AS all_groups, sum(n) OVER () AS all_n{series} "
+        f"FROM (SELECT {gcols}, count(*) AS n FROM ({inner}) GROUP BY {gcols}) ORDER BY {order} LIMIT {int(keep)}"
+    )
+    rows = db.read(sql, params, timeout_s=timeout, what=what, how_to_narrow=NARROW).rows
+    k = len(key_names)
+    groups = [(tuple(str(x) for x in r[:k]), fmt.Measured(float(r[k]), True)) for r in rows]
+    n_groups = int(rows[0][k + 1]) if rows else 0
+    total = fmt.Measured(float(rows[0][k + 2]) if rows else 0.0, True)
+    return TableCount(lt, plan, total, groups, labels, note=note, n_groups=n_groups)
 
 
 def _share(part: fmt.Measured, whole: fmt.Measured | None) -> str:
@@ -183,6 +216,8 @@ def count_logs(
         if not tables:
             raise UserFacingError("There are no log tables yet; set one up first.")
     shown_limit = fmt.clamp_limit(limit, DEFAULT_GROUPS, DEFAULT_GROUPS * ctx.settings.limit_cap)
+    # One table: exactly the groups shown. Several: more of each, so the combined lines see the values they share.
+    fetch = shown_limit if len(tables) == 1 else shown_limit * 10
     # Each log table is read and shown in its own zone unless one is given.
     ranges = {lt.name: parse_time_range(start, end, shown_zone(lt, timezone)) for lt in tables}
     one_zone = len({r.tz for r in ranges.values()}) == 1
@@ -190,7 +225,7 @@ def count_logs(
     for lt in tables:
         tr = ranges[lt.name]
         try:
-            results.append(_count_one(ctx, lt, tr, f, text, group_by, tr.tz, confirmed_cost))
+            results.append(_count_one(ctx, lt, tr, f, text, group_by, tr.tz, confirmed_cost, keep=fetch))
         except MissingRole as exc:
             if len(tables) == 1:
                 raise
@@ -243,8 +278,9 @@ def _render(
             lines.append(f"  note: {t.note}")
         if t.groups:
             cut = t.groups[:limit]
-            if len(cut) < len(t.groups):
-                lines.append(f"  showing {len(cut)} of {len(t.groups)} groups (raise limit to see more)")
+            n_all = t.n_groups if t.n_groups is not None else len(t.groups)
+            if len(cut) < n_all:
+                lines.append(f"  showing {len(cut):,} of {n_all:,} groups (raise limit to see more)")
             for key, m in cut:
                 lines.append(f"  {_key_text(t.labels, key)}: {_num(m)}{_share(m, t.total)}")
         for why in t.empty_why or []:
@@ -257,15 +293,21 @@ def _render(
             for key, m in t.groups:
                 combined[key] = combined.get(key, 0.0) + m.value
                 exact = exact and m.exact
-        shared = [k for k in combined if sum(any(g[0] == k for g in t.groups) for t in results) > 1]
+        tables_with = {k: sum(any(g[0] == k for g in t.groups) for t in results) for k in combined}
+        shared = [k for k in combined if tables_with[k] > 1]
+        partial = any(t.n_groups is not None and t.n_groups > len(t.groups) for t in results)
         if shared:
             lines.append("")
             lines.append(
                 "combined over the log tables, for group values found in more than one of them"
+                + (" (among each table's largest groups)" if partial else "")
                 + ("" if exact else " (sums of estimates: estimates)")
                 + ":"
             )
-            for key in sorted(shared, key=lambda k: -combined[k])[:limit]:
+            ranked = sorted(shared, key=lambda k: (-combined[k], k))
+            if len(ranked) > limit:
+                lines.append(f"  showing {limit:,} of {len(ranked):,} shared values (raise limit to see more)")
+            for key in ranked[:limit]:
                 lines.append(f"  {' · '.join(key)}: {int(round(combined[key])):,}")
     return "\n".join(lines)
 
