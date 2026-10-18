@@ -44,12 +44,18 @@ node scripts/stills.mjs name:frame ...   # single frames of the talk as out/name
 
 ## Look (film style)
 
-Scenes 1a, 1b and 2 are in film style: one idea per shot (one big number or a phrase of at most six words), slow
-push-in on every shot, hard cuts on beats, fades to black between acts, film grain and vignette, letterbox bars
-(2.39:1) in the cold open, a chapter card before each role. Narration subtitles are off there; only the AI
-dialog of the cold open keeps subtitles (in the bottom letterbox bar), because those voices have no facecam.
-Primitives live in `src/film.tsx`, shots in `src/shots.tsx`, the scenes in `src/scenes.tsx`. The slides PDF
-renders each page from the final, fully built state of its shots. Scenes 3–7 still use the earlier slide look.
+Every scene is in film style: one idea per shot (one big number or a phrase of at most six words), slow push-in on
+every shot, hard cuts on beats, fades to black between acts, film grain and vignette, letterbox bars (2.39:1) in
+the cold open, a chapter card before each role. Narration subtitles are off; only the AI dialog of the cold open
+keeps subtitles (in the bottom letterbox bar), because those voices have no facecam.
+
+Order: a 3 s intro card (`INTRO_SECONDS`: "National AI Hackathon 2026", SchubKI × SereneDB), scenes 1a–7, then a
+4 s star gag (`STAR_SECONDS`). Both are fixed lengths in `src/timeline.ts` and count towards the 4:59 limit; they
+are not PDF pages. Logos live in `public/assets/logos/` (sources in `SOURCES.md`): SchubKI is its text wordmark,
+the SereneDB SVG is used unchanged on a light plate (its wordmark is black).
+
+Primitives live in `src/film.tsx`, shots in `src/shots.tsx` (1a–2) and `src/shots2.tsx` (intro, 3–7, star), the
+scenes in `src/scenes.tsx`. The slides PDF renders each page from the final, fully built state of its shots.
 
 ## Tune (handoff 5)
 
