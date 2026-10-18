@@ -8,12 +8,10 @@ export const MAX_SECONDS = 299;
 
 // ---- Tunables for handoff 5 (one constant per scene) ----
 
-/** Seconds the slide shows before the screen recording takes over (the first quote of the section). */
-export const SLIDE_SECONDS: Record<'engineer' | 'teamLead' | 'manager', number> = {
-	engineer: 20,
-	teamLead: 16,
-	manager: 22,
-};
+/** The split scene: silent hold between the manager's take (s4) and the evidence take (s5), where "all lit" lands. */
+export const SPLIT_HOLD_SECONDS = 0.8;
+/** Playback speed of roles.mp4 in the split's proof clip. */
+export const PROOF_RATE = 3;
 
 /** Seconds at the end of the close during which the end card (slide 7) shows. */
 export const END_CARD_SECONDS = 9;
@@ -27,7 +25,7 @@ export const TAKE_PADDING_SECONDS = 1;
 /** Ring before the first dialog line in dialog.mp3. */
 export const DIALOG_LEAD_SECONDS = 2;
 
-export type SceneId = 'intro' | 'star' | 'coldOpen' | 'reveal' | 'engineer' | 'teamLead' | 'manager' | 'evidence' | 'benchmarks' | 'close';
+export type SceneId = 'intro' | 'star' | 'coldOpen' | 'reveal' | 'split' | 'benchmarks' | 'close';
 
 export type SceneTiming = {
 	id: SceneId;
@@ -36,7 +34,7 @@ export type SceneTiming = {
 	lengthFrom: AssetKey | null;
 	frames: number;
 	placeholder: boolean;
-	/** Close only, when the joint take s7-close.mp4 is missing: the per-presenter clips, back to back. */
+	/** The takes played back to back: the split (s2, s3, s4, hold, s5), and the close when s7-close.mp4 is missing. */
 	parts?: ScenePart[];
 };
 
@@ -45,23 +43,45 @@ export type ScenePart = {key: AssetKey; frames: number; placeholder: boolean};
 /** The per-presenter close clips, in order, used when the joint take is missing. */
 export const CLOSE_PARTS: AssetKey[] = ['s7a', 's7b', 's7c'];
 
+/** The split's takes, in order: engineer (A), team lead (B), manager (C), evidence (B). The hold sits before s5. */
+export const SPLIT_PARTS: AssetKey[] = ['s2', 's3', 's4', 's5'];
+
+/** Start frame of each split part within the scene, including the hold before s5. */
+export const splitStarts = (parts: ScenePart[]): number[] => {
+	const hold = secondsToFrames(SPLIT_HOLD_SECONDS);
+	let at = 0;
+	return parts.map((p, i) => {
+		if (i === parts.length - 1) at += hold;
+		const from = at;
+		at += p.frames;
+		return from;
+	});
+};
+
 const SCENES: {id: SceneId; label: string; lengthFrom: AssetKey | null; fixedSeconds?: number}[] = [
 	{id: 'intro', label: '0  Intro card', lengthFrom: null, fixedSeconds: INTRO_SECONDS},
 	{id: 'coldOpen', label: '1a Cold open', lengthFrom: 'dialog'},
 	{id: 'reveal', label: '1b Reveal', lengthFrom: 's1'},
-	{id: 'engineer', label: '2  Engineer', lengthFrom: 's2'},
-	{id: 'teamLead', label: '3  Team lead', lengthFrom: 's3'},
-	{id: 'manager', label: '4  Manager', lengthFrom: 's4'},
-	{id: 'evidence', label: '5  Evidence', lengthFrom: 's5'},
-	{id: 'benchmarks', label: '6  Benchmarks', lengthFrom: 's6'},
-	{id: 'close', label: '7  Close', lengthFrom: 's7'},
-	{id: 'star', label: '8  Star gag', lengthFrom: null, fixedSeconds: STAR_SECONDS},
+	{id: 'split', label: '2  Three roles', lengthFrom: 's2'},
+	{id: 'benchmarks', label: '3  Benchmarks', lengthFrom: 's6'},
+	{id: 'close', label: '4  Close', lengthFrom: 's7'},
+	{id: 'star', label: '5  Star gag', lengthFrom: null, fixedSeconds: STAR_SECONDS},
 ];
 
 export const secondsToFrames = (s: number) => Math.max(1, Math.ceil(s * FPS));
 
 export const buildTimeline = (assets: ResolvedAssets): SceneTiming[] =>
 	SCENES.map(({fixedSeconds, ...s}) => {
+		if (s.id === 'split') {
+			const parts = SPLIT_PARTS.map((key) => ({key, frames: secondsToFrames(assets[key].seconds), placeholder: !assets[key].present}));
+			const starts = splitStarts(parts);
+			return {
+				...s,
+				frames: starts[starts.length - 1] + parts[parts.length - 1].frames,
+				placeholder: parts.some((p) => p.placeholder),
+				parts,
+			};
+		}
 		if (s.id === 'close' && !assets.s7.present) {
 			const parts = CLOSE_PARTS.map((key) => ({
 				key,
@@ -101,27 +121,8 @@ export const describeTimeline = (scenes: SceneTiming[], assets: ResolvedAssets):
 	const total = totalFrames(scenes);
 	lines.push(`  ${'TOTAL'.padEnd(14)} ${fmt(total).padStart(6)}  limit ${fmt(MAX_SECONDS * FPS)}`);
 	lines.push(`  ${'music.mp3'.padEnd(14)} ${assets.music.present ? 'present (loops under the talk)' : 'absent, optional (silence)'}`);
-	const warnings = recordingWarnings(scenes, assets);
-	return [...lines, ...warnings.map((w) => `  WARNING: ${w}`)].join('\n');
+	return lines.join('\n');
 };
-
-const RECORDING_SLOTS: {scene: SceneId; rec: AssetKey; split: number}[] = [
-	{scene: 'engineer', rec: 'engineerRec', split: SLIDE_SECONDS.engineer},
-	{scene: 'teamLead', rec: 'teamLeadRec', split: SLIDE_SECONDS.teamLead},
-	{scene: 'manager', rec: 'managerRec', split: SLIDE_SECONDS.manager},
-];
-
-/** A real recording longer than its slot is cut at the end of the scene; say so. */
-export const recordingWarnings = (scenes: SceneTiming[], assets: ResolvedAssets): string[] =>
-	RECORDING_SLOTS.flatMap(({scene, rec, split}) => {
-		const t = scenes.find((s) => s.id === scene)!;
-		const slot = t.frames / FPS - split;
-		const a = assets[rec];
-		if (a.present && a.seconds > slot + 0.05) {
-			return [`${rec} is ${a.seconds.toFixed(1)} s but its slot is ${slot.toFixed(1)} s; the end is cut. Tune SLIDE_SECONDS.${scene}.`];
-		}
-		return [];
-	});
 
 export const assertWithinLimit = (scenes: SceneTiming[], assets: ResolvedAssets) => {
 	if (totalFrames(scenes) > MAX_SECONDS * FPS) {

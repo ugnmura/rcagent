@@ -302,6 +302,70 @@ export const close = {
 	],
 };
 
+// ---------------------------------------------------------------- 2 three roles, one split (s2 A · s3 B · s4 C · s5 B)
+// Replaces the separate engineer, team lead, manager and evidence scenes. Numbers come from the role blocks above
+// (each sourced there); the cues are the draft wording of docs/superpowers/specs/2026-10-19-three-way-split-design.md.
+// `at` names the cue on which each element lands.
+export const split = {
+	header: {ask: 'One log. Three questions.', answer: 'One log. Three answers.', scope: 'BGL + OpenStack · every entry, no sampling'},
+	labels: {question: 'Question', evidence: 'Evidence', next: 'Next step', query: 'query'},
+	proofNote: 'one session · /engineer, /team-lead, /manager · sped up',
+	engineer: {
+		role: 'Engineer',
+		question: 'What failed, and what came just before?',
+		hypothesis: 'Hypothesis: a failing L2 cache',
+		check: 'Check processor diagnostics',
+		cues: [
+			'Same agent, same logs, three people asking.',
+			'Watch it pick different tools for each.',
+			'The engineer asks: what failed?',
+			'One node, R30-M0-N9-C:J16-U01:',
+			'152,229 of 855,501 fatal entries, 17.8 percent.',
+			'Full-text search names it: data TLB error interrupt, non-stop from 17:17 to 23:39.',
+			'Just before, in the same second: an L2 cache read error.',
+			'Our hypothesis, labelled as one: a failing L2 cache.',
+			'Next check: processor diagnostics.',
+			"That's one node. But is it a pattern?",
+		],
+		at: {liftoff: 2, node: 3, share: 4, message: 5, before: 6, hypothesis: 7, check: 8},
+	},
+	teamLead: {
+		role: 'Team lead',
+		question: 'What keeps coming back?',
+		cues: [
+			'That needs counts, not examples:',
+			'every entry in both datasets, grouped by team.',
+			"The winner isn't the biggest number, it's the most persistent:",
+			'"Link has been severed", on 22 of 31 days in December, and not falling.',
+			'Investigate first: HPC Applications.',
+			'So what do we act on first?',
+		],
+		at: {question: 0, bars: 1, persistent: 3, first: 4},
+	},
+	manager: {
+		role: 'Manager',
+		question: 'What do we act on first?',
+		action: 'One owner, one action each',
+		cues: [
+			'The manager gets no node names:',
+			'five ranked risks, each with an owner and one action.',
+			'First: failing job launches, up 91 percent month over month.',
+			"And one honest line: these logs don't measure downtime or cost,",
+			"so the answer doesn't invent them.",
+		],
+		at: {question: 0, risks: 1, top: 2, limit: 3, allLit: 4},
+	},
+	evidence: {
+		cues: [
+			'And every number here is a query.',
+			'Open one: the exact SQL, its time, its rows.',
+			"The full-text count of 'data TLB error interrupt' is 152,734.",
+			"BGL's own labels: exactly 152,734.",
+		],
+		at: {open: 1, snap: 2},
+	},
+};
+
 // ---------------------------------------------------------------- 8 star gag (after the close)
 export const star = {
 	repo: {owner: 'serenedb', name: 'serenedb'},

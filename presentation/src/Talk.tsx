@@ -8,17 +8,14 @@ import {
 	BenchmarksScene,
 	CloseScene,
 	ColdOpenScene,
-	EngineerScene,
-	EvidenceScene,
 	IntroScene,
-	ManagerScene,
 	RevealScene,
 	StarScene,
-	TeamLeadScene,
 } from './scenes';
-import {type SceneId} from './timeline';
+import {SplitScene} from './split';
+import {type ScenePart, type SceneId} from './timeline';
 
-type SceneProps = {assets: ResolvedAssets; frames: number; benchmarks: Benchmarks | null};
+type SceneProps = {assets: ResolvedAssets; frames: number; benchmarks: Benchmarks | null; parts: ScenePart[]};
 
 const renderScene = (id: SceneId, p: SceneProps): React.ReactNode => {
 	switch (id) {
@@ -28,14 +25,8 @@ const renderScene = (id: SceneId, p: SceneProps): React.ReactNode => {
 			return <ColdOpenScene {...p} />;
 		case 'reveal':
 			return <RevealScene {...p} />;
-		case 'engineer':
-			return <EngineerScene {...p} />;
-		case 'teamLead':
-			return <TeamLeadScene {...p} />;
-		case 'manager':
-			return <ManagerScene {...p} />;
-		case 'evidence':
-			return <EvidenceScene {...p} />;
+		case 'split':
+			return <SplitScene assets={p.assets} frames={p.frames} parts={p.parts} />;
 		case 'benchmarks':
 			return <BenchmarksScene {...p} />;
 		case 'close':
@@ -54,7 +45,7 @@ export const Talk: React.FC<TalkProps> = ({assets, scenes, benchmarks: b}) => {
 			<Series>
 				{scenes.map((s) => (
 					<Series.Sequence key={s.id} durationInFrames={s.frames} name={s.label}>
-						{renderScene(s.id, {assets, frames: s.frames, benchmarks: b})}
+						{renderScene(s.id, {assets, frames: s.frames, benchmarks: b, parts: s.parts ?? []})}
 					</Series.Sequence>
 				))}
 			</Series>

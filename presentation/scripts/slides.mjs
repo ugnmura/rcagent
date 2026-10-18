@@ -1,11 +1,11 @@
-// Renders Slide1..Slide7 as PNG stills and combines them into out/slides.pdf (one 1920×1080 page each).
+// Renders Slide1..Slide5 as PNG stills and combines them into out/slides.pdf (one 1920×1080 page each).
 import {renderStill, selectComposition} from '@remotion/renderer';
 import {mkdir, readFile, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {PDFDocument} from 'pdf-lib';
 import {bundleProject, root} from './bundle.mjs';
 
-const SLIDE_COUNT = 7;
+const SLIDE_COUNT = 5;
 const outDir = path.join(root, 'out');
 const stillDir = path.join(outDir, 'slides');
 await mkdir(stillDir, {recursive: true});

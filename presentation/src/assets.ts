@@ -14,15 +14,14 @@ export type AssetSpec = {
 
 export const ASSETS = {
 	dialog: {file: 'dialog.mp3', kind: 'audio', placeholderSeconds: 20, target: '18–24 s'},
-	engineerRec: {file: 'engineer.mp4', kind: 'recording', placeholderSeconds: 40, target: '≤ 40 s'},
-	teamLeadRec: {file: 'team-lead.mp4', kind: 'recording', placeholderSeconds: 35, target: '≤ 35 s'},
-	managerRec: {file: 'manager.mp4', kind: 'recording', placeholderSeconds: 35, target: '≤ 35 s'},
+	/** One terminal recording of the three role prompts, played sped up as the split's proof clip. */
+	rolesRec: {file: 'roles.mp4', kind: 'recording', placeholderSeconds: 18, target: 'any length (played ~3×)'},
 	s1: {file: 's1-reveal.mp4', kind: 'facecam', placeholderSeconds: 40, target: '≤ 40 s'},
-	s2: {file: 's2-engineer.mp4', kind: 'facecam', placeholderSeconds: 45, target: '≤ 45 s'},
-	s3: {file: 's3-team-lead.mp4', kind: 'facecam', placeholderSeconds: 40, target: '≤ 40 s'},
-	s4: {file: 's4-manager.mp4', kind: 'facecam', placeholderSeconds: 40, target: '≤ 40 s'},
-	s5: {file: 's5-evidence.mp4', kind: 'facecam', placeholderSeconds: 35, target: '≤ 35 s'},
-	s6: {file: 's6-benchmarks.mp4', kind: 'facecam', placeholderSeconds: 40, target: '≤ 40 s'},
+	s2: {file: 's2-engineer.mp4', kind: 'facecam', placeholderSeconds: 32, target: '≤ 32 s'},
+	s3: {file: 's3-team-lead.mp4', kind: 'facecam', placeholderSeconds: 25, target: '≤ 25 s'},
+	s4: {file: 's4-manager.mp4', kind: 'facecam', placeholderSeconds: 25, target: '≤ 25 s'},
+	s5: {file: 's5-evidence.mp4', kind: 'facecam', placeholderSeconds: 15, target: '≤ 15 s'},
+	s6: {file: 's6-benchmarks.mp4', kind: 'facecam', placeholderSeconds: 15, target: '≤ 15 s'},
 	s7: {file: 's7-close.mp4', kind: 'facecam', placeholderSeconds: 25, target: '≤ 25 s'},
 	/** Used only while s7-close.mp4 (the joint take) is missing: one close clip per presenter, back to back. */
 	s7a: {file: 's7-close-a.mp4', kind: 'facecam', placeholderSeconds: 8, target: '≤ 8 s'},

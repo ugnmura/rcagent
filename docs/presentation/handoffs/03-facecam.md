@@ -12,9 +12,9 @@ set in `presentation/src/content.ts` (`presenters`).
 
 | presenter | sections |
 |---|---|
-| A | reveal (s1), engineer (s2) |
-| B | team lead (s3), evidence (s5) |
-| C | manager (s4), benchmarks (s6) |
+| A | reveal (s1), engineer column of the split (s2) |
+| B | team lead column (s3), evidence (s5) |
+| C | manager column (s4), benchmarks (s6) |
 | all three | close (s7) |
 
 ## Files
@@ -24,12 +24,15 @@ Read the quotes of each section in `docs/presentation/script.md` word for word.
 | file | who | script section | facecam shown as | target length |
 |---|---|---|---|---|
 | `s1-reveal.mp4` | A | 0:00–1:00, the three quotes after the dialog ("The reveal" … "Let's answer that phone call.") | full screen, then corner | ≤ 40 s |
-| `s2-engineer.mp4` | A | 1:00–1:45 Engineer | corner | ≤ 45 s |
-| `s3-team-lead.mp4` | B | 1:45–2:25 Team lead | corner | ≤ 40 s |
-| `s4-manager.mp4` | C | 2:25–3:05 Manager | corner | ≤ 40 s |
-| `s5-evidence.mp4` | B | 3:05–3:40 Why you can trust the numbers | corner | ≤ 35 s |
-| `s6-benchmarks.mp4` | C | 3:40–4:20 Benchmarks | corner | ≤ 40 s |
-| close, see below | all | 4:20–4:45 Close | full screen | ≤ 25 s in total |
+| `s2-engineer.mp4` | A | Three roles: "A, engineer column" | corner | ≤ 32 s |
+| `s3-team-lead.mp4` | B | Three roles: "B, team lead column" | corner | ≤ 25 s |
+| `s4-manager.mp4` | C | Three roles: "C, manager column" | corner | ≤ 25 s |
+| `s5-evidence.mp4` | B | Three roles: "B, evidence" | corner | ≤ 15 s |
+| `s6-benchmarks.mp4` | C | Benchmarks | corner | ≤ 15 s |
+| close, see below | all | Close | full screen | ≤ 25 s in total |
+
+s2–s5 play back to back as one scene; each column builds on its presenter's sentences, so read them in
+order and keep a short pause between sentences.
 
 **The close**, either way:
 
@@ -60,5 +63,5 @@ Record `s6-benchmarks.mp4` last: its numbers are TODO until the benchmark runs f
 ## Done when
 
 All six section files and the close (one joint file or three clips) exist, each within its target length,
-`s6` possibly still a placeholder, and the sum of their lengths plus `dialog.mp3` is under 4:45. The three
+`s6` possibly still a placeholder, and the sum of their lengths plus `dialog.mp3` is about 3:30 (limit 4:45). The three
 names are set in `content.ts`.

@@ -20,7 +20,7 @@ with every number checked.
    affected facecam take if the spoken number changed.
    The evidence handle is a live value too: the script and slide 5 say `[Q46]`, but each session numbers its
    own queries. Use the handle the engineer recording shows (in `content.ts` `handle`, the script and the doc).
-4. **Drop in the assets** and run `npm run check`. Tune `SLIDE_SECONDS` in `presentation/src/timeline.ts`
+4. **Drop in the assets** and run `npm run check`. Tune `SPLIT_HOLD_SECONDS` / `PROOF_RATE` in `presentation/src/timeline.ts`
    per scene so each recording gets its full length; `npm run check` warns when a recording is cut.
 5. **Render** `npm run render` and `npm run slides`.
 
@@ -32,7 +32,7 @@ with every number checked.
 - The cold open shows the dramatization label for its whole length.
 - Subtitles match the spoken words.
 - Watch the full video once at normal speed with sound, and once muted (subtitles only).
-- The PDF has 7 pages, readable at 100 % zoom, and no TODO stamps.
+- The PDF has 5 pages, readable at 100 % zoom, and no TODO stamps.
 
 ## Deliver
 

@@ -1,7 +1,7 @@
 # Presentation: Making Sense of Logs
 
 Remotion project that renders the demo video (`out/video.mp4`, 1920×1080, 30 fps, ≤ 4:59) and the slides PDF
-(`out/slides.pdf`, 7 pages) from the same slide components. Spec: `docs/presentation/handoffs/04-remotion.md`;
+(`out/slides.pdf`, 5 pages) from the same slide components. Spec: `docs/presentation/handoffs/04-remotion.md`;
 words and numbers: `docs/presentation/script.md`.
 
 ## Setup
@@ -24,7 +24,7 @@ Drop files into `public/assets/` under the exact names of the asset contract
 | `dialog.mp3` | cold-open audio | scene 1a |
 | `s1-reveal.mp4` … `s7-close.mp4` | facecam + narration audio | scenes 1b–7 |
 | `s7-close-a.mp4`, `s7-close-b.mp4`, `s7-close-c.mp4` | one close clip per presenter (≤ 8 s each), used only while the joint take `s7-close.mp4` is missing; played back to back with hard cuts | scene 7 (their sum) |
-| `engineer.mp4`, `team-lead.mp4`, `manager.mp4` | screen recordings (muted) | nothing; they fill the slot after the slide |
+| `roles.mp4` | one screen recording (muted), the three role prompts | nothing; played ~3× as the split's proof clip |
 | `benchmarks.json` | slide 6 numbers | – |
 | `music.mp3` (optional) | music bed under the whole talk: loops, low, ducked under every voice, fades in and out | nothing |
 
@@ -45,7 +45,7 @@ In the split close each clip shows its speaker's tag. Placeholders name the pres
 ## Preview, check, render
 
 ```sh
-npm run studio   # Remotion Studio: compositions Talk and Slide1..Slide7
+npm run studio   # Remotion Studio: compositions Talk and Slide1..Slide5
 npm run check    # type-check, then print each scene's length and the total (fails over 4:59)
 npm run render   # out/video.mp4
 npm run slides   # out/slides/SlideN.png and out/slides.pdf
@@ -71,7 +71,7 @@ scenes in `src/scenes.tsx`. The slides PDF renders each page from the final, ful
 
 All in `src/timeline.ts`:
 
-- `SLIDE_SECONDS`: per role scene, how long the slide shows before the recording (the first quote).
+- `SPLIT_HOLD_SECONDS`, `PROOF_RATE`: the pause before the evidence take in the split, and the proof clip's speed.
   `npm run check` warns when a recording is longer than its slot (it would be cut).
 - `END_CARD_SECONDS`: how long the end card shows at the end of the close.
 - Subtitle cues (in `src/content.ts`) share each scene in proportion to their length, after 1 s of silence
