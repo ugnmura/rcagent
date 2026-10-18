@@ -561,11 +561,30 @@ def trend(
             late = f" in the sample (a {unit} with no sampled entry may still have some; {blind} had no sampled entries at all)"
         skipped = f" ({edge} partial {unit}{'' if edge == 1 else 's'} at the edge of the period or the data not counted)" if edge else ""
         out.append(f"    present in {present} of {len(whole_now)} {unit}s{late}{skipped}")
+        out.append("    " + _peak(cur_buckets, per_now, now, zone, unit, plan.exact))
         out.append("    " + _components(series[i], lt, plan))
         if (teams := _teams(ctx, series[i], lt, plan)) is not None:
             out.append("    " + teams)
         out += _series_lines(per_now, per_before, unit, plan.exact)
     return "\n".join(out)
+
+
+def _peak(
+    buckets: list[datetime], per: list[fmt.Measured], total: fmt.Measured, zone: tzinfo, unit: Bucket, exact: bool
+) -> str:
+    """The bucket of this period holding the most entries (the earliest on a tie) and its share of the
+    period, so a one-off burst reads apart from a persistent problem. Estimated on a sampled run."""
+    if exact:
+        head, approx = "peak", ""
+    else:
+        head, approx = "peak (estimated)", "≈"
+    seen = [(m.value, -i) for i, m in enumerate(per) if m.value > 0 and not _unsampled(m)]
+    if not seen or total.value <= 0:
+        return f"{head}: none in {'this period' if exact else 'the sample'}"
+    value, neg_i = max(seen)
+    share = round(value / total.value * 100)
+    amount = f"{round(value):,}" if exact else f"{round(float(f'{value:.3g}')):,}"
+    return f"{head}: {_label(buckets[-neg_i], zone, unit)} with {approx}{amount} entries ({approx}{share}% of this period)"
 
 
 def _components(s: Series, lt: LogTable, plan: cost.Plan) -> str:
