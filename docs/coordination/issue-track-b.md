@@ -1,4 +1,4 @@
-# DRAFT — issue for OrFrederick/serenedb-bench (not published)
+# Published as https://github.com/OrFrederick/serenedb-bench/issues/1 (this file is the source; the issue is authoritative)
 
 **Title:** RCAEval with metrics and traces: bench track (claimable units)
 

@@ -4,7 +4,7 @@ Give this to Claude Code in a checkout of `OrFrederick/serenedb-bench`. It works
 
 ---
 
-You are joining an ongoing, time-boxed piece of work: running the RCAEval root-cause benchmark against the SereneDB extractor's new metric and trace tools. Several people's Claude sessions work on it at the same time. Coordinate only through GitHub issue <ISSUE URL> in OrFrederick/serenedb-bench.
+You are joining an ongoing, time-boxed piece of work: running the RCAEval root-cause benchmark against the SereneDB extractor's new metric and trace tools. Several people's Claude sessions work on it at the same time. Coordinate only through GitHub issue https://github.com/OrFrederick/serenedb-bench/issues/1.
 
 Before anything else:
 
