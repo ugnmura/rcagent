@@ -51,6 +51,7 @@ from serenedb_extractor.tools.trend import (
     _seen_buckets,
     _tmpl_number,
     _ts_local,
+    preceding_start,
 )
 
 # Severity of a level value (case-insensitive); levels not listed (INFO, DEBUG, ...) are not problems.
@@ -157,7 +158,7 @@ def _rank_one(
         return run
     cur = parse_time_range(start, end, tz)
     assert cur.start is not None and cur.end is not None
-    prev_start = cur.start - (cur.end - cur.start)
+    prev_start = preceding_start(cur.start, cur.end, get_zone(tz))
     prev = TimeRange(prev_start, cur.start, tz)
     tr_all = TimeRange(prev_start, cur.end, tz)
     run.period = f"{cur.describe()} against {prev.describe()}"

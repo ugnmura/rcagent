@@ -149,3 +149,18 @@ def test_the_zone_is_reset_even_when_the_statement_fails(monkeypatch):
     except dbmod.PermissionRefused:
         pass
     assert seen == ["SET TimeZone = 'America/Los_Angeles'", "SELECT 1", "RESET TimeZone"]
+
+
+def test_preceding_period_keeps_local_midnight_across_a_dst_change():
+    from datetime import UTC, datetime
+    from zoneinfo import ZoneInfo
+
+    from serenedb_extractor.tools.trend import preceding_start
+
+    la = ZoneInfo("America/Los_Angeles")
+    start = datetime(2005, 11, 1, tzinfo=la).astimezone(UTC)
+    end = datetime(2005, 12, 1, tzinfo=la).astimezone(UTC)
+    assert preceding_start(start, end, la).astimezone(la).replace(tzinfo=None) == datetime(2005, 10, 2)
+    start = datetime(2005, 10, 29, tzinfo=la).astimezone(UTC)
+    end = datetime(2005, 11, 1, tzinfo=la).astimezone(UTC)
+    assert preceding_start(start, end, la).astimezone(la).replace(tzinfo=None) == datetime(2005, 10, 26)
