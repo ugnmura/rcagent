@@ -306,6 +306,11 @@ def docker_cp(container: str, files: dict[str, Path], target_dir: str) -> dict[s
     return out
 
 
+# The zone each log's timestamps were written in. BGL records US Pacific local time: its epoch column
+# 1117838570 is 2005-06-03 22:42:50 UTC, and the same line's time reads 2005-06-03-15.42.50.
+ZONES = {"bgl": "America/Los_Angeles", "openstack": "UTC"}
+
+
 def setup_tables(sources: dict[str, str], replace: bool, rewritten: set[str]) -> None:
     """Set up each log table; one whose file was rewritten now (or that points elsewhere, with --replace) is
     registered again so its entry count and roles match the new file (its template catalog starts over)."""
@@ -319,7 +324,11 @@ def setup_tables(sources: dict[str, str], replace: bool, rewritten: set[str]) ->
         known = {lt.name: lt for lt in ctx.store.list_log_tables()}
         for name, source in sources.items():
             if name in known and known[name].source == source and name not in rewritten:
-                log(f"log table '{name}' is already set up for {source}; nothing to do")
+                if known[name].timezone != ZONES[name]:
+                    setup_tools.setup_log_table(ctx, name=name, source=source, timezone=ZONES[name])
+                    log(f"log table '{name}': time zone corrected from {known[name].timezone} to {ZONES[name]}")
+                else:
+                    log(f"log table '{name}' is already set up for {source}; nothing to do")
                 continue
             if name in known:
                 if known[name].source != source and not replace:
@@ -330,7 +339,7 @@ def setup_tables(sources: dict[str, str], replace: bool, rewritten: set[str]) ->
                     ctx.db.write(f"DELETE FROM extractor.{table} WHERE {col} = %(n)s", {"n": name})
                 ctx.db.write(f"DROP VIEW IF EXISTS {known[name].relation}")
             began = time.perf_counter()
-            out = setup_tools.setup_log_table(ctx, name=name, source=source, roles=ROLES[name])
+            out = setup_tools.setup_log_table(ctx, name=name, source=source, roles=ROLES[name], timezone=ZONES[name])
             log(f"setup of '{name}' took {time.perf_counter() - began:.1f} s:\n" + out)
     finally:
         ctx.db.close()

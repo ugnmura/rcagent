@@ -120,6 +120,8 @@ Parsing notes:
 - A few hundred malformed BGL lines (a missing node name, stray text) are parsed by anchoring on the event
   type. Lines that still don't parse are kept with only their message, so whole-corpus counts stay complete.
 - Row groups hold 50,000 entries, so sampled estimates can spread across the whole period.
+- `bgl` is set up in `America/Los_Angeles` (BGL logs US Pacific local time; see [Time zones](#time-zones)) and
+  `openstack` in UTC. Running the loader again corrects the zone of a table set up before this.
 
 Data licence: Loghub is research-use only and needs a citation: Zhu et al., *Loghub: A Large Collection of
 System Log Datasets for AI-driven Log Analytics*, ISSRE 2023. For BGL, also Oliner & Stearley, DSN 2007.
