@@ -67,7 +67,7 @@ result. BARO is not a like-for-like contestant. Details: [docs/EVALUATION.md](do
 ## How it works
 
 <p align="center">
-  <img src="docs/img/flow.svg" alt="You ask Claude a question. Claude calls an RCAgent tool, and the tool runs SQL in SereneDB. Counts come back with an evidence ID (Q46), Claude answers citing it, and every query is saved so you can check any number." width="100%">
+  <img src="docs/img/flow.svg" alt="You ask Claude a question. Claude calls an RCAgent tool, and the tool runs SQL in SereneDB. Templating (Drain3 + SereneDB regex) sits with the MCP tools. Counts come back with an evidence ID (Q46), Claude answers citing it, and every query is saved so you can check any number." width="100%">
 </p>
 
 Claude sees query results, never raw logs. Each query is saved as `Q<n>`, and `show_evidence` shows its SQL.
