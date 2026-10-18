@@ -22,10 +22,10 @@ from serenedb_extractor.query.filters import (
     time_clause,
 )
 from serenedb_extractor.query import cost, sampling
-from serenedb_extractor.query.stats import role_columns
+from serenedb_extractor.query.stats import role_columns, table_columns
 from serenedb_extractor.query import indexcover
 from serenedb_extractor.setup.roles import resolve_column, role_column, role_lines
-from serenedb_extractor.setup.sniff import readable, relation_columns
+from serenedb_extractor.setup.sniff import readable
 from serenedb_extractor.ownership import STAND_IN, team_of
 from serenedb_extractor.timezones import is_utc
 
@@ -44,7 +44,8 @@ def context_scopes(roles: FieldRoles) -> list[str]:
 
 
 def known_columns(db: Database, lt: LogTable) -> dict[str, str]:
-    return dict(relation_columns(db, lt.relation, lt.source))
+    """The log table's columns (name -> type), read once per tool call."""
+    return table_columns(db, lt)
 
 
 def _top_values(

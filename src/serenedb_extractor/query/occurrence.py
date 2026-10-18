@@ -23,16 +23,21 @@ def kind(lt: LogTable) -> str | None:
     return "pk" if lt.roles.order is not None else None
 
 
-def select_sql(lt: LogTable) -> str:
-    """Extra SELECT items (with a leading comma) that `encode_occurrence` needs, or ""."""
+def select_items(lt: LogTable) -> list[tuple[str, str]]:
+    """(expression, alias) of every column `encode_occurrence` needs."""
     k = kind(lt)
     if k == "file":
-        return ", filename AS occ_file, file_row_number AS occ_row"
+        return [("filename", "occ_file"), ("file_row_number", "occ_row")]
     if k == "entry":
-        return ", entry_id AS occ_row"
+        return [("entry_id", "occ_row")]
     if k == "pk":
-        return f", ({role_sql(lt, 'order')})::varchar AS occ_pk"
-    return ""
+        return [(f"({role_sql(lt, 'order')})::varchar", "occ_pk")]
+    return []
+
+
+def select_sql(lt: LogTable) -> str:
+    """Extra SELECT items (with a leading comma) that `encode_occurrence` needs, or ""."""
+    return "".join(f", {e} AS {a}" for e, a in select_items(lt))
 
 
 def encode_occurrence(lt: LogTable, row: dict[str, Any]) -> str:
