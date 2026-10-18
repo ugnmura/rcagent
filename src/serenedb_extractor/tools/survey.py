@@ -39,7 +39,7 @@ from serenedb_extractor.setup.roles import resolve_column
 from serenedb_extractor.setup.sniff import human_bytes, readable
 from serenedb_extractor.templating.drain import Breakdown, MaskedGroup, MergedTemplate, merge_groups
 from serenedb_extractor.templating.masking import mask_sql
-from serenedb_extractor.templating.regex import compile_template
+from serenedb_extractor.templating.regex import compile_template, without_nul
 from serenedb_extractor.query.templatematch import template_match_sql
 from serenedb_extractor.query.coverage import untimestamped_note
 from serenedb_extractor.tools.describe import known_columns
@@ -101,7 +101,8 @@ def _scan_groups(
     rows = _read(ctx, lt, sql, run_params, timeout).dicts()
     by_mask: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
-        by_mask.setdefault(row["m"], []).append(row)
+        row["example"] = without_nul(row["example"] or "")
+        by_mask.setdefault(without_nul(row["m"] or ""), []).append(row)
     groups: list[MaskedGroup] = []
     per_block: BlockCounts = {}
     sampled = 0

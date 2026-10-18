@@ -408,8 +408,12 @@ def _render(runs: list[TableRun], f: Filters, floor: int, limit: int) -> str:
             f"{i}. score {p.score}/18  [{p.lt.name} {p.template.template_id}] {fmt.shorten(fmt.template_text(p.template.template), 160)}",
             f"    {p.now:,} entries this period (exact; {levels}), {100 * p.now / r.severe_total:.1f}% of the entries ranked in {p.lt.name}",
             f"    change: {p.change}",
-            f"    present in {len(p.buckets)} of {r.whole} whole {r.unit}s; spread: {p.spots:,} distinct {r.spot}"
-            + ("" if p.spots == 1 else "s"),
+            f"    present in {len(p.buckets)} of {r.whole} whole {r.unit}s; "
+            + (
+                f"spread: {p.spots:,} distinct {r.spot}" + ("" if p.spots == 1 else "s")
+                if r.spot != "entry"
+                else "spread: not measured (no host, service or component field)"
+            ),
         ]
         owners = sorted(p.owners, key=lambda v: -p.owners[v])
         if r.owner_role and owners and owners != ["None"]:
