@@ -17,6 +17,7 @@ from typing import Any, Literal
 
 from serenedb_extractor import format as fmt
 from serenedb_extractor.catalog.models import CandidateTemplate, LogTable, Template, UpsertResult
+from serenedb_extractor.catalog.store import covering
 from serenedb_extractor.context import AppContext
 from serenedb_extractor.ownership import Rule, team_of
 from serenedb_extractor.db import Rows
@@ -521,13 +522,28 @@ def _render(
     ]
     if note:
         out.append(note)
+    if any(saved[m.template][1] == "new" for m in shown):
+        out.append(
+            "NEW TO CATALOG marks a template this server sees for the first time, not a problem that started now; "
+            "trend tells whether a problem is new."
+        )
+    catalog = ctx.store.templates(lt.name)
     for m in shown:
         template, status = saved[m.template]
         measured = measures[m.template]
-        flag = {"new": "  NEW", "generalized": "  GENERALIZED"}.get(status, "")
+        flag = {"new": "  NEW TO CATALOG", "generalized": "  GENERALIZED"}.get(status, "")
+        wider = covering(template, catalog)
+        part_of = f"  (a narrower form of {wider.template_id}, which trend and rank_problems count)" if wider is not template else ""
         out.append("")
-        out.append(f"{template.template_id}  {fmt.template_text(m.template)}{flag}")
-        out.append(f"    {fmt.render(measured)}, {_share(m.count, run.sampled, exact)} of matching entries")
+        out.append(f"{template.template_id}  {fmt.template_text(m.template)}{flag}{part_of}")
+        # The share follows the count shown: from the estimate when sampled (a sample's raw hit ratio can disagree
+        # with a block estimate), so the two never contradict each other.
+        share = (
+            _share(m.count, run.sampled, exact)
+            if exact or not run.population.value
+            else _share(round(measured.value), round(run.population.value))
+        )
+        out.append(f"    {fmt.render(measured)}, {share} of matching entries")
         for role in ("service", "component"):
             line = _breakdown_line(role, m.breakdown.get(role, {}), m.count, exact)
             if line:

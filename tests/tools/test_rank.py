@@ -80,3 +80,16 @@ def test_breadth_weighs_wildcards_above_typed_placeholders():
     from serenedb_extractor.catalog.store import breadth
 
     assert breadth("x <*> <*>") == 4 and breadth("x <PATH>") == 1 and breadth("plain text") == 0
+
+
+async def test_unknown_team_is_named_not_reported_as_an_empty_period(mcp, corpus):
+    out = await call(mcp, "rank_problems", log_tables=["bgl"], start="2005-06-09", end="2005-06-15", filters={"team": "Nobody"})
+    assert "nothing matched the filters" in out and "Nobody" in out and "no entries at all" not in out
+
+
+async def test_a_table_without_teams_is_skipped_not_fatal(mcp, corpus, tmp_path):
+    log = tmp_path / "plain.log"
+    log.write_text("2005-06-10T00:00:00Z ERROR something broke\n", encoding="utf-8")
+    await call(mcp, "setup_log_table", name="plain", source=str(log))
+    out = await call(mcp, "rank_problems", start="2005-06-09", end="2005-06-15", filters={"team": "Node OS"})
+    assert "Log table plain: not ranked" in out and _items(out)
