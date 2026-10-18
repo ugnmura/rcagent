@@ -4,14 +4,14 @@ import json
 import re
 from pathlib import Path
 
-from serenedb_extractor.config import Settings
+from rcagent.config import Settings
 
 MCP_JSON = Path(__file__).resolve().parents[1] / ".mcp.json"
 EXPANSION = re.compile(r"\$\{(\w+)(?::-([^}]*))?\}")  # Claude Code's ${VAR} / ${VAR:-default}
 
 
 def _server() -> dict:
-    return json.loads(MCP_JSON.read_text())["mcpServers"]["serenedb-extractor"]
+    return json.loads(MCP_JSON.read_text())["mcpServers"]["rcagent"]
 
 
 def _expand(value: str, env: dict[str, str]) -> str:
@@ -20,7 +20,7 @@ def _expand(value: str, env: dict[str, str]) -> str:
 
 def test_command_runs_the_project_entry_point() -> None:
     server = _server()
-    assert [server["command"], *server["args"]] == ["uv", "run", "--directory", ".", "serenedb-extractor"]
+    assert [server["command"], *server["args"]] == ["uv", "run", "--directory", ".", "rcagent"]
 
 
 def test_every_env_value_is_an_overridable_variable_of_the_same_name() -> None:

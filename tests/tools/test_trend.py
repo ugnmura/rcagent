@@ -40,7 +40,7 @@ P = {"start": "2026-03-15", "end": "2026-03-29"}
 @pytest.fixture
 def sampled(monkeypatch):
     """Pretend an exact count does not fit the budget, so trend estimates from a block sample."""
-    from serenedb_extractor.tools import trend
+    from rcagent.tools import trend
 
     monkeypatch.setattr(trend, "EXACT_WITHIN_S", 0.0)
 
@@ -122,7 +122,7 @@ async def test_bad_bucket(mcp, trend_lt):
 
 
 async def test_too_expensive_asks_before_running(mcp, trend_lt, monkeypatch):
-    from serenedb_extractor.query import cost
+    from rcagent.query import cost
 
     monkeypatch.setattr(cost, "THROUGHPUT_BYTES_PER_S", {"remote": 1.0, "local": 1.0})
     out = await call(mcp, "trend", log_table="tr", templates=[trend_lt["rise"]], exact=True, **P)

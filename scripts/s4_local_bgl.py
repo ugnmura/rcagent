@@ -22,8 +22,8 @@ from collections import Counter, defaultdict
 import psycopg
 import psycopg.conninfo
 
-from serenedb_extractor.templating.drain import MaskedGroup, merge_groups
-from serenedb_extractor.templating.masking import mask_sql
+from rcagent.templating.drain import MaskedGroup, merge_groups
+from rcagent.templating.masking import mask_sql
 
 URL = os.environ.get("SERENEDB_TEST_URL", "postgresql://postgres@localhost:17890/postgres")
 DB = "s4_bgl"

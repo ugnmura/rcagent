@@ -4,10 +4,10 @@ from datetime import UTC, datetime
 
 import pytest
 
-from serenedb_extractor.catalog.models import FieldRoles, LogTable
-from serenedb_extractor.errors import UserFacingError
-from serenedb_extractor.query.stats import GroupStat, ScopeStats
-from serenedb_extractor.tools.context import _lookup_scope
+from rcagent.catalog.models import FieldRoles, LogTable
+from rcagent.errors import UserFacingError
+from rcagent.query.stats import GroupStat, ScopeStats
+from rcagent.tools.context import _lookup_scope
 
 
 def _lt(mode: str, fmt: str) -> LogTable:
@@ -44,7 +44,7 @@ def test_copied_entry_lookup_without_a_key_is_priced_as_a_full_read():
 
 @pytest.mark.db
 def test_entry_id_key_is_read_from_the_table_metadata(database):
-    from serenedb_extractor.tools.context import entry_id_is_key
+    from rcagent.tools.context import entry_id_is_key
 
     database.write("CREATE SCHEMA IF NOT EXISTS lookup_probe", {})
     try:

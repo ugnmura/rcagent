@@ -7,6 +7,8 @@
 #                               log tables from the sample to the full corpus)
 #
 # A second run is a no-op: the container is reused and every loader step is skipped when its output exists.
+# An existing container is reused only if this script created it with the same image, port and logs folder;
+# otherwise the script stops rather than load into another SereneDB (SERENEDB_REUSE=1 overrides).
 #
 # Settings (environment variables, with defaults):
 #   SERENEDB_CONTAINER=serenedb   container name
@@ -14,6 +16,7 @@
 #   LOGS_HOST_DIR=~/logs          folder mounted read-only into the container; the corpus goes under it
 #   LOGS_CONTAINER_DIR=/logs      where the container sees that folder
 #   SERENEDB_IMAGE                override the image chosen below
+#   SERENEDB_REUSE=1              reuse an existing container named SERENEDB_CONTAINER even if it does not match
 #   SAMPLE_LINES=50000            lines per log file with --sample
 #
 # Image: on an x86-64 Docker host, 26.10.1 (the digest the project was verified against). On an arm64 host
@@ -36,7 +39,7 @@ loader_args=()
 for arg in "$@"; do
   case "$arg" in
     --sample) sample=1 ;;
-    -h | --help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h | --help) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) loader_args+=("$arg") ;;
   esac
 done
@@ -57,24 +60,48 @@ unset SERENEDB_WRITER_URL  # single-role mode, as in the README quick start
 
 # ---------------------------------------------------------------- container
 
-if docker ps --format '{{.Names}}' | grep -qx "$NAME"; then
-  say "reusing running container '$NAME' ($(docker inspect -f '{{.Config.Image}}' "$NAME"))"
-elif docker ps -a --format '{{.Names}}' | grep -qx "$NAME"; then
-  say "starting existing container '$NAME' ($(docker inspect -f '{{.Config.Image}}' "$NAME"))"
-  docker start "$NAME" >/dev/null
+arch=$(docker info --format '{{.Architecture}}' 2>/dev/null || uname -m)
+if [[ -n "${SERENEDB_IMAGE:-}" ]]; then
+  image=$SERENEDB_IMAGE why="SERENEDB_IMAGE is set"
+elif [[ "$arch" == aarch64 || "$arch" == arm64 ]]; then
+  image=$IMAGE_ARM64
+  why="arm64 Docker host: SereneDB 26.09.2 runs natively (26.10.1 crashes under amd64 emulation)"
 else
-  arch=$(docker info --format '{{.Architecture}}' 2>/dev/null || uname -m)
-  if [[ -n "${SERENEDB_IMAGE:-}" ]]; then
-    image=$SERENEDB_IMAGE why="SERENEDB_IMAGE is set"
-  elif [[ "$arch" == aarch64 || "$arch" == arm64 ]]; then
-    image=$IMAGE_ARM64
-    why="arm64 Docker host: SereneDB 26.09.2 runs natively (26.10.1 crashes under amd64 emulation)"
-  else
-    image=$IMAGE_AMD64 why="$arch Docker host: SereneDB 26.10.1"
+  image=$IMAGE_AMD64 why="$arch Docker host: SereneDB 26.10.1"
+fi
+
+if docker ps -a --format '{{.Names}}' | grep -qx "$NAME"; then
+  # Reuse only a container this script created with the same image, port and logs folder: anything else may
+  # be another SereneDB (other version, other data) that the loader would write into.
+  have_label=$(docker inspect -f '{{index .Config.Labels "rcagent.up"}}' "$NAME")
+  have_image=$(docker inspect -f '{{.Config.Image}}' "$NAME")
+  have_port=$(docker inspect -f '{{range (index .HostConfig.PortBindings "7890/tcp")}}{{.HostPort}}{{end}}' "$NAME")
+  have_dir=$(docker inspect -f "{{range .Mounts}}{{if eq .Destination \"$CONTAINER_DIR\"}}{{.Source}}{{end}}{{end}}" "$NAME")
+  problems=()
+  [[ "$have_label" == 1 ]] || problems+=("it was not created by scripts/up.sh")
+  [[ "$have_image" == "$image" ]] || problems+=("its image is $have_image, expected $image")
+  [[ "$have_port" == "$PORT" ]] || problems+=("it publishes port ${have_port:-none}, expected $PORT")
+  [[ "$have_dir" == "$HOST_DIR" ]] || problems+=("it mounts ${have_dir:-nothing} at $CONTAINER_DIR, expected $HOST_DIR")
+  if (( ${#problems[@]} )) && [[ "${SERENEDB_REUSE:-}" != 1 ]]; then
+    printf "up.sh: a container named '%s' exists, but:\n" "$NAME" >&2
+    printf '  - %s\n' "${problems[@]}" >&2
+    cat >&2 <<EOF
+The base corpus would be loaded into it. To use a separate SereneDB instead, pick another name and port:
+    SERENEDB_CONTAINER=rcagent-serenedb SERENEDB_PORT=7891 ./scripts/up.sh
+To load into this container anyway: SERENEDB_REUSE=1 ./scripts/up.sh
+EOF
+    exit 1
   fi
+  if docker ps --format '{{.Names}}' | grep -qx "$NAME"; then
+    say "reusing running container '$NAME' ($have_image)"
+  else
+    say "starting existing container '$NAME' ($have_image)"
+    docker start "$NAME" >/dev/null
+  fi
+else
   say "starting '$NAME' from $image"
   say "  why: $why"
-  docker run -d --name "$NAME" -e SERENEDB_HOST_AUTH_METHOD=trust \
+  docker run -d --name "$NAME" --label rcagent.up=1 -e SERENEDB_HOST_AUTH_METHOD=trust \
     -p "127.0.0.1:${PORT}:7890" -v "${HOST_DIR}:${CONTAINER_DIR}:ro" "$image" >/dev/null
 fi
 
@@ -122,8 +149,8 @@ say "smoke check"
 uv run --quiet python - <<'PY'
 import os, sys
 sys.path.insert(0, "src")
-from serenedb_extractor.config import Settings
-from serenedb_extractor.context import AppContext
+from rcagent.config import Settings
+from rcagent.context import AppContext
 
 ctx = AppContext.from_settings(Settings.from_env(os.environ))
 try:
@@ -142,7 +169,7 @@ PY
 
 cat <<EOF
 
-Ready. Next step: start Claude Code in this folder and approve the project MCP server 'serenedb-extractor'
+Ready. Next step: start Claude Code in this folder and approve the project MCP server 'rcagent'
 (from .mcp.json), then ask, for example:
 
     claude

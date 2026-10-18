@@ -4,11 +4,11 @@ scope's metadata is collected once per tool call."""
 
 from datetime import UTC, datetime
 
-from serenedb_extractor.catalog.models import FieldRoles, LogTable
-from serenedb_extractor.config import Settings
-from serenedb_extractor.db import Rows
-from serenedb_extractor.query import stats
-from serenedb_extractor.query.filters import TimeRange
+from rcagent.catalog.models import FieldRoles, LogTable
+from rcagent.config import Settings
+from rcagent.db import Rows
+from rcagent.query import stats
+from rcagent.query.filters import TimeRange
 
 
 class RecordingDb:

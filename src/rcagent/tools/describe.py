@@ -1,0 +1,532 @@
+"""describe_logs: what is set up, what values exist, and why a lookup came back empty."""
+
+from dataclasses import dataclass, field
+
+from rcagent import format as fmt
+from rcagent.catalog.models import ROLE_FIELDS, FieldRoles, LogTable
+from rcagent.context import AppContext
+from rcagent.db import Database, quote_ident
+from rcagent.errors import UserFacingError
+from rcagent.query.templatematch import _like_pattern
+from rcagent.query.filters import (
+    FILTER_ROLES,
+    Filters,
+    ScanTooExpensive,
+    TimeRange,
+    build_where,
+    data_range,
+    diagnose_empty,
+    parse_time_range,
+    role_sql,
+    shown_zone,
+    time_clause,
+)
+from rcagent.query import cost, sampling
+from rcagent.query.stats import role_columns, table_columns
+from rcagent.query import indexcover
+from rcagent.setup.roles import resolve_column, role_column, role_lines
+from rcagent.setup.sniff import readable
+from rcagent.ownership import STAND_IN, team_of
+from rcagent.timezones import is_utc
+
+SAMPLE_ROWS = 10_000
+TOP_N = 8
+_TOP_ROLES = ("level", "service", "component", "team")
+
+
+def context_scopes(roles: FieldRoles) -> list[str]:
+    scopes = [
+        s
+        for s, role in (("trace", roles.trace), ("service", roles.service), ("host", roles.host), ("component", roles.component))
+        if role
+    ]
+    return scopes + ["everything"]
+
+
+def known_columns(db: Database, lt: LogTable) -> dict[str, str]:
+    """The log table's columns (name -> type), read once per tool call."""
+    return table_columns(db, lt)
+
+
+def _top_values(
+    db: Database, lt: LogTable, role: str, where: str, params: dict[str, object], exact: bool = False
+) -> str:
+    """The role's most common values: over every entry in scope when `exact` (the caller checked the cost),
+    else over the first SAMPLE_ROWS entries."""
+    expr = role_sql(lt, role)
+    limit = "" if exact else f" LIMIT {SAMPLE_ROWS}"
+    rows = db.read(
+        f"SELECT v, c, count(*) OVER () AS n FROM (SELECT e::varchar AS v, count(*) AS c FROM "
+        f"(SELECT {expr} AS e FROM {lt.relation} WHERE {where}{limit}) GROUP BY 1) "
+        f"ORDER BY c DESC, v LIMIT {TOP_N}",
+        params,
+    ).rows
+    vals = [(r[0], r[1]) for r in rows if r[0] is not None]
+    if not vals:
+        return "no values in the sample"
+    distinct = rows[0][2]
+    shown = ", ".join(f"{v} ({c:,})" for v, c in vals)
+    where_seen = "" if exact else " in the sample"
+    more = f", … ({distinct} distinct{where_seen})" if distinct > len(rows) else ""
+    return shown + more
+
+
+_FULL_CAP = 100_000  # distinct values per field fetched in one counting pass; more falls back to per-field counts
+
+
+def _format_top(counts: dict[str, int]) -> str:
+    vals = sorted(((v, c) for v, c in counts.items() if v is not None), key=lambda vc: (-vc[1], vc[0]))
+    if not vals:
+        return "no values in the sample"
+    shown = ", ".join(f"{v} ({c:,})" for v, c in vals[:TOP_N])
+    return shown + (f", … ({len(vals)} distinct)" if len(vals) > TOP_N else "")
+
+
+def _all_counts(
+    db: Database, lt: LogTable, roles: list[str], where: str, params: dict[str, object]
+) -> dict[str, dict[str, int]] | None:
+    """Every value's count for each of `roles`, counted over every entry in scope in ONE scan (GROUPING SETS),
+    or None when a field has too many distinct values to fetch (the caller then counts per field)."""
+    if not roles:
+        return {}
+    cols = ", ".join(f"({role_sql(lt, r)})::varchar AS r{i}" for i, r in enumerate(roles))
+    flags = ", ".join(f"GROUPING(r{i}) AS g{i}" for i in range(len(roles)))
+    keys = ", ".join(f"r{i}" for i in range(len(roles)))
+    sets = ", ".join(f"(r{i})" for i in range(len(roles)))
+    rows = db.read(
+        f"SELECT {flags}, {keys}, count(*) AS c FROM (SELECT {cols} FROM {lt.relation} WHERE {where}) "
+        f"GROUP BY GROUPING SETS ({sets}) LIMIT {_FULL_CAP * len(roles) + 1}",
+        params,
+    ).rows
+    if len(rows) > _FULL_CAP * len(roles):
+        return None
+    n = len(roles)
+    out: dict[str, dict[str, int]] = {r: {} for r in roles}
+    for row in rows:
+        i = next(k for k in range(n) if row[k] == 0)  # the set this row belongs to
+        value = row[n + i]
+        if value is not None:
+            out[roles[i]][str(value)] = out[roles[i]].get(str(value), 0) + int(row[-1])
+    return out
+
+
+def _team_counts(ctx: AppContext, lt: LogTable, counts: dict[str, dict[str, int]]) -> dict[str, int] | None:
+    """Entries per team, from the owner field's counts (no scan of its own), or None when not derivable."""
+    found = ctx.store.ownership.for_table(lt.name, lt.roles.present())
+    if found is None or found[0] not in counts:
+        return None
+    teams: dict[str, int] = {}
+    for value, c in counts[found[0]].items():
+        t = team_of(value, found[1])
+        teams[t] = teams.get(t, 0) + c
+    return teams
+
+
+def _top_values_indexed(
+    ctx: AppContext, lt: LogTable, role: str, tr: TimeRange, cols: dict[str, str]
+) -> tuple[str, str] | None:
+    """(text, index name): the role's top values, exact, read from a filter or search index that covers
+    it (and the timestamp when the period is bounded); None when no index serves it."""
+    expr = getattr(lt.roles, role)
+    col = role_column(expr) if expr else None
+    if col is None:
+        return None
+    need = [col] + (role_columns(lt.roles.timestamp) if tr.bounded else [])
+    db = ctx.db
+    via = indexcover.covering(ctx.store, lt, need)
+    if via is None:
+        return None
+    index = via[1]
+    time_sql, params = time_clause(lt, tr, cols)
+    ref = role_sql(lt, role)
+    rows = db.read(
+        f"SELECT t, c, count(*) OVER () AS n FROM (SELECT unnest(ts_dict_agg({ref})) AS t, "
+        f"unnest(ts_dict_count({ref})) AS c FROM {index} WHERE {time_sql}) ORDER BY c DESC, t LIMIT {TOP_N}",
+        params,
+    ).rows
+    if not rows:
+        return "no values", index
+    shown = ", ".join(f"{r[0]} ({int(r[1]):,})" for r in rows)
+    more = f", … ({rows[0][2]} distinct)" if rows[0][2] > len(rows) else ""
+    return shown + more, index
+
+
+def _zone_line(lt: LogTable, cols: dict[str, str]) -> str:
+    """The log table's own time zone: what results show unless a timezone is given."""
+    if is_utc(lt.timezone):
+        return f"time zone: {lt.timezone}"
+    typ = cols.get(role_column(lt.roles.timestamp or "") or "", "").upper()
+    if "WITH TIME ZONE" in typ or typ.startswith("TIMESTAMPTZ"):
+        return (
+            f"time zone: {lt.timezone} (not UTC): the timestamps are real instants; results show them in this zone "
+            "with the UTC offset, unless timezone is given (timezone='UTC' for UTC)"
+        )
+    return (
+        f"time zone: {lt.timezone} (not UTC): the log's local time, which results show with its UTC offset "
+        "unless timezone is given (timezone='UTC' for UTC)"
+    )
+
+
+def _time_range_line(db: Database, lt: LogTable, cols: dict[str, str], tr: TimeRange) -> str:
+    if lt.roles.timestamp is None:
+        return "time range: unknown (no timestamp field)"
+    try:
+        rng = data_range(db, lt, cols)
+    except ScanTooExpensive as exc:
+        return f"time range: not measured ({exc})"
+    if rng is None:
+        return "time range: no timestamps found"
+    if rng.from_stats:
+        how = "from Parquet statistics"
+    else:
+        how = "from a scan of the timestamp column" + (f"; {rng.note}" if rng.note else "")
+    return f"time range: {tr.fmt(rng.first)} to {tr.fmt(rng.last)} {tr.tz} ({how})"
+
+
+def _affordable(db: Database, lt: LogTable, tr: TimeRange, columns: list[str]) -> str | None:
+    """None when an exact scan of `columns` fits the cost check, else why it was skipped."""
+    stats, decision = cost.check(db, lt, tr, columns)
+    if decision.status == "run" and decision.plan.exact:
+        return None
+    return f"counting would need {cost.cost_text(cost.exact_plan(stats, columns))}; narrow the period, or build a filter index"
+
+
+@dataclass
+class _TopSources:
+    """Where the top values shown came from, for the How-measured header."""
+
+    sampled: bool = False
+    indexes: set[str] = field(default_factory=set)
+
+
+def _describe_one(ctx: AppContext, lt: LogTable, tr: TimeRange, top: _TopSources) -> list[str]:
+    db = ctx.db
+    cols = known_columns(db, lt)
+    where, params = build_where(lt, tr, Filters(), cols)
+    mode = lt.mode.replace("_", " ")
+    out = [f"log table {lt.name}", f"  source: {lt.source} ({lt.source_format})", f"  mode: {mode}"]
+    out.append("  roles:")
+    out += role_lines(lt.roles, "    ")
+    out.append("    " + _team_line(ctx, lt))
+    out.append(f"  entries: {lt.row_count:,}" if lt.row_count is not None else "  entries: not counted")
+    out.append("  " + _zone_line(lt, cols))
+    out.append("  " + _time_range_line(db, lt, cols, tr))
+    idx = [n for n in (lt.filter_index_name, lt.search_index_name) if n]
+    ts_cols = role_columns(lt.roles.timestamp)
+    if lt.mode == "copied":
+        skipped = _affordable(db, lt, TimeRange(), ts_cols) if lt.roles.timestamp is not None else None
+        if skipped:
+            missing = 0
+            out.append(f"  entries without a timestamp: not counted ({skipped})")
+        elif lt.roles.timestamp is not None:
+            missing = db.read(f"SELECT count(*) FROM {lt.relation} WHERE ({role_sql(lt, 'timestamp')}) IS NULL", {}).scalar()
+        else:  # no timestamp field at all: every entry lacks one
+            missing = db.read(f"SELECT count(*) FROM {lt.relation}", {}).scalar()
+        if missing:
+            out.append(
+                f"  {missing:,} {'entry has' if missing == 1 else 'entries have'} no timestamp "
+                "(kept, but not placed in any time range)"
+            )
+    out.append("  indexes: " + (", ".join(idx) if idx else "none"))
+    out.append("  context scopes: " + ", ".join(context_scopes(lt.roles)))
+    out.append(f"  catalog: {ctx.store.template_count(lt.name)} templates")
+    if tr.bounded:
+        skipped = _affordable(db, lt, tr, ts_cols)
+        if skipped:
+            out.append(f"  entries in {tr.describe()}: not counted ({skipped})")
+            n = None
+        else:
+            n = db.read(f"SELECT count(*) FROM {lt.relation} WHERE {where}", params).scalar()
+            out.append(f"  entries in {tr.describe()}: {n:,}")
+        if n == 0:
+            out += [f"  {line}" for line in diagnose_empty(db, lt, tr, Filters(), cols)]
+            return out
+    found: list[tuple[str, str, str]] = []  # (role, values, where they came from)
+    used: set[str] = set()
+    present = [r for r in _TOP_ROLES if getattr(lt.roles, r) is not None]
+    full_cols = [c for r in present for c in role_columns(getattr(lt.roles, r))] + (ts_cols if tr.bounded else [])
+    full = bool(present) and _affordable(db, lt, tr, full_cols) is None
+    indexed = {r: v for r in present if (v := _top_values_indexed(ctx, lt, r, tr, cols)) is not None}
+    # Exact counts for the rest in one scan; team from the owner field's counts, not a scan of its own.
+    plain = [r for r in present if r not in indexed and r != "team"]
+    owner = ctx.store.ownership.for_table(lt.name, lt.roles.present())
+    if "team" in present and "team" not in indexed and owner is not None and owner[0] not in plain:
+        plain.append(owner[0])  # needed for the teams even when it is not shown (e.g. service without a role row)
+    counts = _all_counts(db, lt, plain, where, params) if full else None
+    teams = _team_counts(ctx, lt, counts) if counts is not None and "team" in present else None
+    for role in _TOP_ROLES:
+        if getattr(lt.roles, role) is None:
+            if role != "team":
+                found.append((role, "absent", "absent"))
+            continue
+        if role in indexed:
+            used.add(indexed[role][1])
+            found.append((role, indexed[role][0], "index"))
+        elif counts is not None and role in counts:
+            found.append((role, _format_top(counts[role]), "counted"))
+        elif role == "team" and teams is not None:
+            found.append((role, _format_top(teams), "counted"))
+        elif full:
+            found.append((role, _top_values(db, lt, role, where, params, exact=True), "counted"))
+        else:
+            found.append((role, _top_values(db, lt, role, where, params), "sampled"))
+    top.sampled = top.sampled or any(src == "sampled" for _, _, src in found)
+    top.indexes |= used
+    period = f" in {tr.describe()}" if tr.bounded else ""
+    return out + top_value_lines(found, period, sorted(used))
+
+
+_MARKS = {"index": "[exact, from the index]", "counted": "[exact, counted]", "sampled": "[sampled]"}
+
+
+def top_value_lines(found: list[tuple[str, str, str]], period: str, indexes: list[str]) -> list[str]:
+    """The top-values block. When every field came the same way the heading says how; when they differ every
+    field is marked with where its values came from (index, counted over every entry, or sampled)."""
+    sources = {src for _, _, src in found if src != "absent"}
+    sample = f"the first {SAMPLE_ROWS:,} entries{period}"
+    if sources == {"counted"}:
+        head = f"  top values (exact, counted over every entry{period}):"
+    elif sources == {"index"}:
+        head = f"  top values (exact, read from the index {', '.join(indexes)}; all entries{period}):"
+    elif sources == {"sampled"}:
+        head = f"  top values (sampled — rare values may be missing; from {sample}):"
+    elif not sources:
+        head = "  top values:"
+    else:
+        parts = ["each field is marked by where its values came from"]
+        if "index" in sources:
+            parts.append(f"[exact, from the index] = read from {', '.join(indexes)}, all entries{period}")
+        if "counted" in sources:
+            parts.append(f"[exact, counted] = counted over every entry{period}")
+        if "sampled" in sources:
+            parts.append(f"[sampled] = from {sample}, rare values may be missing")
+        head = "  top values (" + "; ".join(parts) + "):"
+    mark = len(sources) > 1
+    return [head] + [
+        f"    {role}: {text}" + (f"  {_MARKS[src]}" if mark and src in _MARKS else "") for role, text, src in found
+    ]
+
+
+def _team_line(ctx: AppContext, lt: LogTable) -> str:
+    found = ctx.store.ownership.for_table(lt.name, lt.roles.present())
+    if found is None:
+        return "team: absent (no ownership rule covers this log table)"
+    role, rules = found
+    teams = sorted({r.team for r in rules})
+    sources = sorted({r.source or "unknown source" for r in rules})
+    line = f"team: from the ownership table on {role} ({len(rules)} rules; teams: {', '.join(teams)}; {'; '.join(sources)})"
+    if STAND_IN in sources:
+        line += " — the stand-in teams are fictional, not an official mapping; say so when you name them"
+    return line
+
+
+def _resolve_field(lt: LogTable, name: str, cols: dict[str, str]) -> tuple[str, str]:
+    """(label, SQL expression) for a role name or a real column."""
+    key = name.strip()
+    if key.lower() == "team" and lt.roles.team is not None:
+        return "team", role_sql(lt, "team")
+    if key.lower() in ROLE_FIELDS and key.lower() not in ("order",):
+        return key.lower(), role_sql(lt, key.lower())
+    match = resolve_column(key, cols)
+    if match is not None:
+        return match, quote_ident(match)
+    raise UserFacingError(
+        f"'{name}' is neither a field role ({', '.join(FILTER_ROLES)}, timestamp, message) nor a column of "
+        f"this log table. Columns: {', '.join(cols)}."
+    )
+
+
+MAX_TEXT_CHARS = 1_000
+
+
+def check_text(text: str) -> None:
+    """Refuse text to look for that can't be searched: a NUL character (SereneDB can't take one in a
+    query) or text so long it is no longer a phrase from a message."""
+    if "\x00" in text:
+        raise UserFacingError(
+            "The text to look for contains a NUL character (\\u0000), which can't be searched for; leave it out."
+        )
+    if len(text) > MAX_TEXT_CHARS:
+        raise UserFacingError(
+            f"The text to look for is {len(text):,} characters long; at most {MAX_TEXT_CHARS:,} can be searched for. "
+            "Use a shorter, distinctive phrase from the message."
+        )
+
+
+def like_pattern(text: str) -> str:
+    """An ILIKE pattern (ESCAPE '\\') matching `text` anywhere, with its own % and _ taken literally."""
+    check_text(text)
+    return _like_pattern(text)
+
+
+_EXACT_LOOKUP = "exact distinct-value lookup in one field"
+_LOOKUP_NARROW = "narrow it: a shorter period (start/end), or build a filter index (create_index with dry_run)."
+_VALUES_CAP = 1000
+
+
+def _find_values(
+    ctx: AppContext, lt: LogTable, find: dict[str, str], tr: TimeRange, confirmed_cost: str | None = None
+) -> tuple[str, str | None, list[str], str | None]:
+    """(how it was measured, sample label, lines, index read). Cost-checked first; an ask returns the refusal."""
+    # Two spellings: {"level": "err"} (as the tool description shows) or {"role_or_column": "level", "like": "err"}.
+    if "role_or_column" in find or "like" in find:
+        field, like = find.get("role_or_column"), find.get("like")
+    elif len(find) == 1:
+        field, like = next(iter(find.items()))
+    else:
+        raise UserFacingError('Look up one field at a time, e.g. find_values={"level": "err"}.')
+    if not field or like is None or str(like).strip() == "":
+        raise UserFacingError('find_values needs a field and a word to look for, e.g. find_values={"level": "err"}.')
+    db = ctx.db
+    cols = known_columns(db, lt)
+    label, expr = _resolve_field(lt, field, cols)
+    time_sql, time_params = time_clause(lt, tr, cols)
+    read = role_columns(expr) + (role_columns(lt.roles.timestamp) if tr.bounded else [])
+    plain = role_column(expr)
+    via = indexcover.covering(ctx.store, lt, read) if plain is not None and read else None
+    _, decision = cost.check(
+        db, lt, tr, read, confirmed_cost, indexed=read if via else (), index_hints=ctx.estimates.hints(lt)
+    )
+    if decision.status == "ask":
+        return cost.ASKED_HOW, None, [decision.message], None
+    plan = decision.plan
+    params = {**time_params, "like": like_pattern(str(like))}
+    timeout = cost.run_timeout(plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
+    what = f"looking up values like '{like}' in {label} of log table {lt.name}"
+    if plan.exact and via:  # the index lists every distinct term with its count; no entry is scanned
+        found = db.read(
+            f"SELECT v, c FROM (SELECT unnest(ts_dict_agg({expr}))::varchar AS v, unnest(ts_dict_count({expr})) AS c "
+            f"FROM {via[1]} WHERE {time_sql}) WHERE v ILIKE %(like)s ESCAPE '\\' ORDER BY c DESC, v LIMIT {_VALUES_CAP}",
+            params,
+            timeout_s=timeout,
+            what=what,
+            how_to_narrow=_LOOKUP_NARROW,
+        ).rows
+        rows: list[tuple[str, str]] = [(str(v), f"{int(c):,}") for v, c in found]
+    elif plan.exact:
+        found = db.read(
+            f"SELECT v, count(*) AS c FROM (SELECT ({expr})::varchar AS v FROM {lt.relation} WHERE {time_sql}) "
+            f"WHERE v ILIKE %(like)s ESCAPE '\\' GROUP BY v ORDER BY c DESC, v LIMIT {_VALUES_CAP}",
+            params,
+            timeout_s=timeout,
+            what=what,
+            how_to_narrow=_LOOKUP_NARROW,
+        ).rows
+        rows = [(str(v), f"{c:,}") for v, c in found]
+    else:
+        rows = _sampled_values(db, lt, plan, expr, time_sql, params, timeout, what)
+    where_txt = f" between {tr.describe()}" if tr.bounded else ""
+    index_read = via[1] if plan.exact and via else None
+    if plan.exact:
+        kind, sample = _EXACT_LOOKUP + (" (run as you confirmed)" if plan.confirmed else ""), None
+        if via:
+            kind = f"{_EXACT_LOOKUP} read from the {via[0]} index {via[1]} (no entry was scanned)"
+    else:
+        kind = "estimated distinct-value lookup in one field: whole blocks of entries were read, so rare values may be missing"
+        upto = "" if plan.rows_exact else "up to "
+        sample = f"block sample of {plan.sample_rows or 0:,} of {upto}{plan.population_rows:,} entries"
+    out = [f"log table {lt.name}", *("  " + fmt.sentence(n) for n in plan.notes)]
+    if not rows:
+        out.append(f"  no values like '{like}' in {label}{where_txt}" + ("" if plan.exact else " in the sample") + ".")
+        if tr.bounded and plan.exact:
+            out += ["  " + line for line in diagnose_empty(db, lt, tr, Filters(), cols)]
+        return kind, sample, out, index_read
+    shown, note = fmt.cut(rows, 50, "values")
+    if len(rows) >= _VALUES_CAP:
+        note = f"showing {len(shown)} of more than {_VALUES_CAP:,} matching values (only the first {_VALUES_CAP:,} are counted; a longer word narrows it)"
+    counts = "exact counts" if plan.exact else "found in the sample, estimated counts"
+    out.append(f"  values like '{like}' in {label}{where_txt} ({counts}):")
+    out += [f"    {v} ({c})" if plan.exact else f"    {v}: {c}" for v, c in shown]
+    if note:
+        out.append("  " + note)
+    return kind, sample, out, index_read
+
+
+def _sampled_values(
+    db: Database,
+    lt: LogTable,
+    plan: cost.Plan,
+    expr: str,
+    time_sql: str,
+    params: dict[str, object],
+    timeout: float,
+    what: str,
+) -> list[tuple[str, str]]:
+    """Per value, an estimate from per-block counts (between-block margin), largest first."""
+    found = db.read(
+        f"SELECT b, v, count(*) AS c FROM (SELECT {sampling.block_id_sql(plan)} AS b, "
+        f"CASE WHEN ({expr})::varchar ILIKE %(like)s ESCAPE '\\' THEN ({expr})::varchar END AS v "
+        f"FROM {lt.relation} WHERE {time_sql} AND {sampling.clause(plan)}) GROUP BY 1, 2",
+        params,
+        timeout_s=timeout,
+        what=what,
+        how_to_narrow=_LOOKUP_NARROW,
+    ).rows
+    n_block = [0] * len(plan.groups)
+    hits: dict[str, list[int]] = {}
+    for b, v, c in found:
+        if b is None:
+            continue
+        n_block[int(b)] += int(c)
+        if v is not None:
+            hits.setdefault(str(v), [0] * len(plan.groups))[int(b)] += int(c)
+    measured = {v: sampling.block_estimate(list(zip(n_block, ys, strict=True)), plan.fraction) for v, ys in hits.items()}
+    ordered = sorted(measured, key=lambda v: (-measured[v].value, v))[:_VALUES_CAP]
+    return [(v, fmt.render(measured[v])) for v in ordered]
+
+
+def describe_logs(
+    ctx: AppContext,
+    log_table: str | None = None,
+    find_values: dict[str, str] | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    timezone: str | None = None,
+    confirmed_cost: str | None = None,
+) -> str:
+    parse_time_range(start, end, timezone or "UTC")  # a bad time or zone is explained before any query
+    if log_table is None:
+        tables = ctx.store.list_log_tables()
+        if not tables:
+            return (
+                fmt.how_measured("exact, read from the extractor catalog")
+                + "\nThere are no log tables yet. Set one up to start analysing logs."
+            )
+        if find_values:
+            raise UserFacingError(f"Say which log table to look in. Known log tables: {', '.join(t.name for t in tables)}.")
+    else:
+        tables = [ctx.store.get_log_table(log_table)]
+    # Each log table is read and shown in its own zone unless one is given.
+    ranges = {lt.name: parse_time_range(start, end, shown_zone(lt, timezone)) for lt in tables}
+    tr = ranges[tables[0].name]
+    one_zone = len({r.tz for r in ranges.values()}) == 1
+    tz = tr.tz if one_zone else "each log table's own time zone (see its time zone line)"
+    period = None
+    if tr.bounded:
+        period = tr.describe() if one_zone else (
+            f"{start or 'the beginning'} to {end or 'the end'} in each log table's own time zone"
+        )
+    if find_values:
+        lt = tables[0]
+        with readable(f"the source of log table '{lt.name}'"):
+            kind, sample, lines, index_read = _find_values(ctx, lt, find_values, tr, confirmed_cost)
+        head = fmt.how_measured(kind, period=period, sample=sample, index_used=index_read, tz=tz)
+        return head + "\n" + "\n".join(lines)
+    body: list[str] = []
+    top = _TopSources()
+    for lt in tables:
+        with readable(f"the source of log table '{lt.name}'"):
+            body += _describe_one(ctx, lt, ranges[lt.name], top)
+    via = ", ".join(sorted(top.indexes)) or None
+    base = "catalog and metadata, a time range from Parquet statistics or a column scan"
+    if top.sampled:
+        kind = base + ", and a block sample; top values are sampled" + (
+            " (those marked [exact, from the index] come from an index)" if via else ""
+        ) + ", counts of values found are exact"
+        top_sample: str | None = f"top values from a block of {SAMPLE_ROWS:,} entries"
+    elif via:
+        kind, top_sample = base + "; top values are exact, read from an index", None
+    else:
+        kind, top_sample = base, None
+    header = fmt.how_measured(kind, period=period, sample=top_sample, index_used=via, tz=tz)
+    return header + "\n" + "\n".join(body)

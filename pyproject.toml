@@ -17,8 +17,8 @@ dependencies = [
 ]
 
 [project.scripts]
-rcagent = "serenedb_extractor.server:main"
-serenedb-extractor = "serenedb_extractor.server:main"
+rcagent = "rcagent.server:main"
+serenedb-extractor = "rcagent.server:main"  # old name, kept so existing `claude mcp add` setups still start
 
 [dependency-groups]
 dev = [
@@ -28,7 +28,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/serenedb_extractor"]
+packages = ["src/rcagent"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

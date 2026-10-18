@@ -18,9 +18,9 @@ from typing import Any
 
 from mcp.shared.memory import create_connected_server_and_client_session
 
-from serenedb_extractor.config import Settings
-from serenedb_extractor.context import AppContext
-from serenedb_extractor.server import build_server
+from rcagent.config import Settings
+from rcagent.context import AppContext
+from rcagent.server import build_server
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "docs" / "worked-investigation-transcript.md"

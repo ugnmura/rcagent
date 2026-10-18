@@ -21,8 +21,8 @@ import csv
 import sys
 from collections import Counter, defaultdict
 
-from serenedb_extractor.templating.drain import MaskedGroup, merge_groups
-from serenedb_extractor.templating.masking import mask_py, mask_sql
+from rcagent.templating.drain import MaskedGroup, merge_groups
+from rcagent.templating.masking import mask_py, mask_sql
 
 
 def _mask_all(lines: list[str], sql_url: str | None) -> list[str]:

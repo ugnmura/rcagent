@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from serenedb_extractor import ownership
-from serenedb_extractor.catalog.schema import bootstrap
+from rcagent import ownership
+from rcagent.catalog.schema import bootstrap
 from tests.conftest import call
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"

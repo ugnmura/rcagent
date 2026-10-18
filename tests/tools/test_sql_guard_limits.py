@@ -6,9 +6,9 @@ import time
 
 import pytest
 
-from serenedb_extractor.errors import UserFacingError
-from serenedb_extractor.query.filters import Filters
-from serenedb_extractor.query.guard import SqlRejected, check_read_only
+from rcagent.errors import UserFacingError
+from rcagent.query.filters import Filters
+from rcagent.query.guard import SqlRejected, check_read_only
 from tests.conftest import call
 
 T = "extractor.lt_bgl"
@@ -142,8 +142,8 @@ SLOW = "SELECT (SELECT max(hash(i)) FROM range(4000000000) t(i)) > 0"
 def test_timeout_answers_on_time_when_the_cancel_is_ignored(database, monkeypatch):
     import psycopg
 
-    from serenedb_extractor import db as dbmod
-    from serenedb_extractor.db import QueryTimeout
+    from rcagent import db as dbmod
+    from rcagent.db import QueryTimeout
 
     def ignored(self, timeout=None):  # accepted, but the statement runs on (one huge step)
         return None
@@ -161,7 +161,7 @@ def test_timeout_answers_on_time_when_the_cancel_is_ignored(database, monkeypatc
 def test_failed_cancel_cuts_the_connection_at_once(database, monkeypatch):
     import psycopg
 
-    from serenedb_extractor.db import QueryTimeout
+    from rcagent.db import QueryTimeout
 
     def broken(self, timeout=None):
         raise psycopg.OperationalError("cancel refused")
@@ -195,8 +195,8 @@ def test_filter_values_are_capped_and_nul_is_refused():
 
 @pytest.mark.db
 def test_evidence_ids_stay_unique_across_processes(database, db_url):
-    from serenedb_extractor.catalog.schema import bootstrap
-    from serenedb_extractor.evidence import EvidenceLog
+    from rcagent.catalog.schema import bootstrap
+    from rcagent.evidence import EvidenceLog
     from tests.conftest import _reset_schema
 
     _reset_schema(db_url)

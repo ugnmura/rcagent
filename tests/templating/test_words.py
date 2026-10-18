@@ -1,6 +1,6 @@
 import pytest
 
-from serenedb_extractor.templating.words import (
+from rcagent.templating.words import (
     constant_word,
     names_a_value,
     unit_after_number,

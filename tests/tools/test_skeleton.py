@@ -1,12 +1,12 @@
 import pytest
 
-from serenedb_extractor.catalog import schema
-from serenedb_extractor.config import ConfigError, Settings
+from rcagent.catalog import schema
+from rcagent.config import ConfigError, Settings
 from mcp.server.fastmcp import FastMCP
 
-from serenedb_extractor.catalog.models import UnknownLogTable
-from serenedb_extractor.server import ToolRunner
-from serenedb_extractor.telemetry import tool_annotations
+from rcagent.catalog.models import UnknownLogTable
+from rcagent.server import ToolRunner
+from rcagent.telemetry import tool_annotations
 from tests.conftest import Client, call
 
 
@@ -171,8 +171,8 @@ def no_grant_url(db_url):
 
 
 async def _client_with(reader: str, writer: str):
-    from serenedb_extractor.context import AppContext
-    from serenedb_extractor.server import build_server
+    from rcagent.context import AppContext
+    from rcagent.server import build_server
 
     settings = Settings.from_env({"SERENEDB_READER_URL": reader, "SERENEDB_WRITER_URL": writer})
     made: list = []

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from serenedb_extractor.templating.masking import (
+from rcagent.templating.masking import (
     MASK_RULES,
     PLACEHOLDER_CAPTURE,
     mask_py,
@@ -93,16 +93,16 @@ def test_sql_equals_python(database) -> None:  # type: ignore[no-untyped-def]
 
 
 def test_placeholder_kind():
-    from serenedb_extractor.templating.masking import placeholder_kind
+    from rcagent.templating.masking import placeholder_kind
 
     assert [placeholder_kind(p) for p in ("<*>", "<NUM>", "<IP>")] == ["any", "num", "ip"]
 
 
 def test_tagging_matches_entries_with_edge_whitespace_like_sql():
     """query/tags.py agrees with the SQL matchers: no special case, the regex itself allows edge whitespace."""
-    from serenedb_extractor.catalog.models import Template
-    from serenedb_extractor.query.tags import tag_entries
-    from serenedb_extractor.templating.regex import compile_template
+    from rcagent.catalog.models import Template
+    from rcagent.query.tags import tag_entries
+    from rcagent.templating.regex import compile_template
 
     c = compile_template("disk full on <NUM>")
     t = Template("x", "T1", "disk full on <NUM>", c.regex, list(c.params), "", None, None, None, None)
