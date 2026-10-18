@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 330" width="1180" height="330" role="img" aria-label="You ask Claude a question; Claude calls a serenedb-extractor tool; the tool runs SQL in SereneDB. Counts come back with an evidence ID (Q46), Claude answers citing it, and every query is saved so you can check any number." font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif">
+  <style>
+    .fg { fill: #1f2328; }
+    .mut { fill: #59636e; }
+    .ln { stroke: #1f2328; }
+    .box { fill: #f6f8fa; stroke: #d1d9e0; }
+    .ev { stroke: #9a6700; }
+    .evf { fill: #9a6700; }
+    .evt { fill: #7d4e00; }
+    .evbox { fill: #fff8c5; stroke: #d4a72c; }
+    .head { fill: #1f2328; }
+    @media (prefers-color-scheme: dark) {
+      .fg { fill: #e6edf3; }
+      .mut { fill: #9198a1; }
+      .ln { stroke: #e6edf3; }
+      .box { fill: #151b23; stroke: #3d444d; }
+      .ev { stroke: #d29922; }
+      .evf { fill: #d29922; }
+      .evt { fill: #e3b341; }
+      .evbox { fill: #2e2a1a; stroke: #9e6a03; }
+      .head { fill: #e6edf3; }
+    }
+    text { font-size: 14px; }
+    .name { font-size: 17px; font-weight: 600; }
+    .lbl { font-size: 14px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 1 L10 5 L0 9 z" class="head"/>
+    </marker>
+    <marker id="ahe" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 1 L10 5 L0 9 z" class="evf"/>
+    </marker>
+  </defs>
+
+  <!-- four boxes: centres 110 · 430 · 750 · 1070 -->
+  <rect x="20" y="40" width="180" height="96" rx="10" class="box" stroke-width="1.5"/>
+  <text x="110" y="82" text-anchor="middle" class="fg name">You</text>
+  <text x="110" y="106" text-anchor="middle" class="mut">ask in plain words</text>
+
+  <rect x="340" y="40" width="180" height="96" rx="10" class="box" stroke-width="1.5"/>
+  <text x="430" y="82" text-anchor="middle" class="fg name">Claude</text>
+  <text x="430" y="106" text-anchor="middle" class="mut">picks tools, explains</text>
+
+  <rect x="660" y="40" width="180" height="96" rx="10" class="box" stroke-width="1.5"/>
+  <text x="750" y="82" text-anchor="middle" class="fg name">MCP tools</text>
+  <text x="750" y="106" text-anchor="middle" class="mut">search · count · trend</text>
+
+  <rect x="980" y="40" width="180" height="96" rx="10" class="box" stroke-width="1.5"/>
+  <text x="1070" y="82" text-anchor="middle" class="fg name">SereneDB</text>
+  <text x="1070" y="106" text-anchor="middle" class="mut">runs it on all the logs</text>
+
+  <!-- request: left to right -->
+  <line x1="200" y1="70" x2="336" y2="70" class="ln" stroke-width="1.8" marker-end="url(#ah)"/>
+  <text x="268" y="58" text-anchor="middle" class="fg lbl">question</text>
+  <line x1="520" y1="70" x2="656" y2="70" class="ln" stroke-width="1.8" marker-end="url(#ah)"/>
+  <text x="588" y="58" text-anchor="middle" class="fg lbl">tool call</text>
+  <line x1="840" y1="70" x2="976" y2="70" class="ln" stroke-width="1.8" marker-end="url(#ah)"/>
+  <text x="908" y="58" text-anchor="middle" class="fg lbl">SQL</text>
+
+  <!-- answer: right to left, carrying the evidence ID -->
+  <line x1="980" y1="110" x2="844" y2="110" class="ev" stroke-width="2.2" marker-end="url(#ahe)"/>
+  <text x="912" y="132" text-anchor="middle" class="evt lbl">counts</text>
+  <line x1="660" y1="110" x2="524" y2="110" class="ev" stroke-width="2.2" marker-end="url(#ahe)"/>
+  <text x="592" y="132" text-anchor="middle" class="evt lbl">result + <tspan class="mono" font-weight="700">Q46</tspan></text>
+  <line x1="340" y1="110" x2="204" y2="110" class="ev" stroke-width="2.2" marker-end="url(#ahe)"/>
+  <text x="272" y="132" text-anchor="middle" class="evt lbl">answer <tspan class="mono" font-weight="700">[Q46]</tspan></text>
+
+  <!-- evidence: every query saved, any number checkable -->
+  <line x1="750" y1="136" x2="750" y2="216" class="ev" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#ahe)"/>
+  <text x="762" y="182" class="evt lbl">saves the query</text>
+
+  <rect x="560" y="220" width="380" height="76" rx="10" class="evbox" stroke-width="1.5"/>
+  <text x="750" y="252" text-anchor="middle" class="fg name">Evidence <tspan class="mono">Q46</tspan></text>
+  <text x="750" y="276" text-anchor="middle" class="mut">the exact SQL, its filters and its result</text>
+
+  <path d="M110 136 V258 H556" fill="none" class="ev" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#ahe)"/>
+  <text x="128" y="248" class="evt lbl">check any number: <tspan class="mono">show_evidence</tspan></text>
+</svg>

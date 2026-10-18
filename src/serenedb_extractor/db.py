@@ -3,7 +3,9 @@ cancels it inside SereneDB (Postgres cancel request from a timer thread, spike s
 
 import logging
 import math
+import os
 import re
+import socket
 import threading
 import time
 from dataclasses import dataclass
@@ -23,6 +25,7 @@ _NAME = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 DEFAULT_NARROW = "narrow it: a shorter period (start/end) or more filters (level, service), then try again."
 CONNECT_TIMEOUT_CAP_S = 30  # libpq connect_timeout (whole seconds, at least 2): the query timeout, at most this
 CANCEL_TIMEOUT_S = 2.0  # how long the cancel request may take; finish() can wait at most this long for it
+LATE_GRACE_S = 3.0  # after the cancel, how long a statement may take to stop before the call answers TIMEOUT anyway
 
 
 _SUB_MICROSECOND = re.compile(rb"(\.\d{6})\d+")
@@ -78,8 +81,8 @@ class PermissionRefused(UserFacingError):
                 "granted again after each new log table"
             )
         super().__init__(
-            f"SereneDB refused this to the role in {setting}: {detail}. Grant it access as in the README's "
-            f"\"Reader and writer roles\" section: {needs}."
+            f"SereneDB refused this to the role in {setting}: {detail}. Grant it access as in the "
+            f"\"Reader and writer roles\" section of docs/reference.md: {needs}."
         )
 
 
@@ -162,29 +165,37 @@ class _Conn:
         for this statement only (how timestamptz values print, and what date_trunc, ::date and time
         literals mean); it is reset afterwards."""
         with self.lock:
-            canceller = _Canceller(self, timeout_s)
+            canceller: _Canceller | None = None
             zoned = False
+            abandoned = False
             try:
                 pg = self.get(timeout_s)
+                canceller = _Canceller(pg, timeout_s)
                 if zone is not None:
                     pg.execute(f"SET TimeZone = {_literal(zone)}")
                     zoned = True
-                if prepared:
-                    cur = psycopg.Cursor(pg)
-                    cur.execute(sql, params, prepare=True)  # type: ignore[call-overload]
-                else:
-                    cur = pg.execute(sql, params)  # type: ignore[call-overload]
-                if cur.description is None:
-                    return Rows([], [])
-                return Rows([d.name for d in cur.description], cur.fetchall())
+                deadline = None if timeout_s is None else timeout_s + CANCEL_TIMEOUT_S + LATE_GRACE_S
+                rows = _run_bounded(pg, sql, params, prepared, deadline)
+                if rows is None:
+                    # Still running well past the timeout although it was cancelled: SereneDB only notices a
+                    # cancel between steps of a query, and one big step (a single huge aggregate) can take
+                    # minutes. Answer now; the connection is dropped (the statement's thread closes it).
+                    abandoned = True
+                    self._conn = None
+                    logging.getLogger("serenedb_extractor").warning(
+                        "statement still running %.0f s after its timeout; connection abandoned",
+                        CANCEL_TIMEOUT_S + LATE_GRACE_S,
+                    )
+                    raise QueryTimeout(timeout_s or 0, what, how_to_narrow)
+                return rows
             except psycopg.errors.InsufficientPrivilege as exc:
                 raise PermissionRefused(self.setting, str(exc).splitlines()[0] if str(exc) else "") from exc
             except psycopg.errors.QueryCanceled:
-                if canceller.fired and timeout_s is not None:
+                if canceller is not None and canceller.fired and timeout_s is not None:
                     raise QueryTimeout(timeout_s, what, how_to_narrow) from None
                 raise QueryCancelledElsewhere() from None  # not our timer: an operator or the server
             except psycopg.OperationalError as exc:
-                if canceller.fired and timeout_s is not None:  # the cancel failed and the timer closed the link
+                if canceller is not None and canceller.fired and timeout_s is not None:  # the cancel failed and the timer cut the link
                     self.close()
                     raise QueryTimeout(timeout_s, what, how_to_narrow) from None
                 conn = self._conn
@@ -193,8 +204,9 @@ class _Conn:
                 self.close()  # drop a dead connection so the next call reconnects
                 raise DatabaseUnreachable(self.setting, str(exc)) from exc
             finally:
-                canceller.finish()
-                if zoned:
+                if canceller is not None:
+                    canceller.finish()
+                if zoned and not abandoned:
                     self._reset_zone()
 
     def _reset_zone(self) -> None:
@@ -208,6 +220,67 @@ class _Conn:
             self.close()
 
 
+def _shutdown_socket(pg: psycopg.Connection[Any]) -> None:
+    """Shut the connection's socket down (both ways) without freeing the connection: a thread waiting on it
+    wakes with a broken connection. Works on a duplicate of the descriptor, so the connection object itself
+    is never touched from this thread."""
+    try:
+        fd = os.dup(pg.pgconn.socket)
+    except Exception:
+        return
+    try:
+        with socket.socket(fileno=fd) as s:
+            s.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+
+
+def _run_bounded(
+    pg: psycopg.Connection[Any], sql: str, params: dict[str, Any] | None, prepared: bool, deadline_s: float | None
+) -> Rows | None:
+    """Run one statement on its own thread and wait at most `deadline_s` for it. None: still running at the
+    deadline; the connection is then cut (socket shut down) and the thread closes it when it returns, so the
+    caller must drop it. Errors of the statement are raised here."""
+    box: dict[str, Any] = {}
+    done = threading.Event()
+    guard = threading.Lock()
+    abandoned = threading.Event()
+
+    def work() -> None:
+        try:
+            if prepared:
+                cur = psycopg.Cursor(pg)
+                cur.execute(sql, params, prepare=True)  # type: ignore[call-overload]
+            else:
+                cur = pg.execute(sql, params)  # type: ignore[call-overload]
+            box["rows"] = Rows([], []) if cur.description is None else Rows([d.name for d in cur.description], cur.fetchall())
+        except BaseException as exc:  # handed to the caller's thread
+            box["error"] = exc
+        finally:
+            with guard:
+                done.set()
+                late = abandoned.is_set()
+            if late:
+                try:
+                    pg.close()
+                except Exception:
+                    pass
+
+    worker = threading.Thread(target=work, name="serenedb-statement", daemon=True)
+    worker.start()
+    if not done.wait(deadline_s):
+        with guard:  # the worker can't close the connection while this is held, so its socket is still its own
+            if not done.is_set():
+                abandoned.set()
+                _shutdown_socket(pg)
+                return None
+    worker.join()
+    if "error" in box:
+        raise box["error"]
+    rows: Rows = box["rows"]
+    return rows
+
+
 def _literal(text: str) -> str:
     return "'" + text.replace("'", "''") + "'"
 
@@ -219,8 +292,8 @@ class _Canceller:
     timer never cancels the next statement on the same connection.
     """
 
-    def __init__(self, conn: _Conn, timeout_s: float | None) -> None:
-        self._conn = conn
+    def __init__(self, pg: psycopg.Connection[Any], timeout_s: float | None) -> None:
+        self._pg = pg
         self._guard = threading.Lock()
         self._done = False
         self.fired = False
@@ -232,15 +305,18 @@ class _Canceller:
 
     def _fire(self) -> None:
         with self._guard:
-            pg = self._conn._conn
-            if self._done or pg is None or pg.closed:
+            pg = self._pg
+            if self._done or pg.closed:
                 return
             self.fired = True
             try:
                 pg.cancel_safe(timeout=CANCEL_TIMEOUT_S)
-            except Exception:  # cancel failed: fall back to dropping the connection (spike section 2)
-                logging.getLogger("serenedb_extractor").warning("cancel request failed; closing the connection")
-                pg.close()
+            except Exception:  # cancel failed: fall back to cutting the connection (spike section 2)
+                # Not pg.close(): freeing the connection under the thread that is waiting on it neither wakes
+                # that thread (it waited until the query ended, 30-80 s late) nor is safe. Shutting the socket
+                # down wakes it at once with a broken connection, and the server sees the client go.
+                logging.getLogger("serenedb_extractor").warning("cancel request failed; cutting the connection")
+                _shutdown_socket(pg)
 
     def finish(self) -> None:
         with self._guard:

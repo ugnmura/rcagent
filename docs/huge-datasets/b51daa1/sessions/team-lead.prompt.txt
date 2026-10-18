@@ -1,0 +1,1 @@
+/mcp__serenedb-extractor__team-lead On textbench10, which services produce the most error entries in the first five hours of 2025-09-23, and which of those should my team look at first? Say how exact the numbers are.

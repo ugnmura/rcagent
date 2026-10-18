@@ -12,15 +12,28 @@ import psycopg
 
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.setup import indexes, localfiles, rawcopy, structcopy
-from serenedb_extractor.setup.paths import ResolvedSource, resolve_source, source_sql
+from serenedb_extractor.query.filters import instant_sql
+from serenedb_extractor.setup.paths import ResolvedSource, pct, resolve_source, source_sql
 from serenedb_extractor.setup.rawlog import LINE_FORMATS, detect_line_format, line_format_named, parse_entries
-from serenedb_extractor.setup.roles import HELPER_COLUMNS, propose_roles, role_lines, validate_roles
+from serenedb_extractor.setup.roles import (
+    HELPER_COLUMNS,
+    display_role,
+    is_temporal,
+    propose_roles,
+    role_column,
+    role_lines,
+    validate_roles,
+)
 from serenedb_extractor.timezones import get_zone
 from serenedb_extractor.setup.tablewrite import drop_table
-from serenedb_extractor.setup.sniff import SourceInfo, human_bytes, readable, relation_columns, sample_values, sniff
+from serenedb_extractor.setup.sniff import SourceInfo, human_bytes, readable, relation_columns, sample_text, sample_values, sniff
 
 
 OUTSIDE_MOUNT = "outside the mounted folder"
+NONE_RECOGNISED = (
+    "line format: none recognised (no line starts with a known header or an ISO time), so each line is one "
+    "entry, without a timestamp; give line_format if the file has one"
+)
 INDEX_AFTER_COPY = (
     "indexes: none is built unless you ask; once the copy exists, create_index with dry_run estimates their size."
 )
@@ -136,6 +149,8 @@ def _rerun(ctx: AppContext, lt: LogTable, source: str, roles: dict[str, Any] | N
         with readable(lt.source):
             cols = dict(relation_columns(ctx.db, lt.relation, lt.source))
         wanted = validate_roles(roles, cols)
+        if wanted.get("timestamp"):
+            _check_timestamp(ctx, lt.relation, wanted["timestamp"], cols)
         changed = [r for r, v in wanted.items() if getattr(lt.roles, r) != v]
         if changed:
             new_roles = _merge(lt.roles, wanted)
@@ -143,8 +158,14 @@ def _rerun(ctx: AppContext, lt: LogTable, source: str, roles: dict[str, Any] | N
             changes.append(f"updated field roles: {', '.join(changed)}")
     if timezone is not None and timezone != lt.timezone:
         ctx.store.set_timezone(lt.name, timezone)
-        changes.append(f"updated time zone: {timezone}")
-    header = fmt.how_measured("log table settings updated; no data was read")
+        with readable(lt.source):
+            cols = dict(relation_columns(ctx.db, lt.relation, lt.source))
+        shown_only = _carries_zone(new_roles.timestamp, cols)
+        changes.append(
+            f"updated time zone: {timezone}"
+            + (" (the timestamp column carries its own zone, so this changes only how times are shown)" if shown_only else "")
+        )
+    header = fmt.how_measured("log table settings updated; no data was read", tz=timezone or lt.timezone)
     if not changes:
         return header + f"\nLog table '{lt.name}' is already set up and nothing changed. Pass roles={{...}} or timezone to correct them."
     out = [header, f"Log table '{lt.name}': {'; '.join(changes)}. Nothing else changed.", "field roles now:"]
@@ -160,6 +181,7 @@ def setup_log_table(
     timezone: str | None = None,
     build_filter_index: bool = False,
     build_search_index: bool = False,
+    format_hint: str | None = None,
 ) -> str:
     validate_name(name)
     ctx.estimates.clear(source)
@@ -169,12 +191,19 @@ def setup_log_table(
     if timezone is not None:
         get_zone(timezone)
     zone = timezone or "UTC"
-    rs = resolve_source(source, ctx.settings, None)
-    if rs.kind == "raw_text":
-        return _setup_raw(ctx, name, rs, source, roles, line_format, timezone, (build_filter_index, build_search_index))
-    if localfiles.copy_needed(rs):
-        return _setup_outside(ctx, name, rs, source, roles, zone, (build_filter_index, build_search_index))
+    rs = resolve_source(source, ctx.settings, format_hint)
     began = time.perf_counter()
+    if rs.kind == "raw_text" or localfiles.copy_needed(rs):
+        build = (build_filter_index, build_search_index)
+        out = (
+            _setup_raw(ctx, name, rs, source, roles, line_format, timezone, build)
+            if rs.kind == "raw_text"
+            else _setup_outside(ctx, name, rs, source, roles, zone, build)
+        )
+        took = f"setup took {fmt.duration(time.perf_counter() - began)}"
+        lines = out.split("\n")
+        at = next((i + 1 for i, ln in enumerate(lines) if ln.startswith("The copy is ")), len(lines))
+        return "\n".join(lines[:at] + [took] + lines[at:])
     info = sniff(ctx.db, rs, source, for_setup=True)
     given = validate_roles(roles, dict(info.columns)) if roles else None
     final, _ = propose_roles(info.columns, sample_values(info), given)
@@ -196,6 +225,7 @@ def setup_log_table(
             roles_updated_at=now,
         )
         try:
+            _check_timestamp(ctx, relation, final.timestamp, dict(info.columns))
             ctx.store.create_log_table(lt)
         except Exception:
             ctx.db.write(f"DROP VIEW IF EXISTS {relation}", {})
@@ -204,7 +234,8 @@ def setup_log_table(
     lines = [
         fmt.how_measured(
             "log table registered; only the source's metadata and 5 sample entries were read"
-            + (index_lines_how(read_data) if read_data else "")
+            + (index_lines_how(read_data) if read_data else ""),
+            tz=lt.timezone,
         ),
         f"Set up log table '{name}': {_where_read(rs)}."
         + f" View {relation} reads the source directly.",
@@ -212,7 +243,7 @@ def setup_log_table(
         *([f"files: {info.num_files:,}"] if info.num_files and info.num_files > 1 else []),
         *([f"size: {human_bytes(info.size_bytes)}"] if info.size_bytes else []),
         f"setup took {fmt.duration(time.perf_counter() - began)}",
-        f"time zone for naive timestamps: {zone}",
+        _shown_zone_line(zone) if _carries_zone(final.timestamp, dict(info.columns)) else f"time zone for timestamps without one: {zone}",
         "field roles:",
         *role_lines(final, "  "),
         "The template catalog starts empty.",
@@ -255,6 +286,46 @@ def setup_zone(given: str | None, line_format: str | None) -> tuple[str, str]:
     return "UTC", "the default"
 
 
+def _check_timestamp(ctx: AppContext, relation: str, ts_expr: str | None, cols: dict[str, str]) -> None:
+    """Refuse a timestamp role that mostly does not hold times. Columns of a time type pass; epoch numbers must be
+    plausible Unix times (seconds or milliseconds); text must mostly read as times. Odd values are tolerated:
+    queries read them leniently, as entries without a time."""
+    if ts_expr is None:
+        return
+    typ = cols.get(role_column(ts_expr) or "", "")
+    if is_temporal(typ):
+        return
+    expr = pct(ts_expr)
+    instant = instant_sql(expr, typ, "UTC")
+    n, ok, bad = ctx.db.read(
+        f"SELECT count(v), count(t) FILTER (WHERE t BETWEEN TIMESTAMPTZ '1971-01-01' AND TIMESTAMPTZ '2100-01-01'), "
+        f"any_value(CASE WHEN t IS NULL OR t NOT BETWEEN TIMESTAMPTZ '1971-01-01' AND TIMESTAMPTZ '2100-01-01' "
+        f"THEN v END) FROM (SELECT ({expr})::varchar AS v, {instant} AS t FROM {relation} "
+        f"WHERE ({expr}) IS NOT NULL LIMIT 1000)",
+        {},
+    ).rows[0]
+    if n and ok * 2 < n:
+        raise UserFacingError(
+            f"The timestamp role {display_role(ts_expr)} holds values that are not times (e.g. "
+            f"{fmt.shorten(str(bad), 80)!r}): {n - ok} of the first {n} values. Give the column that holds the times "
+            "(text such as 2026-03-15T09:30:00, a time type, or Unix seconds or milliseconds; roles={\"timestamp\": "
+            "...}), or leave the role out."
+        )
+
+
+def _carries_zone(ts_role: str | None, columns: dict[str, str]) -> bool:
+    """The timestamp column already holds real instants (a type with a time zone)."""
+    typ = columns.get(role_column(ts_role or "") or "", "").upper()
+    return "WITH TIME ZONE" in typ or typ.startswith("TIMESTAMPTZ")
+
+
+def _shown_zone_line(zone: str) -> str:
+    return (
+        f"time zone: {zone}. The timestamp column carries its own zone, so its instants are used as they are; "
+        "this zone only sets how times are shown"
+    )
+
+
 def _zone_line(zone: str, why: str) -> str:
     """The setup summary's time-zone line; a default UTC is stated without a reason, as before."""
     return f"time zone for timestamps without one: {zone}" + ("" if why == "the default" else f" ({why})")
@@ -271,24 +342,39 @@ def _inspect_raw(ctx: AppContext, rs: ResolvedSource, source: str, line_format: 
     head = rawcopy.raw_head(ctx, rs, source)
     name, how = _chosen_format(ctx, rs, source, line_format)
     zone, zone_why = setup_zone(None, name)
-    entries = list(parse_entries(head, name, zone))[:5]
+    parsed = list(parse_entries(head, name, zone))
+    # As setup does: when no line matches, every line would join one entry, so each line is one entry instead.
+    unmatched = bool(parsed) and name != "lines" and all(e.ts is None for e in parsed)
+    format_line = f"line format: {name} ({how}); known formats: {', '.join(LINE_FORMATS)}"
+    if unmatched and line_format is None:
+        name, format_line = "lines", f"{NONE_RECOGNISED}; known formats: {', '.join(LINE_FORMATS)}"
+        parsed = list(parse_entries(head, name, zone))
+    elif unmatched:
+        format_line += (
+            f". No line among the first ones matches it, so setup with this line format would refuse the file; "
+            "try another"
+        )
+    entries = parsed[:5]
+    one_per_line = name == "lines"
     lines = [
         fmt.how_measured(
-            "read only the first lines of the file; nothing was created or changed", sample="the first lines"
+            "read only the first lines of the file; nothing was created or changed", sample="the first lines", tz=zone
         ),
         f"source: {source} (raw_text)",
         f"how it will be used: {_why_copy(rs)}",
         *_size_lines(rs),
-        f"line format: {name} ({how}); known formats: {', '.join(LINE_FORMATS)}",
+        format_line,
         "pattern: " + LINE_FORMATS[name].describes,
         _zone_line(zone, zone_why) + "; setup can be given another (timezone)",
         "columns of the copied table: " + ", ".join(f"{c} {t}" for c, t in rawcopy.RAW_COLUMNS),
         "proposed field roles (confirm or correct):",
         "  message: message",
         "  timestamp: ts" + ("" if any(e.ts for e in entries) else "  (none found in the first lines)"),
-        "  level: level",
-        "  component: component",
-        "  host: host",
+        *(
+            ["  level: absent", "  component: absent", "  host: absent"]
+            if one_per_line
+            else ["  level: level", "  component: component", "  host: host"]
+        ),
         "  order: entry_id",
         "sample entries:",
     ]
@@ -317,7 +403,7 @@ def _sample_strings(samples: list[dict[str, Any]]) -> dict[str, list[str]]:
     for row in samples:
         for k, v in row.items():
             if v is not None:
-                out.setdefault(k, []).append(fmt.shorten(str(v), 80))
+                out.setdefault(k, []).append(sample_text(v))
     return out
 
 
@@ -368,6 +454,8 @@ def _register_copied(
         roles_updated_at=now,
     )
     try:
+        cols = dict(relation_columns(ctx.db, relation, source))
+        _check_timestamp(ctx, relation, roles.timestamp, cols)
         ctx.store.create_log_table(lt)
     except BaseException:
         drop_table(ctx, relation)
@@ -381,9 +469,9 @@ def _copied_summary(
 ) -> str:
     index_lines, read_data = _index_section(ctx, lt, *build)
     lines = [
-        fmt.how_measured(how + (index_lines_how(read_data) if read_data else "")),
+        fmt.how_measured(how + (index_lines_how(read_data) if read_data else ""), tz=lt.timezone),
         f"Set up log table '{lt.name}': {_why_copy(rs)}",
-        f"The copy is {lt.relation} ({lt.row_count:,} entries); the original file was not changed.",
+        f"The copy is {lt.relation} ({lt.row_count:,} {'entry' if lt.row_count == 1 else 'entries'}); the original file was not changed.",
         *_size_lines(rs),
         *extra,
         _zone_line(lt.timezone, zone_why),
@@ -409,10 +497,10 @@ def _setup_raw(
     fmt_name, how = _chosen_format(ctx, rs, source, line_format)
     zone, zone_why = setup_zone(timezone, fmt_name)
     with readable(source):
-        result = rawcopy.copy_raw(ctx, name, rs, source, fmt_name, zone)
+        result = rawcopy.copy_raw(ctx, name, rs, source, fmt_name, zone, explicit=line_format is not None)
     final = _merge(result.roles, given) if given else result.roles
     lt = _register_copied(ctx, name, source, "raw_text", result.relation, final, result.entries, zone)
-    extra = [f"line format: {fmt_name} ({how})"]
+    extra = [f"line format: {fmt_name} ({how})" if result.line_format == fmt_name else NONE_RECOGNISED]
     if result.no_timestamp:
         n = result.no_timestamp
         extra.append(
@@ -519,12 +607,12 @@ def create_index(ctx: AppContext, log_table: str, kind: str, dry_run: bool = Fal
             )
         built = indexes.build_measured(ctx, lt, kind)
     note = {
-        "filter": "describe_logs now lists values exactly and filters on the indexed fields cost almost nothing.",
+        "filter": "describe_logs now lists values (and find_values) exactly from the index; counts, surveys and trends still read the entries.",
         "search": "search_logs uses it for text search, and fuzzy search is available.",
     }[kind]
     return "\n".join(
         [
-            fmt.how_measured(f"the {kind} index was built over every entry of the log table"),
+            fmt.how_measured(f"the {kind} index was built over every entry of the log table", tz=lt.timezone),
             _built_line(kind, built),
             note,
         ]
@@ -535,9 +623,10 @@ def drop_index(ctx: AppContext, log_table: str, kind: str) -> str:
     kind = indexes.check_kind(kind)
     lt = ctx.store.get_log_table(log_table)
     dropped = indexes.drop(ctx, lt, kind)
-    head = fmt.how_measured("index removed; no log entries were read")
     if dropped is None:
+        head = fmt.how_measured("nothing removed (there was no such index); no log entries were read", tz=lt.timezone)
         return head + f"\nLog table '{lt.name}' has no {kind} index; nothing changed."
+    head = fmt.how_measured("index removed; no log entries were read", tz=lt.timezone)
     return (
         head
         + f"\nDropped the {kind} index {dropped} of log table '{lt.name}'. Its disk space is freed; questions on this "

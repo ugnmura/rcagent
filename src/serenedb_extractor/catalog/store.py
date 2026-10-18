@@ -80,6 +80,7 @@ def _template(r: dict[str, Any]) -> Template:
 
 
 PARAM_NAME = re.compile(r"[a-z][a-z0-9_]*")
+MAX_PARAM_NAME = 40
 
 
 def _params_json(params: list[Param]) -> str:
@@ -124,6 +125,26 @@ def _bounds(
     firsts = [d for d in (*(t.first_seen for t in seen), first) if d is not None]
     lasts = [d for d in (*(t.last_seen for t in seen), last) if d is not None]
     return min(firsts, default=None), max(lasts, default=None)
+
+
+_PLACEHOLDER = re.compile(r"<[A-Z]+>|<\*>")
+
+
+def breadth(template: str) -> int:
+    """How much a template's text leaves open: 2 per <*> (any token), 1 per typed placeholder (<NUM>, <PATH>, ...)."""
+    return sum(2 if p == "<*>" else 1 for p in _PLACEHOLDER.findall(template))
+
+
+def _narrower(candidate: CandidateTemplate, t: Template) -> bool:
+    """The candidate is a narrower form of `t`: `t` already matches the candidate's example and leaves more open.
+    Such a candidate never replaces `t` (a template ID keeps meaning at least what it meant)."""
+    return breadth(candidate.template) < breadth(t.template) and full_match(t.regex, candidate.example)
+
+
+def covering(t: Template, others: list[Template]) -> Template:
+    """The broadest template among `others` that covers `t` (matches its example and leaves more open), else `t`."""
+    wider = [o for o in others if breadth(o.template) > breadth(t.template) and full_match(o.regex, t.example)]
+    return min(wider, key=lambda o: (-breadth(o.template), _template_number(o.template_id))) if wider else t
 
 
 def _template_number(template_id: str) -> int:
@@ -230,7 +251,9 @@ class CatalogStore:
         Identical template text is `known` (same ID, sightings refreshed). A candidate whose regex
         full-matches other templates' examples is `generalized`: the lowest-numbered match keeps its ID
         and takes the candidate's template, the others are absorbed and redirect to it (every redirect
-        stays one hop). Anything else is `new` with the next T<n> from the log table's counter (never reused).
+        stays one hop). A candidate narrower than a template it matches (fewer variable parts, and that
+        template matches its example) never replaces it. Anything else is `new` with the next T<n> from the
+        log table's counter (never reused).
 
         A merge writes in an order that keeps every issued ID resolvable after a failure at any step
         (survivor, redirects pointing at the absorbed ID, the absorbed ID's own redirect, and only then
@@ -246,7 +269,9 @@ class CatalogStore:
             for c in found:
                 first, last = _naive_utc(c.first_seen), _naive_utc(c.last_seen)
                 same = next((t for t in state.values() if t.template == c.template), None)
-                group = [t for t in state.values() if t is same or full_match(c.regex, t.example)]
+                group = [
+                    t for t in state.values() if t is same or (full_match(c.regex, t.example) and not _narrower(c, t))
+                ]
                 if not group:
                     saved = self._insert(log_table, c, first, last, now)
                     state[saved.template_id] = saved
@@ -339,6 +364,9 @@ class CatalogStore:
     def resolve(self, log_table: str, template_id: str) -> Resolved:
         """The live template for an ID, following a merge redirect (one hop by construction)."""
         wanted = template_id.strip()
+        spelled = re.fullmatch(r"[Tt]?\s*0*(\d+)", wanted)
+        if spelled:  # t1, T 1, T001 and 1 all mean T1
+            wanted = f"T{spelled.group(1)}"
         live = self._template_row(log_table, wanted)
         if live is not None:
             return Resolved(live, None)
@@ -362,17 +390,26 @@ class CatalogStore:
 
     def rename_parameter(self, log_table: str, template_id: str, old: str, new: str) -> Resolved:
         """Rename one parameter for good; later surveys keep the name. Follows a merge redirect."""
+        if len(new) > MAX_PARAM_NAME:
+            raise UserFacingError(
+                f"'{new[:MAX_PARAM_NAME]}...' is too long for a parameter name ({len(new)} characters); keep it to "
+                f"{MAX_PARAM_NAME} characters or fewer."
+            )
         if not PARAM_NAME.fullmatch(new):
             raise UserFacingError(
                 f"'{new}' is an invalid parameter name: use lower-case letters, digits and underscores, starting with a letter."
             )
         resolved = self.resolve(log_table, template_id)
         template = resolved.template
-        target = next((p for p in template.params if p.name == old), None)
+        target = next((p for p in template.params if p.name == old), None) or next(
+            (p for p in template.params if p.name.lower() == old.lower()), None
+        )  # an exact match first, then one in any case (HTTP_METHOD finds http_method)
         if target is None:
             names = ", ".join(p.name for p in template.params) or "none"
             raise UserFacingError(f"{template.template_id} has no parameter named '{old}'. Its parameters: {names}.")
-        if new != old and any(p.name == new for p in template.params):
+        if target.name == new:
+            raise UserFacingError(f"'{target.name}' already has that name; give a different new_name.")
+        if any(p is not target and p.name.lower() == new.lower() for p in template.params):
             raise UserFacingError(f"{template.template_id} already has a parameter named '{new}'; pick another name.")
         params = [Param(p.pos, new if p is target else p.name, p.kind) for p in template.params]
         self.db.write(

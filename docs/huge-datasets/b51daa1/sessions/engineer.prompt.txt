@@ -1,0 +1,1 @@
+/mcp__serenedb-extractor__engineer On the TextBench logs (table textbench10), what is the most frequent error between 02:30 and 02:35 UTC on 2025-09-23, which service logs it, and what happens right before one occurrence? Show the evidence.

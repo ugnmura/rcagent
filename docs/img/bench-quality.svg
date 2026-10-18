@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 236" width="900" height="236" role="img" aria-label="30 sealed held-out questions, Claude Opus 5.5, 5 trials each, blind grader. This server against the team's two earlier designs v1 and v2: blind rubric 96.9% vs 92.9% and 93.5%; exact values 98% vs 94% and 96%; cost per answer 0.117 vs 0.459 and 0.259 US dollars; tool calls per answer 5.9 vs 9.2 and 6.6." font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif">
+  <style>
+    .t1 { fill: #0b0b0b; }
+    .t2 { fill: #52514e; }
+    .hi { fill: #2a78d6; }
+    .lo { fill: #b8b7b1; }
+    .axis { stroke: #b8b7b1; }
+    @media (prefers-color-scheme: dark) {
+      .t1 { fill: #ffffff; }
+      .t2 { fill: #c3c2b7; }
+      .hi { fill: #3987e5; }
+      .lo { fill: #6b6a64; }
+      .axis { stroke: #5c5b55; }
+    }
+    text { font-size: 13px; }
+    .title { font-size: 15px; font-weight: 600; }
+    .ptitle { font-size: 13px; font-weight: 600; }
+    .val { font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .valb { font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .small { font-size: 11.5px; }
+  </style>
+
+  <text x="20" y="28" class="t1 title">Answer quality on 30 sealed held-out questions</text>
+  <text x="20" y="48" class="t2">Claude Opus 5.5 · 5 trials per question · blind grader · v1 and v2 are the team's two earlier designs</text>
+
+  <!-- row labels -->
+  <text x="20" y="115" class="t1" font-weight="600">this server</text>
+  <text x="20" y="145" class="t2">v1</text>
+  <text x="20" y="175" class="t2">v2</text>
+
+  <!-- panel 1: blind rubric, 0..100 over 120 px -->
+  <text x="120" y="80" class="t1 ptitle">Blind rubric</text>
+  <text x="120" y="94" class="t2 small">higher is better</text>
+  <line x1="120" y1="100" x2="120" y2="184" class="axis"/>
+  <rect x="120" y="101" width="116.3" height="20" rx="4" class="hi"/><rect x="120" y="101" width="4" height="20" class="hi"/>
+  <text x="242" y="116" class="t1 valb">96.9%</text>
+  <rect x="120" y="131" width="111.5" height="20" rx="4" class="lo"/><rect x="120" y="131" width="4" height="20" class="lo"/>
+  <text x="237" y="146" class="t2 val">92.9%</text>
+  <rect x="120" y="161" width="112.2" height="20" rx="4" class="lo"/><rect x="120" y="161" width="4" height="20" class="lo"/>
+  <text x="238" y="176" class="t2 val">93.5%</text>
+
+  <!-- panel 2: exact values, 0..100 over 120 px -->
+  <text x="315" y="80" class="t1 ptitle">Exact values</text>
+  <text x="315" y="94" class="t2 small">higher is better</text>
+  <line x1="315" y1="100" x2="315" y2="184" class="axis"/>
+  <rect x="315" y="101" width="117.6" height="20" rx="4" class="hi"/><rect x="315" y="101" width="4" height="20" class="hi"/>
+  <text x="438" y="116" class="t1 valb">98%</text>
+  <rect x="315" y="131" width="112.8" height="20" rx="4" class="lo"/><rect x="315" y="131" width="4" height="20" class="lo"/>
+  <text x="433" y="146" class="t2 val">94%</text>
+  <rect x="315" y="161" width="115.2" height="20" rx="4" class="lo"/><rect x="315" y="161" width="4" height="20" class="lo"/>
+  <text x="436" y="176" class="t2 val">96%</text>
+
+  <!-- panel 3: USD per answer, 0..0.5 over 120 px -->
+  <text x="510" y="80" class="t1 ptitle">Cost per answer</text>
+  <text x="510" y="94" class="t2 small">USD · lower is better</text>
+  <line x1="510" y1="100" x2="510" y2="184" class="axis"/>
+  <rect x="510" y="101" width="28.1" height="20" rx="4" class="hi"/><rect x="510" y="101" width="4" height="20" class="hi"/>
+  <text x="544" y="116" class="t1 valb">$0.117</text>
+  <rect x="510" y="131" width="110.2" height="20" rx="4" class="lo"/><rect x="510" y="131" width="4" height="20" class="lo"/>
+  <text x="626" y="146" class="t2 val">$0.459</text>
+  <rect x="510" y="161" width="62.2" height="20" rx="4" class="lo"/><rect x="510" y="161" width="4" height="20" class="lo"/>
+  <text x="578" y="176" class="t2 val">$0.259</text>
+
+  <!-- panel 4: tool calls per answer, 0..10 over 120 px -->
+  <text x="705" y="80" class="t1 ptitle">Tool calls per answer</text>
+  <text x="705" y="94" class="t2 small">lower is better</text>
+  <line x1="705" y1="100" x2="705" y2="184" class="axis"/>
+  <rect x="705" y="101" width="70.8" height="20" rx="4" class="hi"/><rect x="705" y="101" width="4" height="20" class="hi"/>
+  <text x="782" y="116" class="t1 valb">5.9</text>
+  <rect x="705" y="131" width="110.4" height="20" rx="4" class="lo"/><rect x="705" y="131" width="4" height="20" class="lo"/>
+  <text x="822" y="146" class="t2 val">9.2</text>
+  <rect x="705" y="161" width="79.2" height="20" rx="4" class="lo"/><rect x="705" y="161" width="4" height="20" class="lo"/>
+  <text x="790" y="176" class="t2 val">6.6</text>
+
+  <text x="20" y="218" class="t2 small">Rubric and exact scales run 0-100%, cost 0-$0.50, tool calls 0-10. Method, confidence intervals and weak spots: docs/EVALUATION.md</text>
+</svg>

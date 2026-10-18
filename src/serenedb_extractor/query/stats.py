@@ -12,7 +12,8 @@ no such estimate. Both take an average width per column from a few rows; a time 
 an upper bound (every entry), marked `rows_exact=False`.
 
 `collect` is remembered for the rest of a tool call inside `per_call()` (the server wraps every tool
-call in it), so the several cost checks of one call read the metadata once.
+call in it), so the several cost checks of one call read the metadata once. So are a log table's
+columns (`table_columns`): reading them costs two round trips (~0.14 s on remote TextBench).
 """
 
 import re
@@ -80,17 +81,31 @@ def role_columns(expr: str | None) -> list[str]:
 
 _MEMO: ContextVar[dict[tuple[object, ...], "ScopeStats"] | None] = ContextVar("scope_stats_memo", default=None)
 _LIVE_ROWS: ContextVar[dict[tuple[object, ...], int] | None] = ContextVar("live_row_count_memo", default=None)
+_COLUMNS: ContextVar[dict[tuple[object, ...], dict[str, str]] | None] = ContextVar("table_columns_memo", default=None)
 
 
 @contextmanager
 def per_call() -> Iterator[None]:
     """Remember collected scope statistics until the block ends (one tool call)."""
-    token, rows_token = _MEMO.set({}), _LIVE_ROWS.set({})
+    token, rows_token, cols_token = _MEMO.set({}), _LIVE_ROWS.set({}), _COLUMNS.set({})
     try:
         yield
     finally:
         _MEMO.reset(token)
         _LIVE_ROWS.reset(rows_token)
+        _COLUMNS.reset(cols_token)
+
+
+def table_columns(db: Database, lt: LogTable, remote: bool = False) -> dict[str, str]:
+    """name -> type of a log table's relation, remembered for the rest of the tool call inside `per_call()`."""
+    memo = _COLUMNS.get()
+    key = (id(db), lt.relation, lt.source)
+    if memo is None or key not in memo:
+        cols = dict(relation_columns(db, lt.relation, lt.source, remote))
+        if memo is None:
+            return cols
+        memo[key] = cols
+    return dict(memo[key])
 
 
 def _memo_key(db: Database, lt: LogTable, tr: TimeRange) -> tuple[object, ...]:
@@ -129,13 +144,11 @@ def _parquet(db: Database, lt: LogTable, tr: TimeRange, has_f: bool, has_s: bool
     params: dict[str, object] = {"ts": ts_col or ""}
     what = f"reading the Parquet metadata of {lt.name}"
     skippable = False
-    hit: dict[tuple[str, int], bool] = {}
-    groups = db.read(
-        f"SELECT file_name, row_group_id, max(row_group_num_rows) AS n FROM {meta} GROUP BY 1, 2", {}, what=what
-    ).rows
+    # One metadata read for the row counts, the per-column sizes and which row groups the time range
+    # overlaps (each read of a remote file's metadata costs ~0.15 s on TextBench).
+    hit_sql = "NULL::boolean"
     if tr.bounded and ts_col is not None:
-        cols = dict(relation_columns(db, lt.relation, lt.source, rs.remote))
-        typ = cols.get(ts_col, "").upper()
+        typ = table_columns(db, lt, rs.remote).get(ts_col, "").upper()
         if is_temporal(typ):
             skippable = True
             naive = "WITH TIME ZONE" not in typ and not typ.startswith("TIMESTAMPTZ")
@@ -152,22 +165,24 @@ def _parquet(db: Database, lt: LogTable, tr: TimeRange, has_f: bool, has_s: bool
                 bounds.append(f"{bound('stats_max')} >= %(lo)s::timestamptz")
                 params["lo"] = tr.start.isoformat()
             # A group without usable statistics can't be skipped (coalesce to TRUE).
-            ranges = db.read(
-                f"SELECT file_name, row_group_id, coalesce({' AND '.join(bounds)}, TRUE) AS hit "
-                f"FROM {meta} WHERE path_in_schema = %(ts)s",
-                params,
-                what=what,
-            ).rows
-            hit = {(r[0], r[1]): bool(r[2]) for r in ranges}
+            hit_sql = f"bool_and(CASE WHEN path_in_schema = %(ts)s THEN coalesce({' AND '.join(bounds)}, TRUE) END)"
     per_col = db.read(
         f"SELECT file_name, row_group_id, split_part(path_in_schema, ', ', 1) AS c, "
-        f"sum(total_compressed_size)::bigint AS b FROM {meta} GROUP BY 1, 2, 3",
-        {},
+        f"sum(total_compressed_size)::bigint AS b, max(row_group_num_rows) AS n, {hit_sql} AS hit "
+        f"FROM {meta} GROUP BY 1, 2, 3",
+        params,
         what=what,
     ).rows
+    rows_of: dict[tuple[str, int], int] = {}
+    hit: dict[tuple[str, int], bool] = {}
+    for f, g, _, _, n, h in per_col:
+        rows_of[(f, g)] = max(rows_of.get((f, g), 0), int(n or 0))
+        if h is not None:
+            hit[(f, g)] = bool(h)
+    groups = [(f, g, n) for (f, g), n in rows_of.items()]
     by_col: dict[str, int] = {}
     group_cols: dict[tuple[str, int], dict[str, int]] = {}
-    for f, g, c, b in per_col:
+    for f, g, c, b, _, _ in per_col:
         if hit.get((f, g), True):
             by_col[c] = by_col.get(c, 0) + int(b or 0)
             group_cols.setdefault((f, g), {})[c] = int(b or 0)
@@ -200,7 +215,7 @@ def _parquet(db: Database, lt: LogTable, tr: TimeRange, has_f: bool, has_s: bool
 
 
 def _table(db: Database, lt: LogTable, tr: TimeRange, has_f: bool, has_s: bool) -> ScopeStats:
-    cols = dict(relation_columns(db, lt.relation, lt.source))
+    cols = table_columns(db, lt)
     if lt.mode == "in_place":
         total = _live_rows(db, lt)
     elif lt.row_count is not None:

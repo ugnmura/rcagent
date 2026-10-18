@@ -1,5 +1,6 @@
 """Structured files outside the mounted folder: read here (Parquet via pyarrow, JSON/JSONL) and copied."""
 
+import csv
 import json
 import re
 from collections.abc import Callable, Iterator
@@ -19,6 +20,52 @@ from serenedb_extractor.timezones import get_zone
 
 _ISO_FULL = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?$")
 SCHEMA_ROWS = 1000
+
+
+_INT = re.compile(r"^[+-]?\d{1,18}$")
+_FLOAT = re.compile(r"^[+-]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?$")
+
+
+def _csv_value(v: str | None) -> Any:
+    """A CSV field as JSON-like data, so the JSON schema inference applies: numbers as numbers, empty as missing."""
+    if v is None or v == "":
+        return None
+    if _INT.match(v):
+        return int(v)
+    if _FLOAT.match(v):
+        return float(v)
+    return v
+
+
+def _csv_records(path: str) -> Iterator[dict[str, Any]]:
+    with open_local(path) as f:
+        head = f.read(65536)
+        f.seek(0)
+        delimiter = ","
+        try:
+            delimiter = csv.Sniffer().sniff(head.splitlines()[0] if head else "", delimiters=",;\t|").delimiter
+        except csv.Error:
+            pass
+        # Standard CSV quoting ("" inside a quoted field is one "), whatever the sniffer guesses.
+        reader = csv.reader(f, delimiter=delimiter, quotechar='"', doublequote=True)
+        header = next(reader, [])
+        names = _unique_names(header)
+        for row in reader:
+            if not any(row):
+                continue
+            yield {k: _csv_value(v) for k, v in zip(names, row) if k}
+
+
+def _unique_names(header: list[str]) -> list[str]:
+    """Column names as given; a repeated name gets a suffix (level, level_1), so no column is lost."""
+    seen: dict[str, int] = {}
+    out = []
+    for h in header:
+        name = h.strip() or "column"
+        n = seen.get(name, 0)
+        seen[name] = n + 1
+        out.append(name if n == 0 else f"{name}_{n}")
+    return out
 
 
 def _json_records(path: str) -> Iterator[dict[str, Any]]:
@@ -153,6 +200,11 @@ def open_structured(rs: ResolvedSource, source: str, schema_limit: int | None = 
     if rs.kind == "parquet":
         cols, rows, total = _parquet_rows(rs.db_path)
         return StructuredSource(cols, rows, total)
+    if rs.kind == "csv":
+        cols = _infer_json(_csv_records(rs.db_path), schema_limit)
+        if not cols:
+            raise UserFacingError(f"{source} has no CSV rows to copy.")
+        return StructuredSource(cols, _csv_records(rs.db_path))
     cols = _infer_json(_json_records(rs.db_path), schema_limit)
     if not cols:
         raise UserFacingError(f"{source} has no JSON entries to copy.")
@@ -190,21 +242,22 @@ def copy_structured(
     `roles_for(columns, samples)` decides the field roles once the columns are known."""
     zone = get_zone(tz)
     src = open_structured(rs, source, schema_limit=None)
-    data_cols = src.columns
-    add_id = "entry_id" not in {c for c, _ in data_cols}
-    columns = ([("entry_id", "BIGINT")] if add_id else []) + data_cols
+    # The copy numbers its entries in entry_id (the occurrence IDs e:<n>); a column of the file with that name
+    # is kept as source_entry_id, so IDs stay unique whatever the file holds.
+    source_names = [c for c, _ in src.columns]
+    stored = {c: ("source_entry_id" if c == "entry_id" else c) for c in source_names}
+    data_cols = [(stored[c], t) for c, t in src.columns]
+    columns = [("entry_id", "BIGINT")] + data_cols
     sample_src = open_structured(rs, source)
-    samples = peek_samples(sample_src, zone)
-    roles = roles_for(data_cols, samples)
-    if add_id:
-        roles = replace(roles, order=quote_ident("entry_id"))
+    samples = [{stored[k]: v for k, v in s.items()} for s in peek_samples(sample_src, zone)]
+    roles = replace(roles_for(data_cols, samples), order=quote_ident("entry_id"))
     relation = f"extractor.lt_{name}"
-    create_table(ctx, relation, columns, key="entry_id" if add_id else None)
+    create_table(ctx, relation, columns, key="entry_id")
     try:
         writer = Writer(ctx, relation, [c for c, _ in columns])
+        types = [t for _, t in src.columns]
         for i, rec in enumerate(src.rows, 1):
-            row = tuple(_convert(rec.get(c), t, zone) for c, t in data_cols)
-            writer.add(((i,) + row) if add_id else row)
+            writer.add((i,) + tuple(_convert(rec.get(c), t, zone) for c, t in zip(source_names, types, strict=True)))
         writer.flush()
     except BaseException:
         drop_table(ctx, relation)

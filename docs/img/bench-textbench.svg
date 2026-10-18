@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 390" width="900" height="390" role="img" aria-label="TextBench read in place on S3 at commit b51daa1. One billion rows: whole-file search with the index 2.32 s, the same exact search without an index 15.4 s, a 60-second window without an index 1.71 s. Ten billion rows: a 60-second window 3.49 s, an exact count of all rows by service and level 31.8 s. Once: registering the S3 file 1.38 s, building the search index over 1 billion rows 70.7 s." font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif">
+  <style>
+    .t1 { fill: #0b0b0b; }
+    .t2 { fill: #52514e; }
+    .bar { fill: #2a78d6; }
+    .grid { stroke: #e4e3df; }
+    .axis { stroke: #b8b7b1; }
+    @media (prefers-color-scheme: dark) {
+      .t1 { fill: #ffffff; }
+      .t2 { fill: #c3c2b7; }
+      .bar { fill: #3987e5; }
+      .grid { stroke: #33332f; }
+      .axis { stroke: #5c5b55; }
+    }
+    text { font-size: 13px; }
+    .title { font-size: 15px; font-weight: 600; }
+    .grp { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; }
+    .val { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .tick { font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  </style>
+
+  <text x="20" y="28" class="t1 title">TextBench: 1 and 10 billion rows, read in place on S3</text>
+  <text x="20" y="48" class="t2">seconds per call · commit b51daa1 · one shared 16-CPU / 128 GB node · median of 3 where repeated</text>
+
+  <!-- plot: x0=360, 0..80 s over 480 px -->
+  <g class="grid" stroke-width="1">
+    <line x1="360.0" y1="68" x2="360.0" y2="360" class="axis"/>
+    <line x1="420.0" y1="68" x2="420.0" y2="360"/>
+    <line x1="480.0" y1="68" x2="480.0" y2="360"/>
+    <line x1="540.0" y1="68" x2="540.0" y2="360"/>
+    <line x1="600.0" y1="68" x2="600.0" y2="360"/>
+    <line x1="660.0" y1="68" x2="660.0" y2="360"/>
+    <line x1="720.0" y1="68" x2="720.0" y2="360"/>
+    <line x1="780.0" y1="68" x2="780.0" y2="360"/>
+    <line x1="840.0" y1="68" x2="840.0" y2="360"/>
+  </g>
+  <g class="t2 tick" text-anchor="middle">
+    <text x="360.0" y="378">0</text>
+    <text x="420.0" y="378">10</text>
+    <text x="480.0" y="378">20</text>
+    <text x="540.0" y="378">30</text>
+    <text x="600.0" y="378">40</text>
+    <text x="660.0" y="378">50</text>
+    <text x="720.0" y="378">60</text>
+    <text x="780.0" y="378">70</text>
+    <text x="840.0" y="378">80 s</text>
+  </g>
+
+  <text x="20" y="84" class="t2 grp">EACH QUESTION · 1 BILLION ROWS</text>
+  <text x="20" y="108" class="t1">Search the whole file, with index</text>
+  <rect x="360" y="94" width="13.9" height="20" rx="4" class="bar"/><rect x="360" y="94" width="4" height="20" class="bar"/>
+  <text x="381.9" y="109" class="t1 val">2.32 s</text>
+  <text x="20" y="138" class="t1">Search the whole file, exact, no index</text>
+  <rect x="360" y="124" width="92.4" height="20" rx="4" class="bar"/><rect x="360" y="124" width="4" height="20" class="bar"/>
+  <text x="460.4" y="139" class="t1 val">15.4 s</text>
+  <text x="20" y="168" class="t1">Search a 60 s window, no index</text>
+  <rect x="360" y="154" width="10.3" height="20" rx="4" class="bar"/><rect x="360" y="154" width="4" height="20" class="bar"/>
+  <text x="378.3" y="169" class="t1 val">1.71 s</text>
+  <text x="20" y="200" class="t2 grp">EACH QUESTION · 10 BILLION ROWS</text>
+  <text x="20" y="224" class="t1">Search a 60 s window (slowest of 3)</text>
+  <rect x="360" y="210" width="20.9" height="20" rx="4" class="bar"/><rect x="360" y="210" width="4" height="20" class="bar"/>
+  <text x="388.9" y="225" class="t1 val">3.49 s</text>
+  <text x="20" y="254" class="t1">Exact count of all rows by service, level</text>
+  <rect x="360" y="240" width="190.8" height="20" rx="4" class="bar"/><rect x="360" y="240" width="4" height="20" class="bar"/>
+  <text x="558.8" y="255" class="t1 val">31.8 s</text>
+  <text x="20" y="286" class="t2 grp">ONCE</text>
+  <text x="20" y="310" class="t1">Register the S3 file (nothing downloaded)</text>
+  <rect x="360" y="296" width="8.3" height="20" rx="4" class="bar"/><rect x="360" y="296" width="4" height="20" class="bar"/>
+  <text x="376.3" y="311" class="t1 val">1.38 s</text>
+  <text x="20" y="340" class="t1">Build the search index over 1B rows</text>
+  <rect x="360" y="326" width="424.2" height="20" rx="4" class="bar"/><rect x="360" y="326" width="4" height="20" class="bar"/>
+  <text x="776.2" y="341" class="val" text-anchor="end" fill="#ffffff">70.7 s</text>
+</svg>

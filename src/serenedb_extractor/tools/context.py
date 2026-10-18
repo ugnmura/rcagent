@@ -25,11 +25,15 @@ from serenedb_extractor.query.stats import ScopeStats, collect, role_columns
 from serenedb_extractor.query.tags import tag_entries, tag_text
 from serenedb_extractor.setup.sniff import readable
 from serenedb_extractor.tools.describe import context_scopes, known_columns
+from serenedb_extractor.tools.trend import _filters_text
 from serenedb_extractor.tools.lookup import NARROW, ts_select
 
 DEFAULT_SIDE = 10
 SAME_TS_CAP = 200
 _TICK = timedelta(microseconds=1)  # timestamps come back with microsecond precision
+
+MAX_SIDE = 200  # entries shown at most on each side of the occurrence
+MAX_WINDOW_MINUTES = 366 * 24 * 60
 
 
 @dataclass(frozen=True)
@@ -50,12 +54,16 @@ def _choose_scope(lt: LogTable, scope: str | list[str] | None, row: dict[str, An
         return _Scope([], "no narrower context scope is available: everything")
     wanted = [scope] if isinstance(scope, str) else list(scope)
     bad = [s for s in wanted if s not in available]
-    if bad or not wanted:
+    if not wanted:
+        raise UserFacingError(f"Give a scope, or leave it out for the narrowest one. The available scopes are: {', '.join(available)}.")
+    if bad:
         raise UserFacingError(
-            f"This log table has no {', '.join(repr(b) for b in bad) or 'scope'} field to scope by. "
+            f"This log table has no {', '.join(repr(b) for b in bad)} field to scope by. "
             f"The available scopes are: {', '.join(available)}."
         )
     if "everything" in wanted:
+        if len(wanted) > 1:
+            raise UserFacingError("scope 'everything' means no limit, so it can't be combined with other scopes; give one or the other.")
         return _Scope([], "everything (no scope limit)")
     for r in wanted:
         if row.get(f"occ_{r}") is None:
@@ -115,7 +123,10 @@ def _lookup_scope(lt: LogTable, stats: ScopeStats, params: dict[str, Any], keyed
             if g.first_row <= row < g.first_row + g.rows:
                 one = replace(stats, rows_in_range=g.rows, bytes_by_column=dict(g.bytes_by_column), groups=(g,))
                 return one, f" AND file_row_number BETWEEN {int(g.first_row)} AND {int(g.first_row + g.rows - 1)}"
-        raise UserFacingError(f"No entry has the occurrence ID '{params.get('occ_file')}#{row}' in log table '{lt.name}'.")
+        given = str(params.get("occ_file") or "")
+        if given.startswith("%/"):  # a bare file name, matched in any folder
+            given = given[2:].replace("\\_", "_").replace("\\%", "%").replace("\\\\", "\\")
+        raise UserFacingError(f"No entry has the occurrence ID '{given}#{row}' in log table '{lt.name}'.")
     if k == "entry" and keyed:
         per_row = {c: -(-b // max(stats.total_rows, 1)) for c, b in stats.bytes_by_column.items()}
         return replace(stats, rows_in_range=1, bytes_by_column=per_row), ""
@@ -186,11 +197,18 @@ def _fetch_occurrence(
     return rows[0], covered
 
 
+SKIPPED = "skipped"  # the nearest entry outside the window was not looked up: too large a read
+
+
 @dataclass
 class _Window:
     prior: list[dict[str, Any]]
     following: list[dict[str, Any]]
     plan: cost.Plan
+    # When a side has fewer entries than asked: the nearest entry's time outside the window, None for none,
+    # SKIPPED when not looked up; "" when not needed.
+    nearest_before: datetime | None | str = ""
+    nearest_after: datetime | None | str = ""
 
 
 def _fetch_window(
@@ -242,24 +260,82 @@ def _fetch_window(
     earlier = fetch(lt_sql, lt_p, "DESC", before)[::-1] if before else []
     same = fetch(f"{ge_sql} AND {same_hi_sql}", ge_p | same_hi_p, "ASC", SAME_TS_CAP)
     later = fetch(later_sql, later_p, "ASC", after) if after else []
-    mine = occ.strip()
+    mine = occ_mod.encode_occurrence(lt, occ_row)  # its full ID, also when it was given as just the file name
     ids = [occ_mod.encode_occurrence(lt, r) for r in same]
     split = ids.index(mine) if mine in ids else 0
     others = [r for r, i in zip(same, ids, strict=True) if i != mine]
     prior = (earlier + others[:split])[-before:] if before else []
-    return _Window(prior, (others[split:] + later)[:after], decision.plan)
+    following = (others[split:] + later)[:after]
+    win = _Window(prior, following, decision.plan)
+    # Fewer entries than asked on a side: the window ran out, so say when the nearest one outside it is.
+    scoped = " AND ".join([*conds, filt_sql])
+    scoped_params = {k: v for k, v in params.items() if k not in win_params}
+    if before and len(prior) < before:
+        win.nearest_before = _nearest(ctx, lt, cols, wcols, scoped, scoped_params, TimeRange(None, tr.start, tr.tz), "DESC", what)
+    if after and len(following) < after:
+        win.nearest_after = _nearest(ctx, lt, cols, wcols, scoped, scoped_params, TimeRange(tr.end, None, tr.tz), "ASC", what)
+    return win
+
+
+def _nearest(
+    ctx: AppContext, lt: LogTable, cols: dict[str, str], wcols: list[str], scoped: str, params: dict[str, Any],
+    side: TimeRange, direction: str, what: str,
+) -> datetime | None | str:
+    """The time of the nearest entry in scope on one side outside the window: a datetime, None when there is
+    none, or SKIPPED when the cost check does not allow reading that side (no confirmation is asked for it)."""
+    decision = _decide(ctx, collect(ctx.db, lt, side), wcols, None, [])
+    if decision.status != "run":
+        return SKIPPED
+    timeout = cost.run_timeout(decision.plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
+    side_sql, side_params = time_clause(lt, side, cols, prefix="n")
+    rows = ctx.db.read(
+        f"SELECT {ts_select(lt, cols)} FROM {lt.relation} WHERE {side_sql} AND {scoped} "
+        f"ORDER BY {role_sql(lt, 'timestamp')} {direction} LIMIT 1",
+        {**params, **side_params}, timeout_s=timeout, what=what, how_to_narrow=NARROW,
+    ).rows
+    found = rows[0][0] if rows else None
+    return found if isinstance(found, datetime) else None
+
+
+def _span(d: timedelta) -> str:
+    """A distance in time in the largest unit that keeps it readable."""
+    s = abs(d.total_seconds())
+    if s >= 2 * 86400:
+        return f"{s / 86400:,.0f} days"
+    if s >= 2 * 3600:
+        return f"{s / 3600:,.0f} h"
+    if s >= 120:
+        return f"{s / 60:,.0f} min"
+    return f"{s:,.0f} s" if s >= 1 else f"{s:.3g} s"
+
+
+def _nearest_line(found: datetime | None | str, ts: datetime, tr: TimeRange, earlier: bool) -> str:
+    word = "earlier" if earlier else "later"
+    if found is SKIPPED:
+        return f"{word} entries in this scope outside the window were not looked up (too large a read); widen window_minutes to see them"
+    if found is None:
+        return f"none {word} in this scope"
+    assert isinstance(found, datetime)
+    return (
+        f"the nearest {word} entry in this scope is {_span(found - ts)} {'before' if earlier else 'after'} "
+        f"({tr.fmt(found)})"
+    )
 
 
 def _entry_line(lt: LogTable, row: dict[str, Any], tr: TimeRange, mark: str, tag: str) -> str:
     ts = tr.fmt(row["occ_ts"]) if isinstance(row["occ_ts"], datetime) else str(row["occ_ts"])
     roles = " ".join(f"{r}={row[f'occ_{r}']}" for r in FILTER_ROLES if row.get(f"occ_{r}") is not None)
-    parts = [mark, ts, occ_mod.encode_occurrence(lt, row), roles, tag, fmt.shorten(str(row["occ_msg"] or ""))]
+    parts = [mark, ts, occ_mod.encode_occurrence(lt, row), roles, tag, fmt.entry_text(str(row["occ_msg"] or ""))]
     return " ".join(p for p in parts if p)
+
+
+def _minutes(m: float) -> str:
+    return f"{m:,.0f}" if float(m).is_integer() else f"{m:,g}"
 
 
 def _render(
     ctx: AppContext, lt: LogTable, tr: TimeRange, ts: datetime, window_minutes: float, scope: _Scope,
-    occ_row: dict[str, Any], win: _Window, before: int, after: int,
+    occ_row: dict[str, Any], win: _Window, before: int, after: int, f: Filters,
 ) -> str:
     templates = ctx.store.templates(lt.name)
     entries = [(" ", r) for r in win.prior] + [("→", occ_row)] + [(" ", r) for r in win.following]
@@ -268,16 +344,19 @@ def _render(
     assert tr.start is not None and tr.end is not None
     out = [
         fmt.how_measured(
-            f"exact: the nearest entries around the occurrence within ±{window_minutes:g} min",
-            f"{tr.fmt(tr.start)} to {tr.fmt(tr.end)} {tr.tz} (window ±{window_minutes:g} min around {tr.fmt(ts)})",
-            scope.how + (": " + held if held else ""),
+            f"exact: the nearest entries around the occurrence within ±{_minutes(window_minutes)} min",
+            f"{tr.fmt(tr.start)} to {tr.fmt(tr.end)} {tr.tz} (window ±{_minutes(window_minutes)} min around {tr.fmt(ts)})",
+            "; ".join(x for x in (scope.how + (": " + held if held else ""), _filters_text(f)) if x),
             tz=tr.tz,
         ),
         *[fmt.sentence(n) for n in win.plan.notes],
-        f"Window: ±{window_minutes:g} min around the occurrence; context scope: {scope.how}.",
+        f"Window: ±{_minutes(window_minutes)} min around the occurrence; context scope: {scope.how}.",
         f"showing {len(win.prior)} of up to {before} entries before and {len(win.following)} of up to {after} entries after "
         "the occurrence (nearest first when more exist); → marks the occurrence",
     ]
+    for found, earlier in ((win.nearest_before, True), (win.nearest_after, False)):
+        if found != "":
+            out.append(fmt.sentence(_nearest_line(found, ts, tr, earlier)))
     out += [_entry_line(lt, r, tr, mark, tag_text(tags[i]) if tags else "") for i, (mark, r) in enumerate(entries)]
     return "\n".join(out)
 
@@ -296,9 +375,10 @@ def get_context(
 ) -> str:
     lt = ctx.store.get_log_table(log_table)
     timezone = shown_zone(lt, timezone)
-    if window_minutes <= 0:
-        raise UserFacingError("window_minutes must be greater than 0.")
-    before, after = max(before, 0), max(after, 0)
+    if not (0 < window_minutes <= MAX_WINDOW_MINUTES):  # also refuses NaN
+        raise UserFacingError(f"window_minutes must be more than 0 and at most {MAX_WINDOW_MINUTES:,} (a year).")
+    if before < 0 or after < 0 or before > MAX_SIDE or after > MAX_SIDE:
+        raise UserFacingError(f"before and after are numbers of entries to show: 0 to {MAX_SIDE} each.")
     occ_mod.decode_occurrence(lt, occurrence)  # a malformed ID is explained before any query
     if lt.roles.timestamp is None:
         raise UserFacingError("This log table has no timestamp field, so there is no time window to show around an entry.")
@@ -324,4 +404,4 @@ def get_context(
         win = _fetch_window(ctx, lt, cols, select, shown_cols, occurrence, occ_row, chosen, f, tr, before, after, confirmed_cost, covered)
         if isinstance(win, str):
             return win
-    return _render(ctx, lt, tr, ts, window_minutes, chosen, occ_row, win, before, after)
+    return _render(ctx, lt, tr, ts, window_minutes, chosen, occ_row, win, before, after, f)

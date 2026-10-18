@@ -23,7 +23,16 @@ CASES = [
     ("epoch 1117838570 took 0.25s", "epoch <NUM> took <NUM>s"),
     ('"GET /v2/a/servers/detail HTTP/1.1" status: 200', '"GET <PATH> HTTP/<NUM>" status: <NUM>'),
     ("HTTP/1.1 ok", "HTTP/<NUM> ok"),
+    ("10.11.10.1,10.11.21.140 \"GET /v2 HTTP/1.1\"", '<IP> "GET <PATH> HTTP/<NUM>"'),
+    ('"DELETE /v2/servers/b9000564-fe1a-409b-b8cc-1e88b294cd1d HTTP/1.1"', '"DELETE <PATH> HTTP/<NUM>"'),
     ("user's thing and user's other", "user's thing and user's other"),
+    # zero-padded register words mask like their hex neighbours, whatever their digits
+    ("iar 00106228 dear 00b360e8", "iar <HEX> dear <HEX>"),
+    ("iar 003a90fc dear 00000000", "iar <HEX> dear <HEX>"),
+    ("took 0012345 ms", "took <NUM> ms"),
+    # colon-separated hex bytes are one value
+    ("chip FF:F2:9F:16:E3:5F:00:0D:60:EA:E0:9D ip=10.0.0.1", "chip <HEX> ip=<IP>"),
+    ("mac 00:1b:63:84:45:e6 up at 12:30:45", "mac <HEX> up at <NUM>:<NUM>:<NUM>"),
 ]
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
@@ -47,7 +56,7 @@ def test_mask_py(raw: str, masked: str) -> None:
 
 def test_rule_order_and_placeholders() -> None:
     assert [r.placeholder for r in MASK_RULES] == [
-        "<URL>", "<EMAIL>", "<UUID>", "<IP>", "<PATH>", "<HEX>", "<STR>", "<NUM>",
+        "<URL>", "<EMAIL>", "<PATH>", "<UUID>", "<IP>", "<HEX>", "<STR>", "<NUM>",
     ]
 
 

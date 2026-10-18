@@ -12,6 +12,11 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from serenedb_extractor.templating.words import (
+    constant_word,
+    names_a_value,
+    unit_after_number,
+)
 from drain3 import TemplateMiner  # type: ignore[import-untyped]
 from drain3.template_miner_config import TemplateMinerConfig  # type: ignore[import-untyped]
 
@@ -52,10 +57,62 @@ class MergedTemplate:
 def _miner(sim_th: float, depth: int) -> TemplateMiner:
     config = TemplateMinerConfig()  # defaults: no masking instructions
     config.masking_instructions = []
-    config.parametrize_numeric_tokens = False
+    # Route tokens with digits (`attempt_1445_m_000003_0`, `job_..._0020Job`) through Drain's
+    # wildcard branch of its prefix tree, so one event's lines with different leading ids meet in
+    # one cluster instead of one cluster per id (templates still compare the tokens themselves).
+    config.parametrize_numeric_tokens = True
     config.drain_sim_th = sim_th
     config.drain_depth = depth
     return TemplateMiner(persistence_handler=None, config=config)
+
+
+# A word position is an enum (part of the event's wording) rather than a variable when all its
+# values are constant words (templating.words), at most MAX_ENUM_VALUES distinct ones. `VM Paused` /
+# `VM Resumed` and `"GET` / `"POST` stay apart; a position with many different words (user names)
+# or with ids, numbers or placeholders still becomes `<*>`. So does a position whose words are units
+# after a number (`<NUM> KB` / `<NUM> MB`) or follow a label naming the value (`user cyrus` / `user news`).
+MAX_ENUM_VALUES = 6
+
+
+def _split_enums(
+    tokens: list[str], items: list[MaskedGroup]
+) -> list[tuple[list[str], list[MaskedGroup]]]:
+    """Split a Drain cluster by the words at its enum-like `<*>` positions.
+
+    Drain merges messages that differ in a word (`Instance spawned successfully` / `Instance
+    destroyed successfully`); that word names a different event, so the cluster splits by it and
+    each part's template keeps the tokens all its members share.
+    """
+    member_tokens = [i.masked.split() for i in items]
+    if any(len(t) != len(tokens) for t in member_tokens):
+        return [(tokens, items)]
+    enum_positions = []
+    for pos, token in enumerate(tokens):
+        if token != "<*>":
+            continue
+        values = {constant_word(t[pos]) for t in member_tokens}
+        if None in values or len(values) > MAX_ENUM_VALUES:
+            continue
+        if pos and any(
+            names_a_value(t[pos - 1]) or unit_after_number(t[pos - 1], t[pos])
+            for t in member_tokens
+        ):
+            continue
+        enum_positions.append(pos)
+    if not enum_positions:
+        return [(tokens, items)]
+    by_key: dict[tuple[str, ...], list[tuple[list[str], MaskedGroup]]] = {}
+    for toks, item in zip(member_tokens, items, strict=True):
+        key = tuple(constant_word(toks[p]) or "" for p in enum_positions)
+        by_key.setdefault(key, []).append((toks, item))
+    out = []
+    for members in by_key.values():
+        template = [
+            tok if all(m[0][pos] == tok for m in members) else tokens[pos]
+            for pos, tok in enumerate(members[0][0])
+        ]
+        out.append((template, [m[1] for m in members]))
+    return out
 
 
 def merge_groups(
@@ -71,14 +128,19 @@ def merge_groups(
         cluster_id = miner.add_log_message(group.masked)["cluster_id"]
         by_cluster.setdefault(cluster_id, []).append(group)
 
-    merged = []
+    parts: list[tuple[list[str], list[MaskedGroup]]] = []
     for cluster_id, items in by_cluster.items():
+        # Templates generalise as groups arrive, so read the final one.
+        tokens = list(miner.drain.id_to_cluster[cluster_id].log_template_tokens)
+        parts += _split_enums(tokens, items)
+
+    merged = []
+    for tokens, items in parts:
         breakdown: dict[str, Counter[str]] = {}
         for item in items:
             for role, values in item.breakdown.items():
                 breakdown.setdefault(role, Counter()).update(values)
-        # Templates generalise as groups arrive, so read the final one.
-        template = miner.drain.id_to_cluster[cluster_id].get_template()
+        template = " ".join(tokens)
         seen_first = [i.first_seen for i in items if i.first_seen is not None]
         seen_last = [i.last_seen for i in items if i.last_seen is not None]
         merged.append(

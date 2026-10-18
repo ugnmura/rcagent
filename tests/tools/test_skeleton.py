@@ -83,27 +83,30 @@ LOG_TOOL_ANNOTATIONS = {
             "describe_logs",
             "locate_occurrences",
             "extract_params",
-            "trend",
             "get_context",
             "search_logs",
             "run_sql",
             "count_logs",
             "show_evidence",
+            "show_team_ownership",
         )
     },
     "setup_log_table": (None, True),
     "create_index": (None, True),
     "drop_index": (None, True),
+    "edit_team_ownership": (None, True),
     "survey": (False, False),
     "rename_parameter": (False, False),
+    "rank_problems": (False, False),
+    "trend": (False, False),
 }
 EXPECTED_ANNOTATIONS = {**LOG_TOOL_ANNOTATIONS, **tool_annotations()}
 
 
-async def test_the_fifteen_log_tools_and_the_telemetry_tools_with_expected_annotations(mcp_no_db):
+async def test_the_eighteen_log_tools_and_the_telemetry_tools_with_expected_annotations(mcp_no_db):
     listed = (await mcp_no_db.list_tools()).tools
     assert sorted(t.name for t in listed) == sorted(EXPECTED_ANNOTATIONS)
-    assert len(listed) == 15 + len(tool_annotations())
+    assert len(listed) == 18 + len(tool_annotations())
     for t in listed:
         assert t.annotations is not None
         read_only, destructive = EXPECTED_ANNOTATIONS[t.name]
@@ -183,7 +186,7 @@ async def _client_with(reader: str, writer: str):
 
 
 def _assert_permission_message(out: str, setting: str) -> None:
-    assert setting in out and "permission denied" in out and "README" in out, out
+    assert setting in out and "permission denied" in out and "docs/reference.md" in out, out
     assert "Something went wrong" not in out and "could not read" not in out, out
     assert "\n" not in out.strip()
 
