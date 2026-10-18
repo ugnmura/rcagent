@@ -127,6 +127,26 @@ was: exact, estimated from a stated sample, or refused, with the reason.
 - **Data transfer:** none on our side. The bucket is public and read in place.
 - **No paid services** were used: no AI functions, embeddings or external APIs inside the database.
 
+## Rerun at `7fc3e37`: the index on an ownership-covered table
+
+`7fc3e37` includes `a0cc99e`, which lets search use the index on tables the team-ownership rules cover. Part A was run
+again there (Slurm job 5121922, same node and setup; raw results in [`huge-datasets/main-7fc3e37/`](huge-datasets/main-7fc3e37/)),
+on `tb` and, for the index steps, on a table named `textbench`, which the ownership rules cover:
+
+| Step | `tb` | `textbench` (ownership-covered) |
+|---|---|---|
+| `setup_log_table` | 1.90 s | 0.81 s |
+| `create_index(kind="search")` | 70.1 s, 37.5 GB | 69.8 s, 37.5 GB |
+| `search_logs` "error", whole file, with index (median of 3) | 3.04 s (runs 2.57–3.55 s) | **1.92 s, "exact search through the search index extractor."textbench_search_idx""** |
+| `search_logs` "error", 60 s window (median of 3) | 1.06 s without the index, 1.77 s with it present | 1.36 s with it present (scan, on purpose) |
+| `search_logs` "error", whole file, no index | 0.92 s, still a block-sample estimate | — |
+
+- **What this confirms:** the whole-file search uses the index on a team-covered table too, with the same 93,638,388
+  exact matches. At `b51daa1`, that table would have been scanned.
+- **What it doesn't change:** `count_logs` still doesn't use the search index. Without the index, a whole-file
+  search is still answered from a stated sample.
+- **Run-to-run variation:** the three with-index searches on `tb` varied by about 1 s on this shared node.
+
 ## Earlier run at `6cad141`
 
 The first measurement (Slurm job 5113147, 2026-10-18 07:02 UTC, same node type and SereneDB) ran at `6cad141` and
@@ -153,5 +173,5 @@ survey and both searches are faster, and the index build takes about the same ti
   - an index over all ten files: it won't fit in 128 GB
   - a survey of all ten files: the guard refused it as longer than the 600 s query limit
   - a whole-word scan without the index: the regex was rejected
-  - timings at the current `main`: these ran at `b51daa1`
+  - timings at the latest `main`: the full set ran at `b51daa1`, the one-file rerun at `7fc3e37`
   - timings on a dedicated machine: the node is shared, so treat the numbers as indicative.
