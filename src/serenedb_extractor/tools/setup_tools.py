@@ -429,10 +429,15 @@ def _setup_raw(
     fmt_name, how = _chosen_format(ctx, rs, source, line_format)
     zone, zone_why = setup_zone(timezone, fmt_name)
     with readable(source):
-        result = rawcopy.copy_raw(ctx, name, rs, source, fmt_name, zone)
+        result = rawcopy.copy_raw(ctx, name, rs, source, fmt_name, zone, explicit=line_format is not None)
     final = _merge(result.roles, given) if given else result.roles
     lt = _register_copied(ctx, name, source, "raw_text", result.relation, final, result.entries, zone)
-    extra = [f"line format: {fmt_name} ({how})"]
+    extra = [
+        f"line format: {fmt_name} ({how})"
+        if result.line_format == fmt_name
+        else "line format: none recognised (no line starts with a known header or an ISO time), so each line is one "
+        "entry, without a timestamp; give line_format if the file has one"
+    ]
     if result.no_timestamp:
         n = result.no_timestamp
         extra.append(
