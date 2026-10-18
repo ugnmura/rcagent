@@ -40,7 +40,7 @@ Each requirement of the challenge brief, in its own words, and where this reposi
 | One worked investigation of a real issue, with questions, tool calls, executed queries, results, and each role's answer and action | [docs/worked-investigation.md](worked-investigation.md) and its transcript |
 | A presentation or demo of no more than 5 minutes, and slides | In preparation in pull request #31 (talk script, slides and video); not yet on `main` |
 | Optional: the agent manages its own workspace (create an index for an investigation and remove it after) | `create_index` (with a `dry_run` size and time estimate) and `drop_index`; see [Indexes](#indexes); measured build times and queries with and without the index in [docs/INDEX_TIMINGS.md](INDEX_TIMINGS.md) |
-| Optional: larger datasets, such as the remote OpenTelemetry Parquet data | [Large datasets: TextBench](#large-datasets-textbench-remote-parquet-1-billion-rows-per-file) |
+| Optional: larger datasets, such as the remote OpenTelemetry Parquet data | [Large datasets: TextBench](#large-datasets-textbench-remote-parquet-1-billion-rows-per-file); timings on 1 and 10 billion rows in [HUGE_DATASETS.md](HUGE_DATASETS.md); live role answers on 10 billion rows in [live-session-textbench.md](live-session-textbench.md) |
 | Optional: phrase and fuzzy matching | `search_logs` with `fuzzy`, through the search index (0.17 s on BGL, [docs/INDEX_TIMINGS.md](INDEX_TIMINGS.md)) |
 | Optional: row-level security per role | Not implemented. There is a reader/writer split of database roles ([Reader and writer roles](#reader-and-writer-roles)), not per-role row access |
 | Optional: correlate logs with traces or metrics | Not implemented. `get_context` can scope nearby events to one request or trace ID |

@@ -150,6 +150,8 @@ Full list: [docs/reference.md](docs/reference.md#known-limits).
   were run
 - [docs/live-session.md](docs/live-session.md): live, unscripted Claude sessions, one question per role, with every
   tool call the agent chose and the raw sessions
+- [docs/live-session-textbench.md](docs/live-session-textbench.md): the same three roles live on 10 billion
+  TextBench rows
 - [docs/INDEX_TIMINGS.md](docs/INDEX_TIMINGS.md): base-corpus queries with and without a search index, and the
   index build times
 - [docs/reference.md](docs/reference.md): the requirements checklist, all tools, configuration, security, tests

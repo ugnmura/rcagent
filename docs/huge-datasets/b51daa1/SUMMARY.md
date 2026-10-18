@@ -76,3 +76,35 @@ Superseded run: job 5120519 ran the same B steps with the table named `tb10`, be
 kept in `raw/5120519/`. Also, my driver at the time did not follow the guard there: B6 offered `confirmed_cost=5.3GB` and was not
 confirmed, because the driver only looked for `TOO EXPENSIVE` at the start of the answer. That is fixed in `scripts/drive.py`, and 5120975 used the fix.
 Its numbers matched 5120975 where both ran (B4 counts identical; B5 15,211,837 in both).
+
+## C. Live role sessions on `textbench10`, job 5121770 (c23ms, node n23m0033)
+
+The sessions ran **on the Mac** with Claude Code 2.1.292. Claude Code is not installed on the cluster, by the user's decision. The MCP server was
+serenedb-extractor b51daa1 inside job 5121770, reached over stdio: `ssh rwth` → `scripts/via_srun.sh` → `srun --overlap` →
+`scripts/serve.sh`, which sets the three `SERENEDB_` variables on the node. Config: `C/extractor.json`. Runner: `scripts/run_c.sh`. The three ran in parallel.
+- Job on `c23ms`, not `devel`: devel had one node up, shared, and would not start the job before ~21:42 UTC; the user asked to run C right away.
+  `scripts/C-c23ms.sbatch` is `scripts/C.sbatch` with only the partition and job name changed. The job registered `textbench10` (no index) and was cancelled after the sessions ended.
+- The flags are the plan's, plus `--allowedTools "mcp__serenedb-extractor"` (as in the Mac-side `docs/live-session/run.sh`).
+- Role: given through the server's MCP prompt (`/mcp__serenedb-extractor__<role>` at the start of `-p`). Headless mode expanded it. The
+  stream-json output does not echo the prompt, but each session's Claude Code transcript starts with the role text ("You are helping an engineer…", "…a team lead…", "…a manager…").
+- C2 ended by asking whether to run a ~27.1 GB count. It was answered once in the same session (`--resume`): "Yes, go ahead with option 1." (`C/C2-2.prompt.txt`, `C2-2.jsonl`).
+- Sessions are unedited. Prompts are in `C/C<n>.prompt.txt`; stderr was empty for all four.
+
+| session | role | result | turns | wall s | tool calls | cost USD | tools used |
+|---|---|---|---|---|---|---|---|
+| C1 | engineer | success | 16 | 229.3 | 15 | 0.68 | ToolSearch, describe_logs×3, survey, locate_occurrences, count_logs×2, search_logs×4, get_context×2, show_evidence |
+| C2 | team-lead | success | 7 | 108.3 | 6 | 0.25 | ToolSearch, describe_logs×3, count_logs, survey |
+| C2-2 | team-lead (answer) | success | 9 | 202.6 | 8 | 0.61 | count_logs, survey×6, show_evidence |
+| C3 | manager | success | 11 | 126.2 | 10 | 0.32 | ToolSearch, describe_logs, count_logs×3, survey×4, show_evidence |
+
+What the answers say, in short (read the sessions for the full text and the evidence):
+- C1, engineer: top error 02:30-02:35 is the "Visa cache full" card-charge failure. 9,512,428 entries mention it, ≈48 % of 19,703,798 error entries
+  (exact). It originates in payment (Checkout & Payments, 1,063,424) and frontend repeats it (Storefront, 8,449,004). The answer follows two
+  traces end to end for what comes right before.
+- C2 + C2-2, team lead: exact error entries per service and team over the whole table (frontend 1,063,483,297; payment 142,921,020;
+  email 24,613,176; ...). Kinds of error come from two 5-minute slices, as sample estimates. Look first at Checkout & Payments ("Visa cache full").
+- C3, manager: the biggest risk is 96,081 fatal entries with no owning team (empty service name). By volume, Storefront errors (1,063,484,068) come next.
+  Counts by team and severity are exact; message content and trend were not established (the surveys were too expensive).
+
+Not checked for correctness by me beyond reading them; small differences between sessions (e.g. 1,063,484,068 for Storefront
+by team in C3 vs 1,063,483,297 for service frontend in C2/B6) are left as they are.
