@@ -112,6 +112,14 @@ export const BenchSetupShot: React.FC<{frames: number; benchmarks: Benchmarks}> 
 
 // ------------------------------------------------------------------ shot 2: the race
 
+/** Design name, and under it one muted line on how it answers a question. */
+export const DesignLabel: React.FC<{d: Design; width: number; size?: number}> = ({d, width, size = 44}) => (
+	<div style={{width, textAlign: 'right', whiteSpace: 'nowrap'}}>
+		<div style={{fontSize: size, fontWeight: d.ours ? 800 : 600, color: d.ours ? color.accent : color.text}}>{d.name}</div>
+		{d.detail ? <div style={{fontSize: size * 0.6, color: color.muted, marginTop: 6}}>{d.detail}</div> : null}
+	</div>
+);
+
 const TRACK = 860;
 const LABEL_W = 620;
 /** Room right of the track for the value label. */
@@ -166,7 +174,7 @@ export const BenchRaceShot: React.FC<{frames: number; benchmarks: Benchmarks}> =
 						const enter = ramp(frame, i * 4, i * 4 + 12, easeOut);
 						return (
 							<div key={d.name} style={{display: 'flex', alignItems: 'center', gap: 40, height: 150, opacity: enter * dim, transform: `translateX(${(1 - enter) * -30}px)`}}>
-								<div style={{width: LABEL_W, textAlign: 'right', whiteSpace: 'nowrap', fontSize: 35, fontWeight: d.ours ? 800 : 500, color: d.ours ? color.accent : color.text}}>{d.name}</div>
+								<DesignLabel d={d} width={LABEL_W} size={38} />
 								<div style={{position: 'relative', width: TRACK, height: 96}}>
 									<div
 										style={{

@@ -287,13 +287,9 @@ export const benchmarks = {
 	hero: 'blind rubric score',
 	cheaper: 'cheaper per answer than',
 	cues: [
-		'We did not guess which design works.',
-		'We built three, gave them the same sealed questions for all three roles,',
-		'and a grader scored the answers without knowing which design wrote them.',
-		'Ours came out on top, and it was the cheapest per answer.',
-		'What lost? A broad toolbox with many tools:',
-		'more calls, more cost, a lower score.',
-		'A lean server without an index: close, but behind.',
+		"We didn't guess which design works.",
+		'Three designs, the same sealed questions, graded blind.',
+		'Ours scored highest, and it was the cheapest per answer.',
 	],
 };
 

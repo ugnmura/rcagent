@@ -4,8 +4,8 @@
   "questions": 30,
   "runs": 5,
   "designs": [
-    {"name": "Ours: template catalog + evidence", "short": "ours", "score_pct": 96.9, "usd_per_answer": 0.09, "ours": true},
-    {"name": "Lean server, no index", "short": "the lean server", "score_pct": 93.5, "usd_per_answer": 0.12, "ours": false},
-    {"name": "Broad toolbox", "short": "the broad toolbox", "score_pct": 88.4, "usd_per_answer": 0.27, "ours": false}
+    {"name": "Drain3 + SQL (ours)", "detail": "Drain3 templates per question · 8 core tools + run_sql", "short": "Drain3 + SQL", "score_pct": 96.9, "usd_per_answer": 0.09, "ours": true},
+    {"name": "7 fixed tools", "detail": "fixed query tools · no Drain3 templates", "short": "7 fixed tools", "score_pct": 93.5, "usd_per_answer": 0.12, "ours": false},
+    {"name": "18 fixed tools", "detail": "fixed query tools · no Drain3 templates", "short": "18 fixed tools", "score_pct": 88.4, "usd_per_answer": 0.27, "ours": false}
   ]
 }

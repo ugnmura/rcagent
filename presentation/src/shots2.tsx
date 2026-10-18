@@ -2,6 +2,7 @@
 // frames, `done` draws the final built state for the slides PDF.
 import React from 'react';
 import {AbsoluteFill, Audio, Img, interpolate, interpolateColors, random, Sequence, spring, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
+import {DesignLabel} from './bench';
 import {hasNumbers, type Benchmarks} from './benchmarks';
 import {benchmarks as benchContent, close, evidence, intro, manager, REPO_URL, star, teamLead} from './content';
 import {ease, easeOut, ramp} from './film';
@@ -361,9 +362,7 @@ export const BenchShot: React.FC<{done?: boolean; benchmarks: Benchmarks | null;
 					const share = complete ? (d.score_pct ?? 0) / max : 1;
 					return (
 						<div key={d.name} style={{display: 'flex', alignItems: 'center', gap: 32}}>
-							<div style={{width: 680, textAlign: 'right', fontSize: 40, fontWeight: d.ours ? 800 : 500, color: d.ours ? color.accent : color.text}}>
-								{d.name}
-							</div>
+							<DesignLabel d={d} width={680} size={42} />
 							<div style={{width: W}}>
 								<div
 									style={{

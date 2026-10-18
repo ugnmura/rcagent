@@ -2,7 +2,9 @@
 
 export type Design = {
 	name: string;
-	/** Lower-case name for running text ("cheaper than the broad toolbox"). */
+	/** One line under the name: how the design answers a question. */
+	detail?: string;
+	/** Name for running text ("cheaper per answer than 18 fixed tools"). */
 	short?: string;
 	score_pct: number | null;
 	usd_per_answer: number | null;
