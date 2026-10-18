@@ -3,6 +3,7 @@ import re
 import pytest
 
 from serenedb_extractor.telemetry.registry import TelemetryStore
+from serenedb_extractor.telemetry.trace_setup import numeric_status_scheme
 from tests.conftest import call, container_parquet
 from tests.telemetry import fixtures as fx
 
@@ -101,6 +102,22 @@ async def test_numeric_status_codes_are_mapped(mcp, db_url, database):
     assert "spans: 5" in out, out
     rows = dict(database.read("SELECT span_id, status FROM extractor.tt_st", {}).rows)
     assert rows == {"s1": "ok", "s2": "error", "s3": "ok", "s4": "ok", "s5": None}
+
+
+async def test_opentelemetry_numeric_status_codes_are_mapped(mcp, db_url, database):
+    otel = STATUS_SQL.replace(", 200)", ", 1)").replace(", 503)", ", 2)").replace(", 302)", ", 0)")
+    path = container_parquet(db_url, "a3_tt_otel", otel)
+    out = await call(mcp, "setup_trace_table", name="ot", source=path)
+    assert "read as OpenTelemetry's" in out, out
+    rows = dict(database.read("SELECT span_id, status FROM extractor.tt_ot", {}).rows)
+    assert rows == {"s1": "ok", "s2": "error", "s3": "ok", "s4": "ok", "s5": None}
+
+
+def test_numeric_status_scheme():
+    assert numeric_status_scheme({0.0, 1.0, 2.0}) == "otel"
+    assert numeric_status_scheme({0.0}) == "http"  # all gRPC OK: either way ok
+    assert numeric_status_scheme({0.0, 200.0, 503.0}) == "http"
+    assert numeric_status_scheme(set()) == "http"
 
 
 async def test_duration_unit_is_required_without_a_suffix(mcp, db_url):

@@ -32,6 +32,7 @@ from serenedb_extractor.telemetry.common import (
     window_note,
     fmt_us,
     parse_window,
+    UNCHECKED_LOGS,
     services_by_source,
     tables_with_prefix,
 )
@@ -281,9 +282,12 @@ def log_changes(
             lines.append("No entries with a service in either window.")
         for name in sorted(counts):
             lines += ["", *_service_lines(name, counts[name], by_id, rule)]
+    if not tables.prefix:
+        lines += ["", "coverage: only the log table was read (pass prefix to see metrics and traces too)"]
+        return "\n".join(lines)
     by_source = services_by_source(ctx, tables)
     if services:
-        by_source = {k: v & set(services) for k, v in by_source.items()}
+        by_source = {k: (v & set(services) if k != UNCHECKED_LOGS else v) for k, v in by_source.items()}
     lines += ["", *coverage_lines(by_source)]
     return "\n".join(lines)
 

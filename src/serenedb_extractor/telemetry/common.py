@@ -6,10 +6,12 @@ from datetime import UTC, datetime, timedelta
 
 from serenedb_extractor.catalog.models import LogTable
 from serenedb_extractor.context import AppContext
-from serenedb_extractor.db import quote_ident
+from serenedb_extractor.db import QueryTimeout, quote_ident
 from serenedb_extractor.errors import UserFacingError
+from serenedb_extractor.query.filters import role_sql
 from serenedb_extractor.setup.paths import sql_literal
 from serenedb_extractor.setup.roles import is_temporal
+from serenedb_extractor.setup.sniff import readable
 from serenedb_extractor.telemetry.registry import MetricTable, TelemetryStore, TraceTable
 from serenedb_extractor.timezones import get_zone
 
@@ -157,13 +159,24 @@ def duration_us_sql(expr: str, unit: str) -> str:
 # ------------------------------------------------------------------ coverage
 
 
+UNCHECKED_LOGS = "unchecked log tables"
+
+
 def services_by_source(ctx: AppContext, tables: TableSet) -> dict[str, set[str]]:
-    """The services seen in each kind of table of a prefix (log tables need a service role to count)."""
+    """The services seen in each kind of table of a prefix (log tables need a service role to count). A log
+    table too large to list within the default time is left out and named under UNCHECKED_LOGS."""
     out: dict[str, set[str]] = {s: set() for s in SOURCES}
     for lt in tables.logs:
-        expr = lt.roles.service
-        if expr:
-            rows = ctx.db.read(f"SELECT DISTINCT CAST({expr} AS VARCHAR) FROM {lt.relation} WHERE {expr} IS NOT NULL", {})
+        if lt.roles.service:
+            expr = role_sql(lt, "service")
+            try:
+                with readable(f"the source of log table '{lt.name}'"):
+                    rows = ctx.db.read(
+                        f"SELECT DISTINCT CAST({expr} AS VARCHAR) FROM {lt.relation} WHERE {expr} IS NOT NULL", {}
+                    )
+            except QueryTimeout:
+                out.setdefault(UNCHECKED_LOGS, set()).add(lt.name)
+                continue
             out["logs"].update(str(r[0]) for r in rows.rows)
     for mt in tables.metrics:
         if mt.service:
@@ -180,8 +193,13 @@ def services_by_source(ctx: AppContext, tables: TableSet) -> dict[str, set[str]]
 def coverage_lines(by_source: dict[str, set[str]], indent: str = "  ") -> list[str]:
     """One line per service saying which of logs, metrics and traces it has, so that missing data is
     never read as "no change". `by_source` maps logs/metrics/traces to the services seen there."""
+    by_source = dict(by_source)
+    unchecked = sorted(by_source.pop(UNCHECKED_LOGS, set()))
     services = sorted(set().union(*by_source.values())) if by_source else []
     out = ["coverage (which signals exist per service; 'no' means no data, not no change):"]
+    if unchecked:
+        out.append(f"{indent}(log tables too large to list their services in time, so logs 'no' may be wrong: "
+                   f"{', '.join(unchecked)})")
     for s in services:
         parts = [f"{src} {'yes' if s in by_source.get(src, set()) else 'no'}" for src in SOURCES]
         out.append(f"{indent}{s}: " + ", ".join(parts))

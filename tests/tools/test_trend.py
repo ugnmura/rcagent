@@ -224,7 +224,7 @@ async def test_peak_by_hour_is_labelled_in_the_shown_zone(mcp, trend_lt):  # #29
         mcp, "trend", log_table="tr", templates=[trend_lt["daily"]], start="2026-03-15", end="2026-03-16",
         bucket="hour", exact=True,
     )
-    assert "    peak: 2026-03-15 03:00 UTC+00:00 with 800 entries (80% of this period)" in out
+    assert "    peak: 2026-03-15 03:00 UTC with 800 entries (80% of this period)" in out
     paris = await call(
         mcp, "trend", log_table="tr", templates=[trend_lt["daily"]], start="2026-03-15", end="2026-03-16",
         bucket="hour", exact=True, timezone="Europe/Paris",
@@ -232,7 +232,7 @@ async def test_peak_by_hour_is_labelled_in_the_shown_zone(mcp, trend_lt):  # #29
     assert "    peak: 2026-03-15 04:00 UTC+01:00 with 800 entries" in paris
 
 
-async def test_peak_of_a_sampled_run_is_estimated(mcp, trend_lt):  # #29
+async def test_peak_of_a_sampled_run_is_estimated(mcp, trend_lt, sampled):  # #29
     out = await call(mcp, "trend", log_table="tr", templates=[trend_lt["rise"]], **P)
     assert re.search(r"\n    peak \(estimated\): 2026-03-\d\d with ≈[\d,]+ entries \(≈\d+% of this period\)", out)
     assert "\n    peak: " not in out
@@ -246,4 +246,4 @@ async def test_peak_by_minute(mcp, db_url):  # #29
         mcp, "trend", log_table="shop_logs", templates=[ids["oom"]], start="2026-03-01T10:10:00Z",
         end="2026-03-01T10:20:00Z", bucket="minute", exact=True,
     )
-    assert "    peak: 2026-03-01 10:10 UTC+00:00 with 12 entries (10% of this period)" in out
+    assert "    peak: 2026-03-01 10:10 UTC with 12 entries (10% of this period)" in out

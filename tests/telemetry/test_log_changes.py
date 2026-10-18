@@ -48,6 +48,8 @@ async def test_by_log_table_and_service_filter(mcp, db_url):
     await _shop(mcp, db_url)
     out = await call(mcp, "log_changes", log_table="shop_logs", pivot=fx.PIVOT_ISO, services=["cart"])
     assert "service cart" in out and "service frontend" not in out
+    # metric and trace tables were not read, so no service may be shown as having none
+    assert "metrics no" not in out and "pass prefix to see metrics and traces too" in out
 
 
 async def test_no_change_scenario_has_no_new_templates(mcp, db_url):

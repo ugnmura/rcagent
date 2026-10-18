@@ -36,11 +36,21 @@ def duration_unit_from_name(column: str) -> str | None:
     return next((unit for suffix, unit in _SUFFIX_UNITS if low.endswith(suffix)), None)
 
 
-def status_sql(expr: str, type_name: str) -> str:
-    """'ok', 'error' or NULL (unknown). Numbers: 0 (gRPC OK) and 200-399 (HTTP) are ok, anything else an
-    error. Text: ok/error (also OpenTelemetry's STATUS_CODE_OK/ERROR) as is, a number in text as a number,
-    unset or anything else unknown."""
-    num = "CASE WHEN {n} IS NULL THEN NULL WHEN {n} = 0 OR ({n} >= 200 AND {n} < 400) THEN 'ok' ELSE 'error' END"
+HTTP_GRPC = "CASE WHEN {n} IS NULL THEN NULL WHEN {n} = 0 OR ({n} >= 200 AND {n} < 400) THEN 'ok' ELSE 'error' END"
+# OpenTelemetry's numeric StatusCode: 0 UNSET (no error recorded), 1 OK, 2 ERROR.
+OTEL = "CASE WHEN {n} IS NULL THEN NULL WHEN {n} IN (0, 1) THEN 'ok' WHEN {n} = 2 THEN 'error' ELSE NULL END"
+
+
+def numeric_status_scheme(values: set[float]) -> str:
+    """'otel' when the numeric status codes seen are OpenTelemetry's (only 0, 1 and 2, with a 1 or 2 among them),
+    else 'http' (0 = gRPC OK and 200-399 = HTTP ok, anything else an error)."""
+    return "otel" if values and values <= {0.0, 1.0, 2.0} and values & {1.0, 2.0} else "http"
+
+
+def status_sql(expr: str, type_name: str, scheme: str = "http") -> str:
+    """'ok', 'error' or NULL (unknown). Numbers: by `scheme` (see numeric_status_scheme). Text: ok/error (also
+    OpenTelemetry's STATUS_CODE_OK/ERROR) as is, a number in text as a number, unset or anything else unknown."""
+    num = OTEL if scheme == "otel" else HTTP_GRPC
     if is_numeric(type_name):
         return num.format(n=f"CAST({expr} AS DOUBLE)")
     low = f"lower(trim(CAST({expr} AS VARCHAR)))"
@@ -153,13 +163,20 @@ def setup_trace_table(
 
     parent = picked.get("parent_span_id")
     status = picked.get("status")
+    scheme = "http"
+    if status:
+        col = quote_ident(status)
+        as_num = f"CAST({col} AS DOUBLE)" if is_numeric(types[status]) else f"try_cast(trim(CAST({col} AS VARCHAR)) AS DOUBLE)"
+        with readable(source, rs.remote):
+            codes = ctx.db.read(f"SELECT DISTINCT {as_num} AS v FROM {info.from_sql} WHERE {as_num} IS NOT NULL LIMIT 4", {})
+        scheme = numeric_status_scheme({float(r[0]) for r in codes.rows})
     spans_sql = (
         f"SELECT {text('trace_id')} AS trace_id, {text('span_id')} AS span_id, "
         + (f"NULLIF(trim({text('parent_span_id')}), '')" if parent else "CAST(NULL AS VARCHAR)")
         + f" AS parent_span_id, {text('service')} AS service, {text('operation')} AS operation, "
         f"{epoch_us_sql(quote_ident(start), types[start], start_unit, zone)} AS start_us, "
         f"{duration_us_sql(quote_ident(dur), dur_unit)} AS duration_us, "
-        + (status_sql(quote_ident(status), types[status]) if status else "CAST(NULL AS VARCHAR)")
+        + (status_sql(quote_ident(status), types[status], scheme) if status else "CAST(NULL AS VARCHAR)")
         + f" AS status FROM {info.from_sql}"
     )
     relation = f"extractor.tt_{name}"
@@ -222,7 +239,8 @@ def setup_trace_table(
         f"operations ({agg['operations']} names): " + ", ".join(operations),
         f"orphan spans: {orphans:,} (their parent span is not in the table; they keep their own self time)",
         f"status: {int(agg['errors']):,} error, {unknown:,} unknown"
-        + (" (no status role: errors are unknown)" if not status else ""),
+        + (" (no status role: errors are unknown)" if not status else "")
+        + (" (numeric codes read as OpenTelemetry's: 0 unset and 1 ok, 2 error)" if scheme == "otel" else ""),
         f"setup took {fmt.duration(seconds)}",
         "roles (source columns):",
         *(f"  {r}: {picked.get(r) or 'absent'}" + (f"  ({why[r]})" if r in why else "") for r in TRACE_CANDIDATES),
