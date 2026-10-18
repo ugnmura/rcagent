@@ -3,67 +3,16 @@ import {AbsoluteFill, interpolate, Sequence, Series, useCurrentFrame} from 'remo
 import type {AssetKey, ResolvedAssets} from './assets';
 import type {Benchmarks} from './benchmarks';
 import type {TalkProps} from './calculate-metadata';
-import {DialogAudio, Facecam, Recording, Subtitles, type FacecamLayout} from './components';
-import {benchmarks, close, coldOpen, engineer, evidence, manager, reveal, teamLead} from './content';
-import {
-	ColdOpenCaption,
-	DramatizationLabel,
-	FlowLine,
-	RevealHeadline,
-	Slide2,
-	Slide3,
-	Slide4,
-	Slide5,
-	Slide6,
-	Slide7,
-} from './slides';
-import {color, font} from './theme';
-import {cueFrames, DIALOG_LEAD_SECONDS, END_CARD_SECONDS, FPS, SLIDE_SECONDS, type SceneId} from './timeline';
+import {Facecam, Recording, Subtitles} from './components';
+import {benchmarks, close, evidence, manager, teamLead} from './content';
+import {ColdOpenScene, EngineerScene, RevealScene} from './scenes';
+import {Slide3, Slide4, Slide5, Slide6, Slide7} from './slides';
+import {color} from './theme';
+import {END_CARD_SECONDS, FPS, SLIDE_SECONDS, type SceneId} from './timeline';
 
 type SceneProps = {assets: ResolvedAssets; frames: number; benchmarks: Benchmarks | null};
 
 const textCues = (cues: readonly string[]) => cues.map((text) => ({text}));
-
-// ---------------------------------------------------------------- 1a
-const ColdOpen: React.FC<SceneProps> = ({assets, frames}) => (
-	<AbsoluteFill style={{backgroundColor: '#05070a', fontFamily: font.sans, color: color.text}}>
-		<AbsoluteFill style={{justifyContent: 'center', alignItems: 'center', paddingBottom: 160}}>
-			<ColdOpenCaption />
-		</AbsoluteFill>
-		<DramatizationLabel />
-		<DialogAudio assets={assets} />
-		{assets.dialog.present ? null : (
-			<div style={{position: 'absolute', left: 40, top: 36, fontSize: 26, color: color.placeholder, fontWeight: 700}}>
-				PLACEHOLDER: dialog.mp3 (audio, 18–24 s) is missing
-			</div>
-		)}
-		<Subtitles cues={coldOpen.dialog} sceneFrames={frames} lead={DIALOG_LEAD_SECONDS} tail={0.5} />
-	</AbsoluteFill>
-);
-
-// ---------------------------------------------------------------- 1b
-const Reveal: React.FC<SceneProps> = ({assets, frames}) => {
-	const frame = useCurrentFrame();
-	const timing = cueFrames(reveal.cues, frames);
-	const headlineFrom = timing[reveal.headlineFromCue][0];
-	const flowFrom = timing[reveal.flowFromCue][0];
-	const layout: FacecamLayout = frame < headlineFrom ? 'full' : 'corner';
-	const fade = (from: number) => interpolate(frame, [from, from + 12], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
-	return (
-		<AbsoluteFill style={{backgroundColor: color.bg, fontFamily: font.sans, color: color.text}}>
-			<AbsoluteFill style={{justifyContent: 'center', alignItems: 'center', gap: 110, paddingBottom: 200}}>
-				<div style={{opacity: fade(headlineFrom)}}>
-					<RevealHeadline />
-				</div>
-				<div style={{opacity: fade(flowFrom)}}>
-					<FlowLine />
-				</div>
-			</AbsoluteFill>
-			<Facecam assetKey="s1" assets={assets} layout={layout} />
-			<Subtitles cues={textCues(reveal.cues)} sceneFrames={frames} />
-		</AbsoluteFill>
-	);
-};
 
 // ---------------------------------------------------------------- 2–4: slide, then recording
 const SlideThenRecording: React.FC<
@@ -125,22 +74,11 @@ const Close: React.FC<SceneProps> = ({assets, frames}) => {
 const renderScene = (id: SceneId, p: SceneProps): React.ReactNode => {
 	switch (id) {
 		case 'coldOpen':
-			return <ColdOpen {...p} />;
+			return <ColdOpenScene {...p} />;
 		case 'reveal':
-			return <Reveal {...p} />;
+			return <RevealScene {...p} />;
 		case 'engineer':
-			return (
-				<SlideThenRecording
-					{...p}
-					facecam="s2"
-					recording="engineerRec"
-					splitSeconds={SLIDE_SECONDS.engineer}
-					slide={<Slide2 mode="video" />}
-					cues={engineer.cues}
-					prompt={engineer.prompt}
-					cue={engineer.recordingCue}
-				/>
-			);
+			return <EngineerScene {...p} />;
 		case 'teamLead':
 			return (
 				<SlideThenRecording

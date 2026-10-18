@@ -127,7 +127,6 @@ export const Recording: React.FC<{
 	cue: string;
 	mode: Mode;
 }> = ({assetKey, assets, frames, prompt, cue, mode}) => {
-	const frame = useCurrentFrame();
 	const box: React.CSSProperties = {
 		position: 'absolute',
 		left: 96,
@@ -147,13 +146,19 @@ export const Recording: React.FC<{
 			</AbsoluteFill>
 		);
 	}
-	const recFrames = Math.ceil(assets[assetKey].seconds * FPS);
-	const video = <OffthreadVideo src={src(assetKey)} muted style={{width: '100%', height: '100%', objectFit: 'contain'}} />;
 	return (
 		<AbsoluteFill style={{backgroundColor: '#000'}}>
-			{frame < recFrames - 1 ? video : <Freeze frame={recFrames - 2}>{video}</Freeze>}
+			<RecordingVideo assetKey={assetKey} assets={assets} />
 		</AbsoluteFill>
 	);
+};
+
+/** A present recording, muted; holds its last frame when shorter than the slot. */
+export const RecordingVideo: React.FC<{assetKey: AssetKey; assets: ResolvedAssets}> = ({assetKey, assets}) => {
+	const frame = useCurrentFrame();
+	const recFrames = Math.ceil(assets[assetKey].seconds * FPS);
+	const video = <OffthreadVideo src={src(assetKey)} muted style={{width: '100%', height: '100%', objectFit: 'contain'}} />;
+	return frame < recFrames - 1 ? video : <Freeze frame={recFrames - 2}>{video}</Freeze>;
 };
 
 /** Bottom-centre subtitles; cues share the scene by length (see cueFrames). */
