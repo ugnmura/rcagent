@@ -49,7 +49,12 @@ _IP_ONE = r"\d{1,3}(?:\.\d{1,3}){3}(?::\d{1,5})?"
 _IP = rf"{_IP_ONE}(?:,{_IP_ONE})*"
 _PATH = r"(?:/[A-Za-z0-9_.@~:+\-]+)+/?"
 _PATH_PREFIX = rf"""(^|[{_WS}'"=(\[,])"""
-_HEXVAL = rf"0[xX]{_HEX}+|{_mixed_hex()}"
+# Zero-padded runs of >= 8 digits are fixed-width hex words (register dumps such as
+# `iar 00106228 dear 00b360e8`), not decimal counts, so they mask like their hex neighbours.
+# Colon-separated hex bytes (MAC addresses, chip and hardware ids: `00:0D:60:EA:E0:9D`) are one
+# value; masked piecewise they'd leave a different shape per id (`FF:F2:<NUM>F:...`).
+_HEX_BYTES = rf"{_HEX}{{2}}(?::{_HEX}{{2}}){{5,}}"
+_HEXVAL = rf"{_HEX_BYTES}|0[xX]{_HEX}+|{_mixed_hex()}|0{_DIGIT}{{7,}}"
 # Only whitespace-free quoted values; multi-word quotes are left to other rules.
 _STR = rf'''\'[^{_WS}\']+\'|"[^{_WS}"]+"'''
 _NUM = r"\d+(?:\.\d+)?"
