@@ -324,3 +324,10 @@ async def test_setup_takes_a_format_hint(mcp, tmp_path):
     p.write_text("ts;level;msg\n2026-03-01T00:00:00Z;ERROR;boom\n", encoding="utf-8")
     out = await call(mcp, "setup_log_table", name="semi", source=str(p), format_hint="csv")
     assert "Set up log table 'semi'" in out and "level: level" in out
+
+
+async def test_fuzzy_search_works_when_some_fields_are_json_paths(mcp, corpus):
+    built = await call(mcp, "create_index", log_table="openstack", kind="search")
+    assert "fuzzy" in built
+    out = await call(mcp, "search_logs", log_table="openstack", text="imagecahce", fuzzy=True)  # misspelled
+    assert "can't use the search index" not in out and "matching" in out

@@ -227,9 +227,11 @@ def _index_path(
         if fuzzy:
             raise UserFacingError(f"'{text}' has no searchable words (only punctuation or very common words); try other text.")
         return None  # e.g. "---": a substring scan can still find it
+    # What the index must hold: the message, the timestamp and every field filtered on. Shown fields it does not
+    # hold (a JSON path such as attrs ->> 'service') are left out of the listing instead of refusing the search.
     need: list[str] = []
-    for role in ("message", "timestamp", *FILTER_ROLES):
-        expr = getattr(lt.roles, role)
+    for role in ("message", "timestamp", *(k for k, _ in f.items() if k in FILTER_ROLES)):
+        expr = getattr(lt.roles, "component" if role == "team" else role)
         if expr is None:
             continue
         col = role_column(expr)
@@ -308,8 +310,12 @@ def _search_via_index(
     tags: list[str] = []
     lookup_note: str | None = None
     if total:
+        def held(r: str) -> bool:
+            col = role_column(getattr(lt.roles, "component" if r == "team" else r) or "")
+            return col is not None and col in ix.covered
+
         role_sel = "".join(
-            f", ({role_sql(lt, r)})::varchar AS occ_{r}" for r in FILTER_ROLES if getattr(lt.roles, r) is not None
+            f", ({role_sql(lt, r)})::varchar AS occ_{r}" for r in FILTER_ROLES if getattr(lt.roles, r) is not None and held(r)
         )
         direction = "DESC" if order == "newest" else "ASC"
         rows = db.read(
@@ -448,7 +454,7 @@ def _render(
         fmt.how_measured(
             kind,
             tr.describe() if tr.bounded else None,
-            _scope_text(f, text, via[1] if via else "contains"),
+            _scope_text(f, text, via[1].rsplit(" '", 1)[0] if via else "contains"),
             sample,
             index_used=via[0] if via else None,
             tz=tz,
