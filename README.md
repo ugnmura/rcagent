@@ -14,7 +14,7 @@ An MCP server that lets Claude investigate millions of log lines for three peopl
 error, a **team lead** looking for recurring problems, and a **manager** deciding what comes first. SereneDB does
 the searching and counting; Claude explains the results. Built for *Making Sense of Logs* (SereneDB track).
 
-**Demo video:** _link to come_ · **Worked investigation:** [docs/worked-investigation.md](docs/worked-investigation.md)
+**Demo video:** _link to come_ · **Worked investigation:** [below](#worked-investigation-two-503s-at-0625) · [longer, three roles](docs/worked-investigation.md)
 
 ## Benchmarks
 
@@ -141,6 +141,35 @@ For example, the engineer answer from the worked investigation:
 > One node, R30-M0-N9-C:J16-U01, produced 152,229 of BGL's 855,501 FATAL entries (17.8%) in one run on 11 June
 > 2005. Just before it, the node logged a rare `L2 DCU read error`. **Hypothesis:** a faulty L2 cache. **Next
 > check:** run hardware diagnostics on that node.
+
+## Worked investigation: two 503s at 06:25
+
+**Question (engineer):** *"What are the most severe entries in OpenStack, and did they matter?"* Eight tool calls,
+each under 0.2 s. Every result and the SQL behind it is in the
+[transcript](docs/keystone-503-transcript.md); `[step n]` points there. Times are UTC.
+
+1. **The rarest entries are one failure, twice.** OpenStack has only 2 CRITICAL entries in 207,636 [steps 1, 6]. Both
+   say `Unable to validate token: Failed to fetch token data from identity server`, right after Keystone answered
+   `503`. The first was at **06:25:02 on 16 May**, the second at **06:25:03 on 17 May**: the same minute, a day apart
+   [step 2]. They are also the only two HTTP 503s in the log, both on `GET …/servers/detail` [step 3].
+2. **Nothing warned before it.** The six entries just before the first one are routine: API calls returning `200`
+   and an image-cache check. The 503 is the first sign of trouble [step 4].
+3. **After it, the workload stops.** On 17 May the client polled `servers/detail` about 2,830 times an hour until
+   05:00. After 06:25 it made 12 requests an hour, until the log ends [step 7]. New VMs stopped too: 86 or 87
+   spawns an hour, then none from 07:00 [step 8]. Right after the 503, polling fell by 99.6% and new VMs stopped, for the
+   last 5 h 37 min of the log.
+4. **What the logs cannot show.** On 16 May the log file itself ends at 06:25:02.870, on the 503 line. The next
+   file starts 8 h 51 min later [steps 5, 6], so day 1 cannot tell an outage from the end of a capture. Loghub's
+   anomaly labels (`anomaly_labels.txt`) mark four VMs in `openstack_abnormal.log` only; both 503s are in the "normal" files [step 6].
+
+**Hypothesis (not established by these logs):** 06:25 is when Ubuntu's default `/etc/crontab` runs `cron.daily`.
+Its `logrotate` job reloads Apache, and Keystone usually runs inside Apache. A token check that arrives during the
+reload gets a 503, and the client then gives up instead of retrying.
+**Next check:** read Keystone's Apache log and the controller's `/etc/crontab` for 06:25. Then make the client
+retry on a 503.
+
+Regenerate with `scripts/worked_investigation_keystone.py`. A longer investigation, one question per role:
+[docs/worked-investigation.md](docs/worked-investigation.md).
 
 ## Tools
 
