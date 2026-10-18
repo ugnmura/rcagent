@@ -1,5 +1,6 @@
 """Metadata-only look at a source: reader SQL, columns, a few sample entries, sizes."""
 
+import json
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -12,6 +13,7 @@ from serenedb_extractor.db import Database, quote_ident
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.format import shorten
 from serenedb_extractor.setup.paths import ResolvedSource, source_sql, sql_literal
+from serenedb_extractor.setup.roles import is_nested
 
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
 
@@ -117,17 +119,19 @@ def _short(v: Any) -> str:
     return shorten(str(v), 80)
 
 
-_NESTED = re.compile(r"^(MAP|STRUCT|UNION)\b|\[\]$|^LIST\b", re.I)
-
-
-def sample_columns(columns: list[tuple[str, str]]) -> str:
-    """What to select for the sample entries: every column, except that the nested ones (maps, structs,
-    lists) are left out when there are plain ones; they are the bulk of a remote file and say nothing about
-    which column holds the timestamp, message or level."""
-    plain = [c for c, t in columns if not _NESTED.search(t.strip())]
-    if not plain or len(plain) == len(columns):
+def sample_columns(columns: list[tuple[str, str]], remote: bool = False) -> str:
+    """What to select for the sample entries: every column, nested ones (maps, structs, lists) as JSON text so
+    their fields show and can be proposed as roles. A remote source leaves nested columns out when there are
+    plain ones: they are the bulk of a remote file."""
+    nested = [c for c, t in columns if is_nested(t) and t.strip().upper() != "JSON"]
+    if not nested:
         return "*"
-    return ", ".join(quote_ident(c) for c in plain)
+    if remote:
+        plain = [c for c, _ in columns if c not in nested]
+        return ", ".join(quote_ident(c) for c in plain) if plain else "*"
+    return ", ".join(
+        f"to_json({quote_ident(c)})::VARCHAR AS {quote_ident(c)}" if c in nested else quote_ident(c) for c, _ in columns
+    )
 
 
 def sniff(db: Database, rs: ResolvedSource, source: str, for_setup: bool = False) -> SourceInfo:
@@ -151,7 +155,7 @@ def sniff(db: Database, rs: ResolvedSource, source: str, for_setup: bool = False
     columns = relation_columns(db, from_sql, source, rs.remote)
     with readable(source, rs.remote):
         sample = db.read(
-            f"SELECT {sample_columns(columns)} FROM {from_sql} LIMIT 5", {}, timeout_s=slow,
+            f"SELECT {sample_columns(columns, rs.remote)} FROM {from_sql} LIMIT 5", {}, timeout_s=slow,
             what=f"reading 5 sample entries of {source}",
         )
         info = SourceInfo(rs, from_sql, columns, sample.dicts(), size_bytes=rs.size_bytes)
@@ -184,12 +188,18 @@ def sniff(db: Database, rs: ResolvedSource, source: str, for_setup: bool = False
     return info
 
 
+def sample_text(v: Any) -> str:
+    """A sample value for role proposal: shortened, except JSON objects, whose fields are read (up to a limit)."""
+    text = json.dumps(v, default=str) if isinstance(v, dict) else str(v)
+    return text[:4000] if text.startswith("{") else _short(text)
+
+
 def sample_values(info: SourceInfo) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     for row in info.samples:
         for k, v in row.items():
             if v is not None:
-                out.setdefault(k, []).append(_short(v))
+                out.setdefault(k, []).append(sample_text(v))
     return out
 
 

@@ -26,10 +26,14 @@ from serenedb_extractor.setup.roles import (
 )
 from serenedb_extractor.timezones import get_zone
 from serenedb_extractor.setup.tablewrite import drop_table
-from serenedb_extractor.setup.sniff import SourceInfo, human_bytes, readable, relation_columns, sample_values, sniff
+from serenedb_extractor.setup.sniff import SourceInfo, human_bytes, readable, relation_columns, sample_text, sample_values, sniff
 
 
 OUTSIDE_MOUNT = "outside the mounted folder"
+NONE_RECOGNISED = (
+    "line format: none recognised (no line starts with a known header or an ISO time), so each line is one "
+    "entry, without a timestamp; give line_format if the file has one"
+)
 INDEX_AFTER_COPY = (
     "indexes: none is built unless you ask; once the copy exists, create_index with dry_run estimates their size."
 )
@@ -338,7 +342,20 @@ def _inspect_raw(ctx: AppContext, rs: ResolvedSource, source: str, line_format: 
     head = rawcopy.raw_head(ctx, rs, source)
     name, how = _chosen_format(ctx, rs, source, line_format)
     zone, zone_why = setup_zone(None, name)
-    entries = list(parse_entries(head, name, zone))[:5]
+    parsed = list(parse_entries(head, name, zone))
+    # As setup does: when no line matches, every line would join one entry, so each line is one entry instead.
+    unmatched = bool(parsed) and name != "lines" and all(e.ts is None for e in parsed)
+    format_line = f"line format: {name} ({how}); known formats: {', '.join(LINE_FORMATS)}"
+    if unmatched and line_format is None:
+        name, format_line = "lines", f"{NONE_RECOGNISED}; known formats: {', '.join(LINE_FORMATS)}"
+        parsed = list(parse_entries(head, name, zone))
+    elif unmatched:
+        format_line += (
+            f". No line among the first ones matches it, so setup with this line format would refuse the file; "
+            "try another"
+        )
+    entries = parsed[:5]
+    one_per_line = name == "lines"
     lines = [
         fmt.how_measured(
             "read only the first lines of the file; nothing was created or changed", sample="the first lines", tz=zone
@@ -346,16 +363,18 @@ def _inspect_raw(ctx: AppContext, rs: ResolvedSource, source: str, line_format: 
         f"source: {source} (raw_text)",
         f"how it will be used: {_why_copy(rs)}",
         *_size_lines(rs),
-        f"line format: {name} ({how}); known formats: {', '.join(LINE_FORMATS)}",
+        format_line,
         "pattern: " + LINE_FORMATS[name].describes,
         _zone_line(zone, zone_why) + "; setup can be given another (timezone)",
         "columns of the copied table: " + ", ".join(f"{c} {t}" for c, t in rawcopy.RAW_COLUMNS),
         "proposed field roles (confirm or correct):",
         "  message: message",
         "  timestamp: ts" + ("" if any(e.ts for e in entries) else "  (none found in the first lines)"),
-        "  level: level",
-        "  component: component",
-        "  host: host",
+        *(
+            ["  level: absent", "  component: absent", "  host: absent"]
+            if one_per_line
+            else ["  level: level", "  component: component", "  host: host"]
+        ),
         "  order: entry_id",
         "sample entries:",
     ]
@@ -384,7 +403,7 @@ def _sample_strings(samples: list[dict[str, Any]]) -> dict[str, list[str]]:
     for row in samples:
         for k, v in row.items():
             if v is not None:
-                out.setdefault(k, []).append(fmt.shorten(str(v), 80))
+                out.setdefault(k, []).append(sample_text(v))
     return out
 
 
@@ -481,12 +500,7 @@ def _setup_raw(
         result = rawcopy.copy_raw(ctx, name, rs, source, fmt_name, zone, explicit=line_format is not None)
     final = _merge(result.roles, given) if given else result.roles
     lt = _register_copied(ctx, name, source, "raw_text", result.relation, final, result.entries, zone)
-    extra = [
-        f"line format: {fmt_name} ({how})"
-        if result.line_format == fmt_name
-        else "line format: none recognised (no line starts with a known header or an ISO time), so each line is one "
-        "entry, without a timestamp; give line_format if the file has one"
-    ]
+    extra = [f"line format: {fmt_name} ({how})" if result.line_format == fmt_name else NONE_RECOGNISED]
     if result.no_timestamp:
         n = result.no_timestamp
         extra.append(

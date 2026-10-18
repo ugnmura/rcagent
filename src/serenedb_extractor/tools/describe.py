@@ -189,42 +189,59 @@ def _describe_one(ctx: AppContext, lt: LogTable, tr: TimeRange, top: _TopSources
         if n == 0:
             out += [f"  {line}" for line in diagnose_empty(db, lt, tr, Filters(), cols)]
             return out
-    lines: list[str] = []
+    found: list[tuple[str, str, str]] = []  # (role, values, where they came from)
     used: set[str] = set()
-    sampled = False
-    counted = False
     present = [r for r in _TOP_ROLES if getattr(lt.roles, r) is not None]
     full_cols = [c for r in present for c in role_columns(getattr(lt.roles, r))] + (ts_cols if tr.bounded else [])
     full = bool(present) and _affordable(db, lt, tr, full_cols) is None
     for role in _TOP_ROLES:
         if getattr(lt.roles, role) is None:
             if role != "team":
-                lines.append(f"    {role}: absent")
+                found.append((role, "absent", "absent"))
             continue
         via = _top_values_indexed(ctx, lt, role, tr, cols)
         if via is not None:
             used.add(via[1])
-            lines.append(f"    {role}: {via[0]}" + ("" if via[0] == "no values" else "  [exact, from the index]"))
+            found.append((role, via[0], "index"))
         elif full:
-            counted = True
-            lines.append(f"    {role}: {_top_values(db, lt, role, where, params, exact=True)}  [exact]")
+            found.append((role, _top_values(db, lt, role, where, params, exact=True), "counted"))
         else:
-            sampled = True
-            lines.append(f"    {role}: {_top_values(db, lt, role, where, params)}")
-    top.sampled = top.sampled or sampled
+            found.append((role, _top_values(db, lt, role, where, params), "sampled"))
+    top.sampled = top.sampled or any(src == "sampled" for _, _, src in found)
     top.indexes |= used
     period = f" in {tr.describe()}" if tr.bounded else ""
-    if counted and not sampled and not used:
-        out.append(f"  top values (exact, counted over every entry{period}):")
-        return out + [ln.replace("  [exact]", "") for ln in lines]
-    if sampled:
-        label = "sampled — rare values may be missing"
-        scope = f"the first {SAMPLE_ROWS:,} entries" + period
-        out.append(f"  top values ({label}; from {scope}){' — values marked [exact] come from an index' if used else ''}:")
+    return out + top_value_lines(found, period, sorted(used))
+
+
+_MARKS = {"index": "[exact, from the index]", "counted": "[exact, counted]", "sampled": "[sampled]"}
+
+
+def top_value_lines(found: list[tuple[str, str, str]], period: str, indexes: list[str]) -> list[str]:
+    """The top-values block. When every field came the same way the heading says how; when they differ every
+    field is marked with where its values came from (index, counted over every entry, or sampled)."""
+    sources = {src for _, _, src in found if src != "absent"}
+    sample = f"the first {SAMPLE_ROWS:,} entries{period}"
+    if sources == {"counted"}:
+        head = f"  top values (exact, counted over every entry{period}):"
+    elif sources == {"index"}:
+        head = f"  top values (exact, read from the index {', '.join(indexes)}; all entries{period}):"
+    elif sources == {"sampled"}:
+        head = f"  top values (sampled — rare values may be missing; from {sample}):"
+    elif not sources:
+        head = "  top values:"
     else:
-        out.append(f"  top values (exact, read from the index {', '.join(sorted(used))}; all entries{period}):")
-        lines = [ln.replace("  [exact, from the index]", "") for ln in lines]
-    return out + lines
+        parts = ["each field is marked by where its values came from"]
+        if "index" in sources:
+            parts.append(f"[exact, from the index] = read from {', '.join(indexes)}, all entries{period}")
+        if "counted" in sources:
+            parts.append(f"[exact, counted] = counted over every entry{period}")
+        if "sampled" in sources:
+            parts.append(f"[sampled] = from {sample}, rare values may be missing")
+        head = "  top values (" + "; ".join(parts) + "):"
+    mark = len(sources) > 1
+    return [head] + [
+        f"    {role}: {text}" + (f"  {_MARKS[src]}" if mark and src in _MARKS else "") for role, text, src in found
+    ]
 
 
 def _team_line(ctx: AppContext, lt: LogTable) -> str:
@@ -421,7 +438,7 @@ def describe_logs(
     base = "catalog and metadata, a time range from Parquet statistics or a column scan"
     if top.sampled:
         kind = base + ", and a block sample; top values are sampled" + (
-            " (those marked [exact] come from an index)" if via else ""
+            " (those marked [exact, from the index] come from an index)" if via else ""
         ) + ", counts of values found are exact"
         top_sample: str | None = f"top values from a block of {SAMPLE_ROWS:,} entries"
     elif via:
