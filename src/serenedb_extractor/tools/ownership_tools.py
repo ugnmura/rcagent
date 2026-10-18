@@ -1,7 +1,7 @@
-"""show_ownership and edit_ownership: the team-ownership table that maps components (or services) to teams.
+"""show_team_ownership and edit_team_ownership: the team-ownership table that maps components (or services) to teams.
 
-show_ownership lists the rules, where they came from and, per log table, how many entries each team owns and
-which components no rule covers. edit_ownership imports a CSV (replacing or merging), sets or removes single
+show_team_ownership lists the rules, where they came from and, per log table, how many entries each team owns and
+which components no rule covers. edit_team_ownership imports a CSV (replacing or merging), sets or removes single
 rules, removes a team, exports the rules to a CSV file, or resets to the packaged stand-in.
 """
 
@@ -29,7 +29,7 @@ SHOWN_UNASSIGNED = 15
 # ---- show ------------------------------------------------------------------------------------------
 
 
-def show_ownership(
+def show_team_ownership(
     ctx: AppContext, log_table: str | None = None, coverage: bool = True, confirmed_cost: str | None = None
 ) -> str:
     rules = ctx.store.ownership.rules()
@@ -54,7 +54,7 @@ def show_ownership(
 
 def _summary(rules: list[Rule]) -> str:
     if not rules:
-        return "There are no team ownership rules: no log table has a team. Import a table with edit_ownership."
+        return "There are no team ownership rules: no log table has a team. Import a table with edit_team_ownership."
     teams = sorted({r.team for r in rules})
     by_source: dict[str, int] = {}
     for r in rules:
@@ -135,7 +135,7 @@ def _pct(part: float, whole: float) -> str:
 # ---- edit ------------------------------------------------------------------------------------------
 
 
-def edit_ownership(
+def edit_team_ownership(
     ctx: AppContext,
     action: str,
     csv_path: str | None = None,
@@ -286,5 +286,5 @@ def _export(current: list[Rule], csv_path: str | None, log_table: str | None) ->
     path.write_text(own.to_csv(rules), encoding="utf-8")
     return (
         f"Wrote {len(rules)} ownership rules to {path.resolve()} (columns: {', '.join(own.CSV_COLUMNS)}, source). "
-        "Edit it and import it again with edit_ownership(action='import', mode='replace')."
+        "Edit it and import it again with edit_team_ownership(action='import', mode='replace')."
     )
