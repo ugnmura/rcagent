@@ -36,7 +36,14 @@ export type SceneTiming = {
 	lengthFrom: AssetKey | null;
 	frames: number;
 	placeholder: boolean;
+	/** Close only, when the joint take s7-close.mp4 is missing: the per-presenter clips, back to back. */
+	parts?: ScenePart[];
 };
+
+export type ScenePart = {key: AssetKey; frames: number; placeholder: boolean};
+
+/** The per-presenter close clips, in order, used when the joint take is missing. */
+export const CLOSE_PARTS: AssetKey[] = ['s7a', 's7b', 's7c'];
 
 const SCENES: {id: SceneId; label: string; lengthFrom: AssetKey | null; fixedSeconds?: number}[] = [
 	{id: 'intro', label: '0  Intro card', lengthFrom: null, fixedSeconds: INTRO_SECONDS},
@@ -54,11 +61,26 @@ const SCENES: {id: SceneId; label: string; lengthFrom: AssetKey | null; fixedSec
 export const secondsToFrames = (s: number) => Math.max(1, Math.ceil(s * FPS));
 
 export const buildTimeline = (assets: ResolvedAssets): SceneTiming[] =>
-	SCENES.map(({fixedSeconds, ...s}) => ({
-		...s,
-		frames: secondsToFrames(s.lengthFrom ? assets[s.lengthFrom].seconds : (fixedSeconds ?? 1)),
-		placeholder: s.lengthFrom ? !assets[s.lengthFrom].present : false,
-	}));
+	SCENES.map(({fixedSeconds, ...s}) => {
+		if (s.id === 'close' && !assets.s7.present) {
+			const parts = CLOSE_PARTS.map((key) => ({
+				key,
+				frames: secondsToFrames(assets[key].seconds),
+				placeholder: !assets[key].present,
+			}));
+			return {
+				...s,
+				frames: parts.reduce((a, p) => a + p.frames, 0),
+				placeholder: parts.some((p) => p.placeholder),
+				parts,
+			};
+		}
+		return {
+			...s,
+			frames: secondsToFrames(s.lengthFrom ? assets[s.lengthFrom].seconds : (fixedSeconds ?? 1)),
+			placeholder: s.lengthFrom ? !assets[s.lengthFrom].present : false,
+		};
+	});
 
 export const totalFrames = (scenes: SceneTiming[]) => scenes.reduce((a, s) => a + s.frames, 0);
 
@@ -70,10 +92,12 @@ export const fmt = (frames: number) => {
 
 /** Per-scene report, also used as the error message when the talk is too long. */
 export const describeTimeline = (scenes: SceneTiming[], assets: ResolvedAssets): string => {
-	const lines = scenes.map(
-		(s) =>
-			`  ${s.label.padEnd(14)} ${fmt(s.frames).padStart(6)}  ${s.lengthFrom === null ? 'fixed      ' : s.placeholder ? 'placeholder' : 'asset      '}  (${s.lengthFrom ?? 'timeline.ts'})`,
-	);
+	const lines = scenes.flatMap((s) => [
+		`  ${s.label.padEnd(14)} ${fmt(s.frames).padStart(6)}  ${s.lengthFrom === null ? 'fixed      ' : s.placeholder ? 'placeholder' : 'asset      '}  (${s.parts ? s.parts.map((p) => p.key).join(' + ') : (s.lengthFrom ?? 'timeline.ts')})`,
+		...(s.parts ?? []).map(
+			(p) => `    ${p.key.padEnd(12)} ${fmt(p.frames).padStart(6)}  ${p.placeholder ? 'placeholder' : 'asset      '}`,
+		),
+	]);
 	const total = totalFrames(scenes);
 	lines.push(`  ${'TOTAL'.padEnd(14)} ${fmt(total).padStart(6)}  limit ${fmt(MAX_SECONDS * FPS)}`);
 	lines.push(`  ${'music.mp3'.padEnd(14)} ${assets.music.present ? 'present (loops under the talk)' : 'absent, optional (silence)'}`);

@@ -24,6 +24,10 @@ export const ASSETS = {
 	s5: {file: 's5-evidence.mp4', kind: 'facecam', placeholderSeconds: 35, target: '≤ 35 s'},
 	s6: {file: 's6-benchmarks.mp4', kind: 'facecam', placeholderSeconds: 40, target: '≤ 40 s'},
 	s7: {file: 's7-close.mp4', kind: 'facecam', placeholderSeconds: 25, target: '≤ 25 s'},
+	/** Used only while s7-close.mp4 (the joint take) is missing: one close clip per presenter, back to back. */
+	s7a: {file: 's7-close-a.mp4', kind: 'facecam', placeholderSeconds: 8, target: '≤ 8 s'},
+	s7b: {file: 's7-close-b.mp4', kind: 'facecam', placeholderSeconds: 8, target: '≤ 8 s'},
+	s7c: {file: 's7-close-c.mp4', kind: 'facecam', placeholderSeconds: 8, target: '≤ 8 s'},
 	/** Optional music bed under the whole talk (loops, low, ducked under voices). Missing = silence, no placeholder. */
 	music: {file: 'music.mp3', kind: 'music', placeholderSeconds: 0, target: 'optional, any length (loops)'},
 } as const satisfies Record<string, AssetSpec>;

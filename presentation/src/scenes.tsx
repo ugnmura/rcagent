@@ -1,19 +1,23 @@
 // Scenes 1a, 1b and 2 in film style: one idea per shot, push-ins, hard cuts on beats, fades between acts.
 import React from 'react';
 import {AbsoluteFill, Sequence, spring, useCurrentFrame, useVideoConfig, interpolate} from 'remotion';
-import type {AssetKey, ResolvedAssets} from './assets';
+import {ASSETS, type AssetKey, type ResolvedAssets} from './assets';
 import type {Benchmarks} from './benchmarks';
 import {DialogAudio, RecordingVideo} from './components';
 import {coldOpen, DRAMATIZATION_LABEL, engineer, manager, reveal, teamLead} from './content';
-import {BarSubtitles, BlackFades, ChapterCard, FilmFacecam, Grain, Letterbox, LETTERBOX, PushIn, ramp, SoftPlaceholder, Vignette} from './film';
+import {BarSubtitles, BlackFades, ChapterCard, FilmFacecam, Grain, Letterbox, LETTERBOX, NameTag, PushIn, ramp, SoftPlaceholder, Vignette} from './film';
 import {BarsShot, BenchShot, CitationShot, DaysShot, EndCard, FirstShot, IntroShot, LimitShot, RiskCards, SnapShot, StarShot, TrendShot} from './shots2';
 import {CounterShot, FactShot, FloodShot, FlowShot, LogStorm, NodeShot, RingShot, TitleCaption} from './shots';
 import {color, font} from './theme';
-import {cueFrames, DIALOG_LEAD_SECONDS, END_CARD_SECONDS, FPS, SLIDE_SECONDS} from './timeline';
+import {CLOSE_PARTS, cueFrames, DIALOG_LEAD_SECONDS, END_CARD_SECONDS, FPS, secondsToFrames, SLIDE_SECONDS} from './timeline';
 
 type SceneProps = {assets: ResolvedAssets; frames: number};
 
 const INK = '#030405';
+
+/** Lower-third name tag at a presenter's first appearance: from 1 s into the take, about 3 s. */
+const NAME_TAG_FROM = 30;
+const NAME_TAG_FRAMES = 90;
 
 /** A shot: its own Sequence (local frames) with a slow push-in. */
 const Shot: React.FC<{from: number; to: number; name: string; children: React.ReactNode}> = ({from, to, name, children}) =>
@@ -109,6 +113,9 @@ export const RevealScene: React.FC<SceneProps> = ({assets, frames}) => {
 			</Shot>
 			<FilmFacecam assetKey="s1" assets={assets} corner={corner} />
 			<FilmFinish />
+			<Sequence from={NAME_TAG_FROM} durationInFrames={NAME_TAG_FRAMES} name="name tag">
+				<NameTag assetKey="s1" frames={NAME_TAG_FRAMES} />
+			</Sequence>
 			<BlackFades frames={frames} fadeIn={18} fadeOut={24} />
 		</AbsoluteFill>
 	);
@@ -183,8 +190,10 @@ const RoleScene: React.FC<
 		prompt: string;
 		cue: string;
 		shots: ShotSpec[];
+		/** Show the presenter's name tag (their first appearance). */
+		nameTag?: boolean;
 	}
-> = ({assets, frames, facecam, recording, splitSeconds, chapter, prompt, cue, shots}) => {
+> = ({assets, frames, facecam, recording, splitSeconds, chapter, prompt, cue, shots, nameTag}) => {
 	const frame = useCurrentFrame();
 	const split = Math.min(frames - 1, Math.round(splitSeconds * FPS));
 	const opacity = ramp(frame, CHAPTER_FRAMES - 6, CHAPTER_FRAMES + 12);
@@ -199,6 +208,11 @@ const RoleScene: React.FC<
 			</Sequence>
 			<FilmFacecam assetKey={facecam} assets={assets} corner={1} opacity={opacity} />
 			<FilmFinish />
+			{nameTag ? (
+				<Sequence from={CHAPTER_FRAMES + 6} durationInFrames={NAME_TAG_FRAMES} name="name tag">
+					<NameTag assetKey={facecam} frames={NAME_TAG_FRAMES} />
+				</Sequence>
+			) : null}
 			<BlackFades frames={frames} fadeOut={20} />
 		</AbsoluteFill>
 	);
@@ -225,6 +239,7 @@ export const TeamLeadScene: React.FC<SceneProps> = (p) => (
 	<RoleScene
 		{...p}
 		facecam="s3"
+		nameTag
 		recording="teamLeadRec"
 		splitSeconds={SLIDE_SECONDS.teamLead}
 		chapter={teamLead.chapter}
@@ -243,6 +258,7 @@ export const ManagerScene: React.FC<SceneProps> = (p) => (
 	<RoleScene
 		{...p}
 		facecam="s4"
+		nameTag
 		recording="managerRec"
 		splitSeconds={SLIDE_SECONDS.manager}
 		chapter={manager.chapter}
@@ -280,19 +296,49 @@ export const BenchmarksScene: React.FC<SceneProps & {benchmarks: Benchmarks | nu
 	<ActScene {...p} facecam="s6" shots={[{name: 'bars', weight: 1, render: () => <BenchShot benchmarks={benchmarks} />}]} />
 );
 
-/** Facecam full screen, then it shrinks to the corner and the end card shows. */
+/**
+ * The close. With the joint take s7-close.mp4: facecam full screen, then it shrinks to the corner and the end
+ * card shows. Without it: s7-close-a/b/c back to back with hard cuts, each full screen with a small name tag;
+ * the end card takes the last part of the final clip (at most END_CARD_SECONDS, at most half of that clip).
+ */
 export const CloseScene: React.FC<SceneProps> = ({assets, frames}) => {
 	const frame = useCurrentFrame();
 	const {fps} = useVideoConfig();
-	const endFrom = Math.max(0, frames - Math.round(END_CARD_SECONDS * FPS));
+	const endCard = Math.round(END_CARD_SECONDS * FPS);
+	const joint = assets.s7.present;
+	const parts = CLOSE_PARTS.map((key) => ({key, frames: secondsToFrames(assets[key].seconds)}));
+	const starts = parts.map((_, i) => parts.slice(0, i).reduce((a, p) => a + p.frames, 0));
+	const last = parts[parts.length - 1];
+	const lastStart = starts[starts.length - 1];
+	const endFrom = joint ? Math.max(0, frames - endCard) : lastStart + last.frames - Math.min(endCard, Math.round(last.frames / 2));
 	const corner = spring({frame: frame - endFrom, fps, config: {damping: 200}, durationInFrames: 22});
 	return (
 		<AbsoluteFill style={{backgroundColor: INK}}>
 			<Shot from={endFrom} to={frames} name="end card">
 				<EndCard />
 			</Shot>
-			<FilmFacecam assetKey="s7" assets={assets} corner={corner} />
+			{joint ? (
+				<FilmFacecam assetKey="s7" assets={assets} corner={corner} />
+			) : (
+				parts.map((p, i) => {
+					const isLast = i === parts.length - 1;
+					return (
+						<Sequence key={p.key} from={starts[i]} durationInFrames={p.frames} name={ASSETS[p.key].file}>
+							<FilmFacecam assetKey={p.key} assets={assets} corner={isLast ? corner : 0} />
+						</Sequence>
+					);
+				})
+			)}
 			<FilmFinish />
+			{joint
+				? null
+				: parts.map((p, i) => (
+						<Sequence key={p.key} from={starts[i]} durationInFrames={p.frames} name={`name tag ${p.key}`}>
+							<AbsoluteFill style={{opacity: i === parts.length - 1 ? 1 - corner : 1}}>
+								<NameTag assetKey={p.key} hold small />
+							</AbsoluteFill>
+						</Sequence>
+					))}
 			<BlackFades frames={frames} fadeIn={15} fadeOut={15} />
 		</AbsoluteFill>
 	);
