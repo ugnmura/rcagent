@@ -17,18 +17,17 @@ the searching and counting. Claude explains the results. Built for *Making Sense
 **Demo video:** _link to come_ · **Worked investigation:** [below](#worked-investigation-one-corpus-three-roles) ·
 **Requirements checklist:** [docs/reference.md](docs/reference.md#requirements-checklist)
 
-## Beyond the core challenge
+## Optional features
 
-The core workflow (three roles, full-text search plus whole-corpus counts, cited evidence) is complete. On top of
-it we entered both special awards and added optional extensions from the brief:
+Besides the required workflow, the server covers these optional parts of the brief, plus one addition of our own:
 
-| | what we did | result |
+| feature | what it does | measured |
 |---|---|---|
-| **Best MCP Server** (special award) | 18 tools whose descriptions say when to use them, their inputs and what they return. Capped results that say when they were cut. `/engineer`, `/team-lead`, `/manager` prompts | **96.9%** on 30 sealed held-out questions, blind-graded, at **$0.117** per answer ([evaluation](docs/EVALUATION.md)) |
-| **Working with Huge Datasets** (special award) | One TextBench file, **1 billion rows**, read in place from the public S3 bucket, nothing downloaded | one minute searched without an index: **2.88 s**. Whole file searched with an index: **4.18 s**, after a **69.9 s** build needing over 64 GB of RAM ([timings](docs/HUGE_DATASETS.md)) |
-| **Agent-managed indexes** (optional) | `create_index` (with a `dry_run` size and time estimate) and `drop_index`, so the agent builds an index for an investigation and removes it after | index over 1B rows built in **69.9 s**. Build time against query time in [docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md#the-trade-off-index-build-time-against-query-time) |
-| **Fuzzy matching** (optional) | `search_logs` with `fuzzy`, through the search index | |
-| **Template mining** (our own) | Log lines grouped into message templates at question time (SQL masking, then Drain), kept as stable IDs `T1, T2, …` | best BGL grouping score (FGA 0.745) of every approach compared, published parsers included ([table](docs/EVALUATION.md#templating-better-grouping-than-drain-on-the-full-loghub-20-data)) |
+| **Polished MCP server** | 18 tools that say when to use them, what they take and what they return. Results are capped and say when they were cut. Role prompts `/engineer`, `/team-lead`, `/manager` | **96.9%** on 30 sealed held-out questions, blind-graded, **$0.117** per answer ([evaluation](docs/EVALUATION.md)) |
+| **Huge datasets** | Reads one TextBench file, **1 billion rows**, in place from the public S3 bucket. Nothing is downloaded | one minute searched without an index: **2.88 s**. Whole file searched with an index: **4.18 s**, after a **69.9 s** build needing over 64 GB of RAM ([timings](docs/HUGE_DATASETS.md)) |
+| **Agent-managed indexes** | `create_index` (with a `dry_run` size and time estimate) and `drop_index`. The agent builds an index for an investigation and removes it after | build time against query time in [docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md#the-trade-off-index-build-time-against-query-time) |
+| **Phrase and fuzzy search** | `search_logs` matches words in order, or with `fuzzy` each word within a typo or two, through the search index | |
+| **Template mining** (our own) | Groups log lines into message templates at question time (SQL masking, then Drain), kept as stable IDs `T1, T2, …` | best BGL grouping score (FGA 0.745) of every approach compared, published parsers included ([table](docs/EVALUATION.md#templating-better-grouping-than-drain-on-the-full-loghub-20-data)) |
 
 <img src="docs/img/bench-quality.svg" alt="Answer quality on 30 sealed held-out questions: this server scores 96.9% on a blind rubric (18 fixed tools 92.9%, 7 fixed tools 93.5%), 98% on exact values (94%, 96%), costs $0.117 per answer ($0.459, $0.259) and uses 5.9 tool calls per answer (9.2, 6.6)." width="100%">
 
@@ -49,6 +48,16 @@ version, rerun on the screening set with Sonnet 5.5, scored 94.4% on the rubric 
 Claude only sees query results, never the raw logs. Every query is saved under an ID like `Q46`. The answer cites
 it, and `show_evidence` shows the exact SQL behind any number.
 
+
+### SereneDB features we use
+
+- **Files read in place:** views over `read_parquet`, `read_json` and `read_csv`, local or over HTTPS and S3
+- **Parquet statistics:** `parquet_metadata` to skip row groups outside the time window and to predict a query's cost
+- **Inverted index:** `CREATE INDEX … USING inverted(…)`, searched with `@@`, `ts_phrase` and `ts_levenshtein`
+- **Query plans:** `EXPLAIN` before each query, so an expensive one is narrowed or sampled instead of run blind
+- **Sampling:** `USING SAMPLE reservoir(…) REPEATABLE` for estimates that state their margin
+- **Aggregation:** exact `count(*)` by group and time bucket, `quantile_cont` for latency percentiles
+- **Roles:** a read-only reader and a writer that owns only the `extractor` schema, enforced by SereneDB when both are set
 
 ## Quick start
 
