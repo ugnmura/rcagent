@@ -20,7 +20,7 @@ the searching and counting; Claude explains the results. Built for *Making Sense
 
 ### 96.9% on 30 sealed held-out questions, at $0.117 per answer
 
-<img src="docs/img/bench-quality.svg" alt="Answer quality on 30 sealed held-out questions: this server scores 96.9% on a blind rubric (full toolkit 92.9%, lean toolkit 93.5%), 98% on exact values (94%, 96%), costs $0.117 per answer ($0.459, $0.259) and uses 5.9 tool calls per answer (9.2, 6.6)." width="100%">
+<img src="docs/img/bench-quality.svg" alt="Answer quality on 30 sealed held-out questions: this server scores 96.9% on a blind rubric (18 fixed tools 92.9%, 7 fixed tools 93.5%), 98% on exact values (94%, 96%), costs $0.117 per answer ($0.459, $0.259) and uses 5.9 tool calls per answer (9.2, 6.6)." width="100%">
 
 A separate model wrote the questions without seeing this repository; a blind grader scored the answers. These
 finals ran at commit `6cad141`. The current version, rerun on the screening set with Sonnet 5.5, scored 94.4% on
@@ -28,7 +28,7 @@ the rubric and 99% on exact values. Method, confidence intervals and weak spots:
 
 The three designs are three MCP servers over the same SereneDB data. The team built all three:
 
-| | **This server** (the extractor) | **Full toolkit** ([serenedb-log-mcp](https://github.com/OrFrederick/serenedb-log-mcp)) | **Lean toolkit** ([serenedb-log-mcp-v2](https://github.com/OrFrederick/serenedb-log-mcp-v2)) |
+| | **Drain3 + SQL** (this server) | **18 fixed tools** ([serenedb-log-mcp](https://github.com/OrFrederick/serenedb-log-mcp)) | **7 fixed tools** ([serenedb-log-mcp-v2](https://github.com/OrFrederick/serenedb-log-mcp-v2)) |
 |---|---|---|---|
 | Data | Parquet/JSON read in place, also from S3; raw text copied once | copied into tables at load | copied into tables at load; TextBench read in place |
 | Templates | at question time: SQL masking, then Drain, kept as stable IDs `T1, T2, …` | at load time: Loghub template regexes, then a regex mask chain | at load time: the regex mask chain only |
@@ -58,8 +58,8 @@ is the F1 score over groups, so it punishes splitting one template into many. Hi
 
 | Approach | BGL GA | BGL FGA | OpenStack GA | OpenStack FGA |
 |---|---|---|---|---|
-| **This server** (`6cad141`, SQL masking then Drain) | 0.929 | **0.745** | 0.355 | 0.682 |
-| Full / lean toolkit (regex mask chain¹) | **0.939** | 0.694 | **1.000** | **1.000** |
+| **Drain3 + SQL** (this server, `6cad141`) | 0.929 | **0.745** | 0.355 | 0.682 |
+| 18 / 7 fixed tools (regex mask chain¹) | **0.939** | 0.694 | **1.000** | **1.000** |
 | Drain (the standard parser), Loghub-2.0's tuned settings | 0.919 | 0.624 | 0.752 | 0.007 |
 | *AEL (published)* | *0.915* | *0.587* | *0.743* | *0.682* |
 | *IPLoM (published)* | *0.896* | *0.692* | *0.375* | *0.029* |
@@ -76,8 +76,8 @@ The extractor has the best BGL FGA of every approach here, trained models includ
 real ones one to one more often. On OpenStack it ties AEL, the best published parser without training, on FGA,
 but its GA is low because GET, POST and DELETE request lines fall into one template.
 
-¹ The full toolkit's default also matches regexes generated from the Loghub-2.0 templates, which would score
-the labels against themselves; that tier is off in this row, so both toolkits give the same result.
+¹ The 18-tool server's default also matches regexes generated from the Loghub-2.0 templates, which would score
+the labels against themselves; that tier is off in this row, so both fixed-tool servers give the same result.
 
 ## How it works
 

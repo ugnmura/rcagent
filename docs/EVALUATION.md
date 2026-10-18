@@ -25,18 +25,18 @@ below as well.
       redacted before grading.
     - "Exact" checks the answer's objective values against the golden values.
     - Confidence intervals are bootstrap over questions (rubric) and Wilson (exact).
-- **Designs compared.** This server (the "extractor") and two earlier designs by the same team,
-  each in the setup its own README documents:
-  - **full toolkit** (`OrFrederick/serenedb-log-mcp`, called v1 in the benchmark repo): an MCP server with many
-    specialised tools.
-  - **lean toolkit** (`OrFrederick/serenedb-log-mcp-v2`, called v2 there): a minimal rebuild with 6 default tools,
+- **Designs compared.** This server ("Drain3 + SQL": Drain3 templates at question time, 8 core tools and
+  `run_sql`) and two earlier designs by the same team, each in the setup its own README documents:
+  - **18 fixed tools** (`OrFrederick/serenedb-log-mcp`, called v1 in the benchmark repo): an MCP server with 18
+    specialised tools; templates are fixed at load time.
+  - **7 fixed tools** (`OrFrederick/serenedb-log-mcp-v2`, called v2 there): a minimal rebuild with 7 default tools,
     each kept only after a benchmark showed it helped.
 
 ## Results
 
 Finals, Opus 5.5 high effort, k=5, sealed set of 30 questions:
 
-| Measure | **extractor** (`6cad141`) | full toolkit | lean toolkit |
+| Measure | **Drain3 + SQL** (`6cad141`) | 18 fixed tools | 7 fixed tools |
 |---|---|---|---|
 | Blind rubric | **96.9%** [94.6–98.7] | 92.9% [87.6–96.8] | 93.5% [88.8–96.8] |
 | Paired rubric difference against the extractor | – | −4.0 pts [−8.8, −0.3] | −3.4 pts [−8.1, +0.1] |
@@ -48,7 +48,7 @@ Finals, Opus 5.5 high effort, k=5, sealed set of 30 questions:
 
 Other suites at the same commit:
 
-| Measure | extractor | full toolkit | lean toolkit |
+| Measure | Drain3 + SQL | 18 fixed tools | 7 fixed tools |
 |---|---|---|---|
 | Localisation: right node and time at the first answer (Sonnet, k=3, 42 trials) | **100%** [92–100] | 100% | 86% |
 | Templating accuracy, BGL (GA / FGA) | 0.929 / **0.745** | 0.939 / 0.694 | 0.939 / 0.694 |
