@@ -24,6 +24,13 @@ CASES = [
     ('"GET /v2/a/servers/detail HTTP/1.1" status: 200', '"GET <PATH> HTTP/<NUM>" status: <NUM>'),
     ("HTTP/1.1 ok", "HTTP/<NUM> ok"),
     ("user's thing and user's other", "user's thing and user's other"),
+    # zero-padded register words mask like their hex neighbours, whatever their digits
+    ("iar 00106228 dear 00b360e8", "iar <HEX> dear <HEX>"),
+    ("iar 003a90fc dear 00000000", "iar <HEX> dear <HEX>"),
+    ("took 0012345 ms", "took <NUM> ms"),
+    # colon-separated hex bytes are one value
+    ("chip FF:F2:9F:16:E3:5F:00:0D:60:EA:E0:9D ip=10.0.0.1", "chip <HEX> ip=<IP>"),
+    ("mac 00:1b:63:84:45:e6 up at 12:30:45", "mac <HEX> up at <NUM>:<NUM>:<NUM>"),
 ]
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
