@@ -2,10 +2,10 @@ import React from 'react';
 import {AbsoluteFill} from 'remotion';
 import {isComplete, type Benchmarks} from '../benchmarks';
 import {SlideFrame, type Mode} from '../components';
+import {DramatizationTag} from '../scenes';
+import {FlowShot, RED, Ring, TitleCaption} from '../shots';
 import {
 	close,
-	coldOpen,
-	DRAMATIZATION_LABEL,
 	engineer,
 	evidence,
 	manager,
@@ -23,125 +23,55 @@ const Mono: React.FC<{children: React.ReactNode; style?: React.CSSProperties}> =
 	<span style={{fontFamily: font.mono, ...style}}>{children}</span>
 );
 
-// ------------------------------------------------------------------ slide 1 parts
+// ------------------------------------------------------------------ slide 1
+// The PDF page is the final, fully built frame of the video shots (caption, counter, flow line).
 
-export const ColdOpenCaption: React.FC = () => (
-	<div style={{fontSize: 54, fontWeight: 600, lineHeight: 1.3, textAlign: 'center', color: color.text, maxWidth: 1500}}>
-		{coldOpen.caption}
-	</div>
-);
-
-export const DramatizationLabel: React.FC = () => (
-	<div
-		style={{
-			position: 'absolute',
-			top: 36,
-			right: 40,
-			fontFamily: font.sans,
-			fontSize: 30,
-			fontWeight: 600,
-			color: color.text,
-			background: 'rgba(255,255,255,0.08)',
-			border: `2px solid ${color.line}`,
-			borderRadius: 10,
-			padding: '10px 18px',
-		}}
-	>
-		{DRAMATIZATION_LABEL}
-	</div>
-);
-
-export const RevealHeadline: React.FC<{scale?: number}> = ({scale = 1}) => (
-	<div style={{fontSize: 76 * scale, fontWeight: 800, textAlign: 'center', letterSpacing: -1}}>
-		<Accent>{reveal.headline[0]}</Accent>
-		{reveal.headline.slice(1).map((h) => (
-			<span key={h}>
-				<span style={{color: color.muted}}> · </span>
-				{h}
-			</span>
-		))}
-	</div>
-);
-
-export const FlowLine: React.FC<{visible?: number}> = ({visible = reveal.flow.length}) => (
-	<div style={{display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 18, flexWrap: 'nowrap'}}>
-		{reveal.flow.map((step, i) => (
-			<React.Fragment key={step}>
-				{i > 0 ? (
-					<div style={{fontSize: 48, color: color.muted, opacity: i < visible ? 1 : 0.15}}>→</div>
-				) : null}
-				<div
-					style={{
-						fontSize: 40,
-						fontWeight: 600,
-						padding: '22px 26px',
-						borderRadius: 16,
-						border: `3px solid ${i === 2 ? color.accent : color.line}`,
-						background: color.panel,
-						opacity: i < visible ? 1 : 0.15,
-						textAlign: 'center',
-						maxWidth: 330,
-					}}
-				>
-					{step}
-				</div>
-			</React.Fragment>
-		))}
-	</div>
-);
-
-export const Slide1: React.FC<{mode: Mode}> = ({mode}) => (
-	<SlideFrame mode={mode}>
-		<div style={{flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 90}}>
-			<div style={{display: 'flex', justifyContent: 'center'}}>
-				<ColdOpenCaption />
-			</div>
-			<RevealHeadline />
-			<FlowLine />
+export const Slide1: React.FC<{mode: Mode}> = () => (
+	<AbsoluteFill style={{backgroundColor: '#030405', color: color.text, fontFamily: font.sans}}>
+		<div style={{position: 'absolute', left: 110, top: 90}}>
+			<TitleCaption done scale={0.62} />
 		</div>
-		<DramatizationLabel />
-	</SlideFrame>
+		<DramatizationTag top={56} />
+		<div style={{position: 'absolute', left: 0, right: 0, top: 420, textAlign: 'center'}}>
+			<div style={{fontSize: 170, fontWeight: 800, color: color.accent, letterSpacing: -4, lineHeight: 1}}>{reveal.counter.value}</div>
+			<div style={{fontSize: 48, marginTop: 22}}>{reveal.counter.label}</div>
+		</div>
+		<FlowShot done y={900} scale={0.92} />
+	</AbsoluteFill>
 );
 
 // ------------------------------------------------------------------ slide 2
 
-const Row: React.FC<{label: string; children: React.ReactNode}> = ({label, children}) => (
-	<div style={{display: 'flex', gap: 32, alignItems: 'baseline'}}>
-		<div style={{width: 300, flexShrink: 0, fontSize: size.small, color: color.muted}}>{label}</div>
-		<div style={{fontSize: size.body, lineHeight: 1.3}}>{children}</div>
-	</div>
-);
-
-export const Slide2: React.FC<{mode: Mode}> = ({mode}) => (
-	<SlideFrame mode={mode} title={engineer.title}>
-		<div style={{display: 'flex', flexDirection: 'column', gap: 30}}>
-			<Row label="Node">
-				<Mono style={{fontWeight: 600}}>{engineer.node}</Mono>
-			</Row>
-			<Row label="Fatal entries">
-				<Accent>{engineer.share.part}</Accent> of {engineer.share.whole} <Accent>({engineer.share.pct})</Accent>
-			</Row>
-			<Row label="Message">
-				<Mono>{engineer.message}</Mono>, non-stop {engineer.window}
-			</Row>
-			<Row label="Just before">
-				{engineer.before}
-				<div style={{color: color.muted, fontSize: size.small}}>{engineer.rarity}</div>
-			</Row>
-		</div>
-		<div
-			style={{
-				marginTop: 'auto',
-				fontSize: size.small,
-				borderLeft: `6px solid ${color.accent}`,
-				paddingLeft: 24,
-				color: color.text,
-			}}
-		>
-			{engineer.hypothesis}
-		</div>
-	</SlideFrame>
-);
+export const Slide2: React.FC<{mode: Mode}> = ({mode}) => {
+	const pct = Number(engineer.share.pct.replace('%', ''));
+	return (
+		<SlideFrame mode={mode} title={engineer.chapter.title}>
+			<div style={{fontSize: size.small, color: color.muted, marginTop: -16}}>{engineer.chapter.question}</div>
+			<div style={{flex: 1, display: 'flex', gap: 90, alignItems: 'center'}}>
+				<div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 26, width: 620}}>
+					<Mono style={{fontSize: 46, fontWeight: 600}}>{engineer.node}</Mono>
+					<Ring fraction={pct / 100} r={150} stroke={24} label={engineer.share.pct} labelSize={80} />
+					<div style={{fontSize: size.small, textAlign: 'center'}}>
+						<Accent>{engineer.share.part}</Accent> of {engineer.share.whole} fatal entries
+					</div>
+				</div>
+				<div style={{flex: 1, display: 'flex', flexDirection: 'column', gap: 26, borderLeft: `3px solid ${color.line}`, paddingLeft: 48}}>
+					<div style={{display: 'flex', alignItems: 'baseline', gap: 28}}>
+						<Mono style={{fontSize: 34, color: color.muted}}>{engineer.beforeLine.time}</Mono>
+						<span style={{fontSize: 52, fontWeight: 800, color: color.accent}}>{engineer.beforeLine.text}</span>
+					</div>
+					<div style={{display: 'flex', alignItems: 'baseline', gap: 28}}>
+						<Mono style={{fontSize: 34, color: color.muted}}>then</Mono>
+						<Mono style={{fontSize: 40, color: RED}}>{engineer.message}</Mono>
+					</div>
+					<div style={{fontSize: size.small}}>non-stop {engineer.window}</div>
+					<div style={{fontSize: size.small, color: color.muted}}>L2 error: {engineer.rarity}</div>
+				</div>
+			</div>
+			<div style={{fontSize: size.small, borderLeft: `6px solid ${color.accent}`, paddingLeft: 24}}>{engineer.hypothesis}</div>
+		</SlideFrame>
+	);
+};
 
 // ------------------------------------------------------------------ slide 3
 
