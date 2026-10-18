@@ -48,6 +48,13 @@ def split_lines(text: str) -> list[str]:
 
 def require_file(rs: ResolvedSource, source: str) -> None:
     if not os.path.isfile(rs.db_path):
+        if rs.kind == "raw_text":
+            raise UserFacingError(
+                f"There is no file at {source} on this machine. Raw text logs are parsed here, so the file must be on "
+                "this machine (or under the mounted logs folder); a file only SereneDB can see can't be read as raw "
+                "text. If the log is only on the SereneDB side, give it as Parquet, JSON or CSV, which SereneDB "
+                "reads in place."
+            )
         raise UserFacingError(
             f"There is no file at {source} on this machine (and it is not under the mounted logs folder)."
         )

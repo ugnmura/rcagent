@@ -51,6 +51,26 @@ CHANGES_DDL = """CREATE TABLE IF NOT EXISTS extractor.ownership_changes (
     )"""
 
 _CACHE_S = 30.0
+MAX_NAME_CHARS = 80
+# Control characters, line and paragraph separators, and invisible format characters (zero-width, text-direction
+# overrides) that make a name display differently from what it is.
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]")
+
+
+def clean_name(value: str, what: str = "team", max_chars: int | None = None) -> str:
+    """A team (or area) name as stored: stripped, on one line, at most 80 characters. Line breaks and other
+    control characters would break the exported CSV and every listing, so they are refused, as is a longer name."""
+    text = value.strip()
+    if _CONTROL.search(text):
+        raise UserFacingError(
+            f"The {what} name {text[:40]!r} contains a line break or another control character; give it on one line."
+        )
+    limit = max_chars or MAX_NAME_CHARS
+    if len(text) > limit:
+        raise UserFacingError(
+            f"The {what} name '{text[:40]}...' is {len(text)} characters long; at most {limit} are allowed."
+        )
+    return text
 
 
 @dataclass(frozen=True)
@@ -77,9 +97,17 @@ def _like(value: str, pattern: str) -> bool:
     return re.fullmatch(rx, value, re.IGNORECASE | re.DOTALL) is not None
 
 
-def _precedence(r: "Rule") -> tuple[bool, int, str]:
-    """Most specific first: an exact name before any pattern, then the longer fixed text."""
-    return ("%" in r.pattern, -len(r.pattern.replace("%", "")), r.pattern.lower())
+def _precedence(r: "Rule") -> tuple[bool, int, bool, int, str, str]:
+    """Most specific first: an exact name before any pattern, then the longer fixed text; between rules on the same
+    value, the one naming the log table exactly (bgl) before one naming a pattern of tables (bgl%)."""
+    return (
+        "%" in r.pattern,
+        -len(r.pattern.replace("%", "")),
+        "%" in r.log_table,
+        -len(r.log_table.replace("%", "")),
+        r.pattern.lower(),
+        r.log_table.lower(),
+    )
 
 
 def _like_sql(pattern: str) -> str:
@@ -208,7 +236,10 @@ def parse_csv(text: str, log_table: str | None, role: str | None, source: str) -
     """Rules from CSV text, and notes about rows that were skipped. Headers are matched loosely:
     the log table from log_table/dataset/table (else the `log_table` argument), the value from
     pattern/value/component/service, the team from team/owner, the role from role (else the value
-    column's name when it is component or service, else the `role` argument, else component)."""
+    column's name when it is component or service, else the `role` argument, else component).
+
+    The text may come from any file the agent was steered to, so no message quotes it: errors and notes
+    give line numbers, counts and the recognised column names only, never a cell or an unknown header."""
     text = text.lstrip("\ufeff")
     if not text.strip():
         raise UserFacingError("The CSV is empty.")
@@ -217,37 +248,47 @@ def parse_csv(text: str, log_table: str | None, role: str | None, source: str) -
     except csv.Error:
         dialect = csv.excel
     reader = csv.DictReader(io.StringIO(text), dialect=dialect)
-    headers = {_norm(h): h for h in reader.fieldnames or [] if h}
+    try:
+        fieldnames = [h for h in reader.fieldnames or [] if h]
+    except csv.Error:
+        raise UserFacingError("The CSV's header line could not be read as CSV.") from None
+    headers = {_norm(h): h for h in fieldnames}
     table_h, value_h = _pick(headers, _TABLE_HEADERS), _pick(headers, _VALUE_HEADERS)
     team_h, area_h, role_h = _pick(headers, _TEAM_HEADERS), _pick(headers, _AREA_HEADERS), headers.get("role")
-    found = ", ".join(reader.fieldnames or []) or "none"
+    found = _found_columns(fieldnames)
     if value_h is None or team_h is None:
         raise UserFacingError(
             "The CSV needs a column naming the component (or service) and one naming the team, e.g. the header "
-            f"'dataset,component,team'. Its columns are: {found}."
+            f"'dataset,component,team'. {found}"
         )
     if table_h is None and not log_table:
         raise UserFacingError(
-            f"The CSV has no log table (or dataset) column (its columns are: {found}); say which log table its "
-            "rows are for with log_table."
+            f"The CSV has no log table (or dataset) column. {found} Say which log table its rows are for with log_table."
         )
     default_role = role or (_norm(value_h) if _norm(value_h) in OWNER_ROLES else "component")
     rules: list[Rule] = []
     notes: list[str] = []
-    for n, row in enumerate(reader, start=2):
-        get = lambda h: (row.get(h) or "").strip() if h else ""  # noqa: E731
-        table, value, team = get(table_h) or (log_table or ""), get(value_h), get(team_h)
-        r_role = (get(role_h) or default_role).lower()
-        if not (table or value or team):
-            continue
-        if not table or not value or not team:
-            missing = [w for w, v in (("log table", table), ("component", value), ("team", team)) if not v]
-            notes.append(f"line {n} skipped: no {' or '.join(missing)}")
-            continue
-        if r_role not in OWNER_ROLES:
-            notes.append(f"line {n} skipped: role '{r_role}' is not one of {', '.join(OWNER_ROLES)}")
-            continue
-        rules.append(Rule(table, r_role, value, team, get(area_h) or None, source))
+    try:
+        for n, row in enumerate(reader, start=2):
+            get = lambda h: (row.get(h) or "").strip() if h else ""  # noqa: E731
+            table, value, team = get(table_h) or (log_table or ""), get(value_h), get(team_h)
+            r_role = (get(role_h) or default_role).lower()
+            if not (table or value or team):
+                continue
+            if not table or not value or not team:
+                missing = [w for w, v in (("log table", table), ("component", value), ("team", team)) if not v]
+                notes.append(f"line {n} skipped: no {' or '.join(missing)}")
+                continue
+            if r_role not in OWNER_ROLES:
+                notes.append(f"line {n} skipped: its role is not one of {', '.join(OWNER_ROLES)}")
+                continue
+            area = get(area_h)
+            for what, cell, limit in (("team", team, MAX_NAME_CHARS), ("area", area, MAX_NAME_CHARS),
+                                      ("log table", table, 200), ("component", value, 200)):
+                _check_cell(n, what, cell, limit)
+            rules.append(Rule(table, r_role, value, team, area or None, source))
+    except csv.Error:
+        raise UserFacingError(f"Line {reader.line_num} of the CSV could not be read as CSV.") from None
     if not rules:
         raise UserFacingError("The CSV has no usable rows. " + "; ".join(notes[:5]))
     dupes = len(rules) - len({r.key for r in rules})
@@ -256,12 +297,43 @@ def parse_csv(text: str, log_table: str | None, role: str | None, source: str) -
     return rules, notes
 
 
+_KNOWN_HEADERS = frozenset((*_TABLE_HEADERS, *_VALUE_HEADERS, *_TEAM_HEADERS, *_AREA_HEADERS, "role", "source"))
+
+
+def _found_columns(fieldnames: list[str]) -> str:
+    """Which columns the header has, naming only the recognised ones: an unknown header is file text."""
+    known = list(dict.fromkeys(_norm(h) for h in fieldnames if _norm(h) in _KNOWN_HEADERS))
+    other = len(fieldnames) - len(known)
+    if not fieldnames:
+        return "Its first line has no column names."
+    if not known:
+        return f"None of its {len(fieldnames)} column name(s) is recognised."
+    return f"Its recognised columns are: {', '.join(known)}" + (f" (and {other} other column(s))." if other else ".")
+
+
+def _check_cell(n: int, what: str, cell: str, limit: int) -> None:
+    """clean_name's rules for one CSV cell, with a message that does not quote the cell."""
+    if _CONTROL.search(cell):
+        raise UserFacingError(
+            f"Line {n} of the CSV: the {what} name contains a line break or another control character; give it on one line."
+        )
+    if len(cell) > limit:
+        raise UserFacingError(
+            f"Line {n} of the CSV: the {what} name is {len(cell)} characters long; at most {limit} are allowed."
+        )
+
+
+def _cell(value: str) -> str:
+    """A CSV cell a spreadsheet will not run as a formula: a leading = + - @ gets a ' in front."""
+    return "'" + value if value[:1] in ("=", "+", "-", "@") else value
+
+
 def to_csv(rules: list[Rule]) -> str:
     out = io.StringIO()
     w = csv.writer(out, lineterminator="\n")
     w.writerow([*CSV_COLUMNS, "source"])
     for r in sorted(rules, key=lambda r: (r.log_table, r.role, r.team, r.pattern)):
-        w.writerow([r.log_table, r.role, r.pattern, r.team, r.area or "", r.source or ""])
+        w.writerow([_cell(v) for v in (r.log_table, r.role, r.pattern, r.team, r.area or "", r.source or "")])
     return out.getvalue()
 
 

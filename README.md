@@ -180,7 +180,8 @@ Claude picks these from their descriptions. Every result says how it was measure
 ## Evidence
 
 - **Counted in the database.** Counts cover every entry in scope. An estimate states its margin.
-- **Every number is cited.** `[Q46]` next to a number means "run `show_evidence(['Q46'])` to see the query".
+- **No evidence, no claim.** Every statement about the logs is cited. `[Q46]` next to a number, time or message
+  means "run `show_evidence(['Q46'])` to see the query".
 - **Facts and guesses kept apart.** Causes are labelled hypotheses. Each answer says what the logs do not show.
 
 ## Limitations

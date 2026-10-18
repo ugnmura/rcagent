@@ -80,6 +80,7 @@ def _template(r: dict[str, Any]) -> Template:
 
 
 PARAM_NAME = re.compile(r"[a-z][a-z0-9_]*")
+MAX_PARAM_NAME = 40
 
 
 def _params_json(params: list[Param]) -> str:
@@ -363,8 +364,8 @@ class CatalogStore:
     def resolve(self, log_table: str, template_id: str) -> Resolved:
         """The live template for an ID, following a merge redirect (one hop by construction)."""
         wanted = template_id.strip()
-        spelled = re.fullmatch(r"[Tt]\s*0*(\d+)", wanted)
-        if spelled:  # t1, T 1, T001 all mean T1
+        spelled = re.fullmatch(r"[Tt]?\s*0*(\d+)", wanted)
+        if spelled:  # t1, T 1, T001 and 1 all mean T1
             wanted = f"T{spelled.group(1)}"
         live = self._template_row(log_table, wanted)
         if live is not None:
@@ -389,17 +390,26 @@ class CatalogStore:
 
     def rename_parameter(self, log_table: str, template_id: str, old: str, new: str) -> Resolved:
         """Rename one parameter for good; later surveys keep the name. Follows a merge redirect."""
+        if len(new) > MAX_PARAM_NAME:
+            raise UserFacingError(
+                f"'{new[:MAX_PARAM_NAME]}...' is too long for a parameter name ({len(new)} characters); keep it to "
+                f"{MAX_PARAM_NAME} characters or fewer."
+            )
         if not PARAM_NAME.fullmatch(new):
             raise UserFacingError(
                 f"'{new}' is an invalid parameter name: use lower-case letters, digits and underscores, starting with a letter."
             )
         resolved = self.resolve(log_table, template_id)
         template = resolved.template
-        target = next((p for p in template.params if p.name == old), None)
+        target = next((p for p in template.params if p.name == old), None) or next(
+            (p for p in template.params if p.name.lower() == old.lower()), None
+        )  # an exact match first, then one in any case (HTTP_METHOD finds http_method)
         if target is None:
             names = ", ".join(p.name for p in template.params) or "none"
             raise UserFacingError(f"{template.template_id} has no parameter named '{old}'. Its parameters: {names}.")
-        if new != old and any(p.name == new for p in template.params):
+        if target.name == new:
+            raise UserFacingError(f"'{target.name}' already has that name; give a different new_name.")
+        if any(p is not target and p.name.lower() == new.lower() for p in template.params):
             raise UserFacingError(f"{template.template_id} already has a parameter named '{new}'; pick another name.")
         params = [Param(p.pos, new if p is target else p.name, p.kind) for p in template.params]
         self.db.write(

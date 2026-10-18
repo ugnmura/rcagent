@@ -82,7 +82,6 @@ EXPECTED_ANNOTATIONS = {
             "describe_logs",
             "locate_occurrences",
             "extract_params",
-            "trend",
             "get_context",
             "search_logs",
             "run_sql",
@@ -98,6 +97,7 @@ EXPECTED_ANNOTATIONS = {
     "survey": (False, False),
     "rename_parameter": (False, False),
     "rank_problems": (False, False),
+    "trend": (False, False),
 }
 
 

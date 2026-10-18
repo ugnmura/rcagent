@@ -105,7 +105,7 @@ async def test_count_logs_text_and_time_bucket(mcp, corpus):
 
 async def test_count_logs_cuts_and_says_so(mcp, corpus):
     out = await call(mcp, "count_logs", log_tables=["openstack"], group_by=["component"], limit=2)
-    assert "showing 2 of" in out
+    assert "showing the 2 largest of" in out
 
 
 def test_team_of_prefers_the_most_specific_pattern():
@@ -206,8 +206,9 @@ async def test_an_occurrence_id_may_name_just_the_file(mcp, db_url):
     await call(mcp, "setup_log_table", name="fxs", source=path)
     found = await call(mcp, "search_logs", log_table="fxs", limit=1)
     occ = re.search(r"\s(\S+#\d+)\s", found).group(1)
-    out = await call(mcp, "get_context", log_table="fxs", occurrence=occ.rsplit("/", 1)[-1], scope="everything")
-    assert "→" in out and occ in out
+    out = await call(mcp, "get_context", log_table="fxs", occurrence=occ.rsplit("/", 1)[-1], scope="everything",
+                     before=2, after=2)
+    assert "→" in out and out.count(occ + " ") == 1  # the occurrence once, its neighbours around it
 
 
 async def test_raw_openstack_logs_get_service_and_trace(mcp, corpus):
@@ -270,3 +271,63 @@ async def test_several_local_files_are_explained(mcp, tmp_path):
     for src in (f"{tmp_path}/part_*.csv", f"{tmp_path}/part_{{000..001}}.csv"):
         out = await call(mcp, "setup_log_table", name="multi", source=src)
         assert "names several files on this machine" in out, out
+
+
+async def test_copied_files_check_the_timestamp_and_epochs_are_times(mcp, tmp_path):
+    p = tmp_path / "msgs.csv"
+    p.write_text("when,msg\nlater today,hello\nsoon,world\n", encoding="utf-8")
+    assert "holds values that are not times" in await call(mcp, "setup_log_table", name="cbad", source=str(p), roles={"timestamp": "when"})
+    e = tmp_path / "epoch.csv"
+    e.write_text("epoch,msg\n1709287200,a\n1709287260123,b\n", encoding="utf-8")
+    out = await call(mcp, "setup_log_table", name="cep", source=str(e), roles={"timestamp": "epoch", "message": "msg"})
+    assert "Set up log table 'cep'" in out
+    found = await call(mcp, "search_logs", log_table="cep", order="oldest")
+    assert "2024-03-01 10:00:00" in found and "2024-03-01 10:01:00" in found
+    one_bad = tmp_path / "late.csv"
+    one_bad.write_text("when,msg\n" + "".join(f"2024-03-01T00:00:{i:02d}Z,m{i}\n" for i in range(50)) + "n/a,odd\n", encoding="utf-8")
+    await call(mcp, "setup_log_table", name="clate", source=str(one_bad), roles={"timestamp": "when", "message": "msg"})
+    counted = await call(mcp, "count_logs", log_tables=["clate"], start="2024-03-01", end="2024-03-02")
+    assert "50 matching entries" in counted  # the odd value is an entry without a time, not an error
+
+
+async def test_more_input_checks(mcp, corpus):
+    assert "use text=" in await call(mcp, "search_logs", log_table="bgl", filters={"message": "parity"})
+    assert "a value or a list of values" in await call(mcp, "search_logs", log_table="bgl", filters={"level": {"a": 1}})
+    assert "0 to 20" in await call(mcp, "locate_occurrences", log_table="bgl", templates=["T1"], examples_per_group=-1)
+    found = await call(mcp, "search_logs", log_table="bgl", limit=1)
+    occ = re.search(r"\s(e:\d+)\s", found).group(1)
+    assert "can't be combined" in await call(mcp, "get_context", log_table="bgl", occurrence=occ, scope=["host", "everything"])
+    assert "0 to 200" in await call(mcp, "get_context", log_table="bgl", occurrence=occ, before=1000)
+    assert "times in UTC" in await call(mcp, "search_logs", log_table="bgl", limit=1, timezone="utc")
+
+
+async def test_local_csv_quotes_and_repeated_columns(mcp, tmp_path):
+    p = tmp_path / "q.csv"
+    p.write_text('ts,level,msg,level\n2026-03-01T00:00:00Z,INFO,"slow query ""select 1"" took 900 ms",ERROR\n', encoding="utf-8")
+    await call(mcp, "setup_log_table", name="csvq", source=str(p), roles={"timestamp": "ts", "message": "msg", "level": "level"})
+    out = await call(mcp, "search_logs", log_table="csvq")
+    assert 'slow query "select 1" took 900 ms' in out
+    desc = await call(mcp, "describe_logs", log_table="csvq")
+    assert "level_1" in (await call(mcp, "run_sql", sql="SELECT level_1 FROM extractor.lt_csvq")) or "level_1" in desc
+
+
+async def test_a_file_with_its_own_entry_id_keeps_unique_ids(mcp, tmp_path):
+    p = tmp_path / "ids.csv"
+    p.write_text("entry_id,ts,msg\n900,2026-03-01T00:00:00Z,first\n900,2026-03-01T00:00:01Z,second\n", encoding="utf-8")
+    await call(mcp, "setup_log_table", name="ids", source=str(p))
+    out = await call(mcp, "search_logs", log_table="ids", order="oldest")
+    assert "e:1 " in out and "e:2 " in out
+
+
+async def test_setup_takes_a_format_hint(mcp, tmp_path):
+    p = tmp_path / "semi.log"
+    p.write_text("ts;level;msg\n2026-03-01T00:00:00Z;ERROR;boom\n", encoding="utf-8")
+    out = await call(mcp, "setup_log_table", name="semi", source=str(p), format_hint="csv")
+    assert "Set up log table 'semi'" in out and "level: level" in out
+
+
+async def test_fuzzy_search_works_when_some_fields_are_json_paths(mcp, corpus):
+    built = await call(mcp, "create_index", log_table="openstack", kind="search")
+    assert "fuzzy" in built
+    out = await call(mcp, "search_logs", log_table="openstack", text="imagecahce", fuzzy=True)  # misspelled
+    assert "can't use the search index" not in out and "matching" in out

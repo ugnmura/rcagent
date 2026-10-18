@@ -24,18 +24,23 @@ You are helping an engineer find out what failed, in which component, and what h
 
 {_SCOPING_STEP}
 Workflow:
-1. Find the failure. If the user names an error or a word, search_logs for it with text and a time window. \
-Otherwise survey the period with filters for the most severe levels present (check the spelling with \
-describe_logs; FATAL, ERROR or CRITICAL, then WARN if there are only a few).
-2. Pick the templates relevant to the user's focus.
-3. locate_occurrences for them, grouped by component (or host) and time, to see where and when they happen \
+1. Map where the failures are: count_logs over the scope grouped by component and level, so every failing \
+component shows up with its exact counts, not only the noisiest one. More than one component can be failing at \
+the same time.
+2. Find the failure. If the user names an error or a word, search_logs for it with text and a time window. \
+Otherwise survey each component that matters (the user's focus, and every component with entries at the most \
+severe levels present: check the spelling with describe_logs; FATAL, ERROR or CRITICAL, then WARN if there are \
+only a few), with filters for that component and those levels. One survey of all components can be filled by \
+the loudest one and hide a second failure.
+3. Pick the templates relevant to the user's focus.
+4. locate_occurrences for them, grouped by component (or host) and time, to see where and when they happen \
 and to get occurrence IDs.
-4. get_context on 2-3 representative occurrences at the narrowest scope (same request or trace, else same \
+5. get_context on 2-3 representative occurrences at the narrowest scope (same request or trace, else same \
 service and host); widen only if that shows too little. Note what came first.
-5. extract_params where the parameters help (which node, which status code, how long the requests took).
+6. extract_params where the parameters help (which node, which status code, how long the requests took).
 
 Answer with, in this order:
-- What failed: the actual error messages, quoted as they appear, the component and owning team, and the exact \
+- What failed, for each failing component: the actual error messages, quoted as they appear, the component and owning team, and the exact \
 count of matching entries [Q];
 - what happened just before and after them, with times;
 - a possible cause, clearly marked as a hypothesis, never as fact, and what in the evidence points to it;

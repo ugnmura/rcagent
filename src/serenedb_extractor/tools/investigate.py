@@ -1,7 +1,8 @@
 """Exact investigation of chosen templates: locate_occurrences (counts + examples) and extract_params."""
 
 import re
-from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass, field
 from typing import Any
 
 from serenedb_extractor import format as fmt
@@ -77,6 +78,93 @@ def _bucket_sql(lt: LogTable, cols: dict[str, str], n: int, unit: str, tz: str) 
         mm = f"lpad((((abs({off}) - (abs({off}) // 3600) * 3600) // 60))::varchar, 2, '0')"
         label = f"({label} || {sign} || {hh} || ':' || {mm})"
     return f"coalesce({label}, {NONE_SQL})"
+
+
+_LABEL = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2})([+-])(\d{2}):(\d{2})$")
+
+
+def real_label(label: str, tz: str) -> str:
+    """A sub-day bucket's label names a real instant. Buckets are cut on the local clock, so on the night the
+    clocks go back a bucket can hold entries of the second (repeated) hour under a start that, with their UTC
+    offset, never existed (00:00-08:00 when 01:00-08:00 is the first such minute); such a label moves to the
+    first minute of the bucket that has its offset."""
+    m = _LABEL.match(label)
+    if m is None or is_utc(tz):
+        return label
+    zone = get_zone(tz)
+    sign = 1 if m.group(2) == "+" else -1
+    offset = timedelta(hours=int(m.group(3)), minutes=int(m.group(4))) * sign
+    start = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M").replace(tzinfo=timezone(offset))
+    probe = start
+    for _ in range(24 * 60):
+        if probe.astimezone(zone).utcoffset() == offset:
+            break
+        probe += timedelta(minutes=1)
+    else:
+        return label
+    if probe == start:
+        return label
+    local = probe.astimezone(zone)
+    off = local.strftime("%z")
+    return f"{local:%Y-%m-%d %H:%M}{off[:3]}:{off[3:]}"
+
+
+def real_keys(key: tuple[str, ...], labels: list[str], tz: str) -> tuple[str, ...]:
+    return tuple(real_label(k, tz) if lbl.startswith("time:") else k for k, lbl in zip(key, labels, strict=True))
+
+
+def _largest(items: list[Any], limit: int) -> list[Any]:
+    """The `limit` largest (key, measured) items, kept in the order they come in."""
+    if len(items) <= limit:
+        return items
+    keep = {id(it) for it in sorted(items, key=lambda it: -it[1].value)[:limit]}
+    return [it for it in items if id(it) in keep]
+
+
+NAME_OMITTED = 10  # left-out time buckets are named when there are at most this many
+LABEL_CHARS = 160  # a template shown as a heading: a long one (a whole traceback) is cut
+
+
+def tpl_label(t: Template) -> str:
+    """A template's text as a one-line heading, cut like rank_problems cuts it."""
+    return fmt.entry_text(fmt.template_text(t.template), LABEL_CHARS)
+
+
+def _bucket_noun(labels: list[str], n: int) -> str:
+    """What one group is called: days, hours or minutes for a single time bucket of one unit, else groups."""
+    m = _TIME.fullmatch(labels[0]) if len(labels) == 1 else None
+    if m is None:
+        return "group" if n == 1 else "groups"
+    unit = _UNIT_NAME[m.group(2)]
+    if int(m.group(1)) == 1:
+        return unit if n == 1 else unit + "s"
+    return f"{m.group(1)}-{unit} bucket" + ("" if n == 1 else "s")
+
+
+def _short(value: float, exact: bool) -> str:
+    return f"{round(value):,}" if exact else f"≈{round(value):,}"
+
+
+def omitted_line(
+    labels: list[str],
+    n_groups: int,
+    entries: float,
+    exact: bool,
+    named: list[tuple[tuple[str, ...], fmt.Measured]] | None = None,
+    sep: str = ", ",
+) -> str:
+    """The line that says what a cut grouping left out, so a left-out time bucket never reads as zero: how many
+    groups and entries (the smallest ones) and, for time buckets, which ones when they are few (`named`, in
+    reading order, all of the left-out groups or None when they are not known)."""
+    one = exact and round(entries) == 1
+    text = (
+        f"not shown: {n_groups:,} smaller {_bucket_noun(labels, n_groups)}, "
+        f"{_short(entries, exact)} {'entry' if one else 'entries'} in all"
+    )
+    timed = any(lbl.startswith("time:") for lbl in labels)
+    if timed and named is not None and 0 < len(named) <= NAME_OMITTED and len(named) == n_groups:
+        text += " (" + ", ".join(f"{sep.join(k)}: {_short(m.value, m.exact)}" for k, m in named) + ")"
+    return text
 
 
 def ordered(keys: list[tuple[str, ...]], labels: list[str], value: dict[tuple[str, ...], float]) -> list[tuple[str, ...]]:
@@ -251,6 +339,8 @@ def locate_occurrences(
     timezone: str | None = None,
     confirmed_cost: str | None = None,
 ) -> str:
+    if examples_per_group < 0 or examples_per_group > 20:
+        raise UserFacingError("examples_per_group is how many example IDs to show per group: 0 to 20.")
     if not templates:
         raise UserFacingError(NEED_TEMPLATE)
     lt = ctx.store.get_log_table(log_table)
@@ -258,8 +348,8 @@ def locate_occurrences(
     tr = parse_time_range(start, end, timezone)
     f = Filters.from_dict(filters)
     tpls, notes = _resolve_templates(ctx, lt.name, templates)
-    shown_limit = fmt.clamp_limit(limit, DEFAULT_GROUPS, DEFAULT_GROUPS * ctx.settings.limit_cap)
-    per_group = max(0, min(int(examples_per_group), 20))
+    shown_limit, cap_note = fmt.limit_and_note(limit, DEFAULT_GROUPS, DEFAULT_GROUPS * ctx.settings.limit_cap)
+    per_group = int(examples_per_group)
     db = ctx.db
     with readable(f"the source of log table '{lt.name}'"):
         sc = _scope(ctx, lt, tr, f, timezone, tpls)
@@ -299,7 +389,7 @@ def locate_occurrences(
         n_keys = len(groups)
         counts: dict[tuple[int, tuple[str, ...]], list[tuple[int, int]]] = {}
         for r in rows:
-            key = (int(r[0]), tuple(str(x) for x in r[1 : 1 + n_keys]))
+            key = (int(r[0]), real_keys(tuple(str(x) for x in r[1 : 1 + n_keys]), [g for g, _ in groups], sc.tz))
             b = 0 if plan.exact else int(r[1 + n_keys])
             counts.setdefault(key, []).append((b, int(r[-1])))
         entries = [] if plan.exact else _entries_per_block(sc, plan, scope_sql, timeout, what)
@@ -309,14 +399,14 @@ def locate_occurrences(
         for (ti, gkey), m in ordered:
             shown.setdefault(ti, []).append((gkey, m))
         totals = _totals(plan, counts, entries, len(tpls))
-        cut_groups = {ti: items[:shown_limit] for ti, items in shown.items()}
+        cut_groups = {ti: _largest(items, shown_limit) for ti, items in shown.items()}
         examples: dict[tuple[int, tuple[str, ...]], list[str]] = {}
         if per_group and has_ids and cut_groups:
             examples = _examples(sc, plan, scope_sql, groups, cut_groups, per_group, case, params, timeout, what)
         empty_why = (
             diagnose_empty(db, lt, tr, f, sc.cols) if plan.exact and not counts and (f.items() or tr.bounded) else []
         )
-    return _render_locate(sc, plan, groups, shown, cut_groups, totals, examples, notes, shown_limit, empty_why)
+    return _render_locate(sc, plan, groups, shown, cut_groups, totals, examples, notes, cap_note, empty_why)
 
 
 def _measure(
@@ -402,9 +492,35 @@ def _examples(
     )
     out: dict[tuple[int, tuple[str, ...]], list[str]] = {}
     for r in sc.db.read(sql, p, timeout_s=timeout, what=what, how_to_narrow=NARROW).dicts():
-        ekey = (int(r["tpl"]), tuple(str(r[k]) for k in key_names))
+        ekey = (int(r["tpl"]), real_keys(tuple(str(r[k]) for k in key_names), [g for g, _ in groups], sc.tz))
         out.setdefault(ekey, []).append(occurrence.encode_occurrence(lt, r))
     return out
+
+
+def tie_note(
+    kept: list[tuple[tuple[str, ...], fmt.Measured]],
+    left: list[tuple[tuple[str, ...], fmt.Measured]],
+    num: Any,
+) -> str | None:
+    """When a cut to the largest groups falls inside a tie (a left-out group as large as the smallest shown one),
+    say so: which of the tied groups are shown is arbitrary."""
+    if not kept or not left:
+        return None
+    low = min(m.value for _, m in kept)
+    others = sum(1 for _, m in left if m.value == low)
+    if not others:
+        return None
+    tied = sum(1 for _, m in kept if m.value == low)
+    each = num(next(m for _, m in kept if m.value == low))
+    who = (
+        "all shown groups" if tied == len(kept)
+        else "the smallest shown group" if tied == 1
+        else f"the {tied:,} smallest shown groups"
+    )
+    return (
+        f"{who} and {others:,} other{'' if others == 1 else 's'} have {each} each; which of them are shown is "
+        "arbitrary (the cut falls inside a tie)"
+    )
 
 
 def _label(groups: list[tuple[str, str]], key: tuple[str, ...]) -> str:
@@ -420,9 +536,10 @@ def _render_locate(
     totals: dict[int, fmt.Measured],
     examples: dict[tuple[int, tuple[str, ...]], list[str]],
     notes: list[str],
-    shown_limit: int,
+    cap_note: str | None,
     empty_why: list[str],
 ) -> str:
+    cap = f" ({cap_note})" if cap_note else ""
     multi = len(sc.templates) > 1
     out = [
         _how(
@@ -441,7 +558,7 @@ def _render_locate(
         out.append("Example occurrences come from the sampled blocks.")
     for ti, t in enumerate(sc.templates):
         out.append("")
-        out.append(f"{t.template_id}  {fmt.template_text(t.template)}")
+        out.append(f"{t.template_id}  {tpl_label(t)}")
         items = cut_groups.get(ti, [])
         if not items:
             out.append("    no matching entries" + ("" if plan.exact else " in the sample (some may exist outside it)"))
@@ -454,7 +571,16 @@ def _render_locate(
             if ex:
                 out.append(f"    {'    ' if groups else ''}examples: {', '.join(ex)}")
         if len(shown[ti]) > len(items):
-            out.append(f"    showing {len(items)} of {len(shown[ti])} groups")
+            out.append(f"    showing the {len(items):,} largest of {len(shown[ti]):,} groups{cap}")
+            kept = {key for key, _ in items}
+            left = [(key, m) for key, m in shown[ti] if key not in kept]
+            if (tie := tie_note(items, left, _num)) is not None:
+                out.append(f"    {tie}")
+            out.append(
+                "    " + omitted_line(
+                    [g for g, _ in groups], len(left), sum(m.value for _, m in left), all(m.exact for _, m in left), left
+                )
+            )
     if not any(cut_groups.values()):
         out += empty_why
     return "\n".join(out)
@@ -486,8 +612,17 @@ def extract_params(
     tpls, notes = _resolve_templates(ctx, lt.name, [template])
     t = tpls[0]
     if not t.params:
-        raise UserFacingError(f"{t.template_id} ({t.template}) has no parameters to extract.")
-    shown_limit = fmt.clamp_limit(limit, DEFAULT_VALUES, DEFAULT_VALUES * ctx.settings.limit_cap)
+        head = fmt.how_measured(
+            "catalog only: the template's pattern has no parameters; no entries were read",
+            tr.describe() if tr.bounded else None, _filters_text(f, tpls), tz=timezone,
+        )
+        body = [fmt.sentence(n) for n in notes] + [
+            f"{t.template_id}  {tpl_label(t)}",
+            "    this template has no parameters to extract: every entry it matches has the same text. "
+            "Use locate_occurrences for where and when it occurs.",
+        ]
+        return "\n".join([head, *body])
+    shown_limit, cap_note = fmt.limit_and_note(limit, DEFAULT_VALUES, DEFAULT_VALUES * ctx.settings.limit_cap)
     db = ctx.db
     with readable(f"the source of log table '{lt.name}'"):
         sc = _scope(ctx, lt, tr, f, timezone, tpls)
@@ -507,10 +642,11 @@ def extract_params(
         plan = decision.plan
         if (missing := untimestamped_note(db, lt, tr)) is not None:
             notes.append(missing)
-        run = _ParamRun(sc, plan, t, by_expr, shown_limit, ctx)
+        by_time = bool(by_items) and by_items[0][0].startswith("time:")
+        run = _ParamRun(sc, plan, t, by_expr, shown_limit, ctx, by_time)
         run.by_values = fmt.clamp_limit(limit, BY_VALUES, BY_VALUES * ctx.settings.limit_cap)
         result = run.go()
-    return _render_params(sc, plan, t, by_items[0][0] if by_items else None, result, shown_limit, notes)
+    return _render_params(sc, plan, t, by_items[0][0] if by_items else None, result, cap_note, notes)
 
 
 Stats = tuple[int, float, float, float, float]
@@ -527,12 +663,18 @@ class ParamResult:
     by_distinct: int
     by_top: dict[tuple[str, str], list[tuple[str, int]]]
     by_stats: dict[tuple[str, str], Stats]
+    by_left: list[tuple[str, int]] = field(default_factory=list)  # the groups after the shown ones, up to NAME_OMITTED
+    by_entries: int = 0  # matching entries over all groups of `by`
 
 
 class _ParamRun:
-    def __init__(self, sc: Scope, plan: cost.Plan, t: Template, by_expr: str | None, limit: int, ctx: AppContext) -> None:
+    def __init__(
+        self, sc: Scope, plan: cost.Plan, t: Template, by_expr: str | None, limit: int, ctx: AppContext,
+        by_time: bool = False,
+    ) -> None:
         self.sc, self.plan, self.t, self.by_expr, self.limit = sc, plan, t, by_expr, limit
         self.by_values = BY_VALUES  # values shown per group of `by`
+        self.by_time = by_time
         self.db = ctx.db
         self.timeout = cost.run_timeout(plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
         self.what = f"extracting parameters of {t.template_id} in log table {sc.lt.name}"
@@ -595,11 +737,18 @@ class _ParamRun:
         return res
 
     def _by(self, res: ParamResult) -> None:
+        # The next few groups too, so a few left-out time buckets can be named.
         rows = self.q(
-            f"SELECT b, count(*) AS c, count(*) OVER () AS g FROM ({self.matched}) GROUP BY b ORDER BY c DESC, b LIMIT {_int(BY_GROUPS)}"
+            f"SELECT b, count(*) AS c, count(*) OVER () AS g, sum(count(*)) OVER () AS tot FROM ({self.matched}) "
+            f"GROUP BY b ORDER BY c DESC, b LIMIT {_int(BY_GROUPS + NAME_OMITTED)}"
         )
-        res.by_total = [(str(r[0]), int(r[1])) for r in rows]
+        res.by_total = [(str(r[0]), int(r[1])) for r in rows[:BY_GROUPS]]
+        res.by_left = [(str(r[0]), int(r[1])) for r in rows[BY_GROUPS:]]
+        if self.by_time:  # the largest BY_GROUPS buckets, listed in time order like the other tools
+            res.by_total.sort(key=lambda bc: (bc[0] == NONE_LABEL, bc[0]))
+            res.by_left.sort(key=lambda bc: (bc[0] == NONE_LABEL, bc[0]))
         res.by_distinct = int(rows[0][2]) if rows else 0
+        res.by_entries = int(rows[0][3]) if rows else 0
         if not rows:
             return
         p = dict(self.params)
@@ -629,8 +778,9 @@ def _stats_line(s: tuple[int, float, float, float, float]) -> str:
 
 
 def _render_params(
-    sc: Scope, plan: cost.Plan, t: Template, by: str | None, r: ParamResult, limit: int, notes: list[str]
+    sc: Scope, plan: cost.Plan, t: Template, by: str | None, r: ParamResult, cap_note: str | None, notes: list[str]
 ) -> str:
+    cap = f" ({cap_note})" if cap_note else ""
     sampled = "" if plan.exact else " (counts are from the sample)"
     out = [
         _how(
@@ -641,7 +791,7 @@ def _render_params(
         )
     ]
     out += [fmt.sentence(n) for n in [*notes, *plan.notes]]
-    out.append(f"{t.template_id}  {fmt.template_text(t.template)}")
+    out.append(f"{t.template_id}  {tpl_label(t)}")
     out.append(f"    matching entries: {_num(r.matched)}{sampled}")
     if plan.exact and r.matched.value == 0:
         out.append("    no entry matches this template in this scope.")
@@ -656,10 +806,11 @@ def _render_params(
             out.append(f"    {_stats_line(r.stats[p.name])}")
         out.append("    top values: " + ", ".join(f"{v} ({c:,})" for v, c in r.top[p.name]))
         if r.distinct[p.name] > len(r.top[p.name]):
-            out.append(f"    showing {len(r.top[p.name])} of {r.distinct[p.name]:,} values")
+            out.append(f"    showing {len(r.top[p.name]):,} of {r.distinct[p.name]:,} values{cap}")
     if by:
         out.append("")
-        out.append(f"  by {by}:")
+        by_time = by.startswith("time:")
+        out.append(f"  by {by}" + (" (in time order):" if by_time else " (largest first):"))
         for b, n in r.by_total:
             out.append(f"    {b}: {n:,} entries")
             for p in t.params:
@@ -671,5 +822,16 @@ def _render_params(
                 if parts:
                     out.append(f"        {p.name}: " + "; ".join(parts))
         if r.by_distinct > len(r.by_total):
-            out.append(f"    showing {len(r.by_total)} of {r.by_distinct:,} {by} values")
+            out.append(
+                f"    showing {len(r.by_total):,} of {r.by_distinct:,} {by} values"
+                + (" (the largest ones, listed in time order)" if by_time else "")
+            )
+            n_left = r.by_distinct - len(r.by_total)
+            named: list[tuple[tuple[str, ...], fmt.Measured]] = [((b,), fmt.Measured(float(n), True)) for b, n in r.by_left]
+            out.append(
+                "    " + omitted_line(
+                    [by], n_left, r.by_entries - sum(n for _, n in r.by_total), True,
+                    named if len(named) == n_left else None,
+                ) + sampled
+            )
     return "\n".join(out)

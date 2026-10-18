@@ -1,5 +1,6 @@
 """Time ranges and role filters as SQL, plus the plain-language diagnosis of an empty result."""
 
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, NamedTuple
@@ -15,6 +16,9 @@ from serenedb_extractor.timezones import get_zone, is_utc, offset_text  # noqa: 
 from serenedb_extractor.setup.roles import is_temporal, resolve_column, role_column
 
 FILTER_ROLES = ("level", "service", "host", "component", "trace", "team")
+# More wanted values than this in one filter is not a filter any more; it would only make a huge query.
+MAX_FILTER_VALUES = 1_000
+MAX_FILTER_VALUE_CHARS = 1_000  # one wanted value: field values (levels, hosts, ids) are far shorter
 _FMT = "%Y-%m-%d %H:%M:%S"
 
 
@@ -77,6 +81,17 @@ def _parse_moment(text: str, zone: ZoneInfo, what: str) -> datetime:
     if dt.tzinfo is not None:
         return dt.astimezone(UTC)
     local = dt.replace(tzinfo=zone)
+    first, second = local.replace(fold=0), local.replace(fold=1)
+    exists = local.astimezone(UTC).astimezone(zone).replace(tzinfo=None) == dt
+    if exists and first.utcoffset() != second.utcoffset():
+        def at(x: datetime) -> str:
+            off = x.strftime("%z")
+            return f"{dt:%Y-%m-%dT%H:%M:%S}{off[:3]}:{off[3:]}"
+
+        raise UserFacingError(
+            f"{what.capitalize()} '{text}' happens twice in {zone.key}: the clocks went back an hour that night. "
+            f"Say which one with its UTC offset: {at(first)} (the first) or {at(second)} (the second)."
+        )
     if local.astimezone(UTC).astimezone(zone).replace(tzinfo=None) != dt:
         raise UserFacingError(
             f"{what.capitalize()} '{text}' does not exist in {zone.key}: the clocks moved forward an hour that night. "
@@ -86,12 +101,13 @@ def _parse_moment(text: str, zone: ZoneInfo, what: str) -> datetime:
 
 
 def shown_zone(lt: LogTable, given: str | None) -> str:
-    """The zone a tool reads and shows times in: the one asked for, else the log table's own."""
-    return given or lt.timezone
+    """The zone a tool reads and shows times in: the one asked for (by its canonical name), else the table's own."""
+    return get_zone(given).key if given else lt.timezone
 
 
 def parse_time_range(start: str | None, end: str | None, tz: str = "UTC") -> TimeRange:
     zone = get_zone(tz)
+    tz = zone.key
     s = _parse_moment(start, zone, "the start") if start else None
     e = _parse_moment(end, zone, "the end") if end else None
     if s and e and s >= e:
@@ -107,13 +123,20 @@ class Filters:
     component: str | list[str] | None = None
     trace: str | list[str] | None = None
     team: str | list[str] | None = None
-    columns: dict[str, str] = field(default_factory=dict)
+    columns: dict[str, str | list[str]] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any] | None) -> "Filters":
         d = dict(d or {})
         d.pop("columns", None)
         for key, value in d.items():
+            if key.strip().lower() in ("message", "msg", "text"):
+                raise UserFacingError(
+                    "Filters match whole field values; to find entries whose message contains words, use text='...' "
+                    "(any case) instead of a message filter."
+                )
+            if isinstance(value, dict) or (isinstance(value, list) and any(isinstance(v, (dict, list)) for v in value)):
+                raise UserFacingError(f"The filter on '{key}' must be a value or a list of values, e.g. {{\"{key}\": [\"A\", \"B\"]}}.")
             if value is None:
                 raise UserFacingError(
                     f"The filter on '{key}' has no value. Filters match given values; to find entries where {key} is "
@@ -121,14 +144,50 @@ class Filters:
                 )
             if isinstance(value, list) and not [v for v in value if v is not None]:
                 raise UserFacingError(f"The filter on '{key}' is an empty list: give at least one value.")
-        roles = {r: d.pop(r) for r in FILTER_ROLES if d.get(r) is not None}
-        return cls(**roles, columns={k: str(v) for k, v in d.items()})
+            if isinstance(value, list) and len(value) > MAX_FILTER_VALUES:
+                raise UserFacingError(
+                    f"The filter on '{key}' lists {len(value):,} values; at most {MAX_FILTER_VALUES:,} fit in one filter. "
+                    "Split the values over several calls, or group by that field with count_logs instead."
+                )
+        wanted = {k: _wanted(v) for k, v in d.items()}
+        for key, w in wanted.items():
+            for v in [w] if isinstance(w, str) else w:
+                if "\x00" in v:
+                    raise UserFacingError(
+                        f"A value in the filter on '{key}' contains a NUL character (\\x00), which no field value "
+                        "can hold; remove it and try again."
+                    )
+                if len(v) > MAX_FILTER_VALUE_CHARS:
+                    raise UserFacingError(
+                        f"A value in the filter on '{key}' is {len(v):,} characters long; at most "
+                        f"{MAX_FILTER_VALUE_CHARS:,} fit in one value. Filters match whole field values; "
+                        "to find words inside messages, use text='...' instead."
+                    )
+        roles = {r: wanted.pop(r) for r in FILTER_ROLES if r in wanted}
+        return cls(**roles, columns=wanted)
 
     def items(self) -> list[tuple[str, str | list[str]]]:
         """(role or column, wanted value(s)) for every filter that is set."""
         out: list[tuple[str, str | list[str]]] = [(r, v) for r in FILTER_ROLES if (v := getattr(self, r)) is not None]
         out += list(self.columns.items())
         return out
+
+
+def _text(value: Any) -> str:
+    """A wanted value as the text it is compared with: every field is compared as text, so a number
+    is its plain digits (503, not 503.0) and a true/false is lower case, as SereneDB writes them."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def _wanted(value: Any) -> str | list[str]:
+    """One wanted value as text, or a list of them (missing entries in a list dropped)."""
+    if isinstance(value, (list, tuple)):
+        return [_text(v) for v in value if v is not None]
+    return _text(value)
 
 
 def role_expr(lt: LogTable, role: str) -> str:
@@ -161,16 +220,31 @@ def _ts_type(lt: LogTable, known_columns: dict[str, str]) -> str:
     return known_columns.get(col or "", "TIMESTAMP WITH TIME ZONE")
 
 
+_NUMERIC = re.compile(r"^(U?(TINY|SMALL|BIG|HUGE)?INT(EGER)?\d*|DOUBLE|FLOAT\d*|REAL|DECIMAL.*|NUMERIC.*)$")
+# Epoch numbers this large are milliseconds (seconds would be after the year 5000).
+_EPOCH_MS = 100_000_000_000
+
+
+def instant_sql(expr: str, typ: str, zone: str) -> str:
+    """A timestamp expression of column type `typ` as a timestamptz: a zoned time as is, a naive time read in
+    `zone`, an epoch number (seconds, or milliseconds when that large) converted, and text read leniently,
+    so a value that is not a time is NULL (an entry without a time) instead of an error for the whole query."""
+    t = typ.upper()
+    if is_temporal(t):
+        if "WITH TIME ZONE" in t or t.startswith("TIMESTAMPTZ"):
+            return f"({expr})::timestamptz"
+        return f"(({expr}) AT TIME ZONE {sql_literal(zone)})"
+    if _NUMERIC.match(t):
+        return f"to_timestamp(CASE WHEN abs({expr}) >= {_EPOCH_MS} THEN ({expr}) / 1000.0 ELSE ({expr}) END)"
+    return f"TRY_CAST(({expr}) AS TIMESTAMPTZ)"
+
+
 def ts_tz_sql(lt: LogTable, cols: dict[str, str]) -> str:
     """The timestamp role as a timestamptz expression. Also what to aggregate: min/max of a
     nanosecond column come back as text psycopg cannot parse (spike section 5)."""
     expr = role_sql(lt, "timestamp")
-    typ = cols.get(role_column(role_expr(lt, "timestamp")) or "", "").upper()
-    if not is_temporal(typ):
-        return f"({expr})::timestamptz"
-    if "WITH TIME ZONE" in typ or typ.startswith("TIMESTAMPTZ"):
-        return f"({expr})::timestamptz"
-    return f"(({expr}) AT TIME ZONE {sql_literal(lt.timezone)})"
+    typ = cols.get(role_column(role_expr(lt, "timestamp")) or "", "")
+    return instant_sql(expr, typ, lt.timezone)
 
 
 def ts_compare(lt: LogTable, op: str, dt: datetime, key: str, known_columns: dict[str, str]) -> tuple[str, dict[str, Any]]:
@@ -179,7 +253,7 @@ def ts_compare(lt: LogTable, op: str, dt: datetime, key: str, known_columns: dic
     expr = role_sql(lt, "timestamp")
     typ = _ts_type(lt, known_columns).upper()
     if not is_temporal(typ):
-        return f"({expr})::timestamptz {op} %({key})s::timestamptz", {key: dt.isoformat()}
+        return f"{instant_sql(expr, typ, lt.timezone)} {op} %({key})s::timestamptz", {key: dt.isoformat()}
     if "WITH TIME ZONE" in typ or typ.startswith("TIMESTAMPTZ"):
         cast = "timestamptz_ns" if typ.endswith("_NS") else "timestamptz"
         return f"{expr} {op} %({key})s::{cast}", {key: dt.isoformat()}
@@ -233,7 +307,7 @@ def _shown(wanted: str | list[str]) -> str:
     def q(w: str) -> str:
         return "'" + str(w).replace("'", "''") + "'"
 
-    return "in (" + ", ".join(q(w) for w in wanted) + ")" if isinstance(wanted, list) else f"={q(wanted)}"
+    return " in (" + ", ".join(q(w) for w in wanted) + ")" if isinstance(wanted, list) else f"={q(wanted)}"
 
 
 class DataRange(NamedTuple):
@@ -278,7 +352,7 @@ def data_range(db: Database, lt: LogTable, known_columns: dict[str, str]) -> Dat
     if decision.status != "run" or not decision.plan.exact:
         raise ScanTooExpensive("a scan of the timestamp column", cost.cost_text(cost.exact_plan(stats, ts_cols)))
     e = pct(expr)
-    cast_e = f"e AT TIME ZONE {zone}" if naive else "e::timestamptz"
+    cast_e = instant_sql("e", typ, lt.timezone)
     row = db.read(f"SELECT min({cast_e})::timestamptz, max({cast_e})::timestamptz FROM (SELECT {e} AS e FROM {lt.relation})", {}).rows[0]
     return DataRange(row[0], row[1], False, note) if row[0] is not None else None
 
