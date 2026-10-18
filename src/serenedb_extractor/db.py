@@ -78,8 +78,8 @@ class PermissionRefused(UserFacingError):
                 "granted again after each new log table"
             )
         super().__init__(
-            f"SereneDB refused this to the role in {setting}: {detail}. Grant it access as in the README's "
-            f"\"Reader and writer roles\" section: {needs}."
+            f"SereneDB refused this to the role in {setting}: {detail}. Grant it access as in the "
+            f"\"Reader and writer roles\" section of docs/reference.md: {needs}."
         )
 
 

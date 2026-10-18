@@ -184,7 +184,7 @@ async def _client_with(reader: str, writer: str):
 
 
 def _assert_permission_message(out: str, setting: str) -> None:
-    assert setting in out and "permission denied" in out and "README" in out, out
+    assert setting in out and "permission denied" in out and "docs/reference.md" in out, out
     assert "Something went wrong" not in out and "could not read" not in out, out
     assert "\n" not in out.strip()
 
