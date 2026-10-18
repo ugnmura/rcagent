@@ -215,7 +215,7 @@ the period and the preceding one. Each gets points from fixed thresholds:
 |---|---|---|---|---|
 | severity (counted twice) | fatal / critical | error / severe / failure | warning | — |
 | change against the preceding period | new, or +50% or more | +10% to +50% | within ±10%, or not comparable (the data does not cover both periods, or has a gap) | falling |
-| persistence: share of whole days present (hours for a period under two days) | 75% or more | 40% or more | 10% or more | less |
+| persistence: share of whole days with data that it appears in (hours for a period under two days, or when fewer than 3 whole days have data; not judged, 0 points, when even hours give fewer than 3) | 75% or more | 40% or more | 10% or more | less |
 | spread: distinct hosts (else services, else components) | 100 or more | 10 or more | 2 or more | one |
 | share of the entries ranked | 10% or more | 1% or more | 0.1% or more | less |
 
