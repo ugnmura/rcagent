@@ -262,3 +262,11 @@ async def test_a_csv_sereneDB_sees_is_read_in_place(mcp, db_url):
     assert "1 matching entries" in found or "1 matching entry" in found
     occ = re.search(r"\s(\S+#\d+)\s", found).group(1)
     assert "→" in await call(mcp, "get_context", log_table="csvin", occurrence=occ, scope="everything")
+
+
+async def test_several_local_files_are_explained(mcp, tmp_path):
+    for i in range(2):
+        (tmp_path / f"part_00{i}.csv").write_text(CSV_TEXT, encoding="utf-8")
+    for src in (f"{tmp_path}/part_*.csv", f"{tmp_path}/part_{{000..001}}.csv"):
+        out = await call(mcp, "setup_log_table", name="multi", source=src)
+        assert "names several files on this machine" in out, out
