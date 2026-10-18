@@ -1,7 +1,7 @@
 # Demo script: Making Sense of Logs (about 2:20, limit 5 minutes)
 
 Spoken text plus 20 seconds of dialog audio comes to about 2:20 at a calm pace (140 words per minute).
-Screen cues are in *italics*. The one recording is a pre-run Claude Code session with this MCP server, shown
+Screen cues are in *italics*. Per presenter, with delivery notes: [speakers.md](speakers.md). The one recording is a pre-run Claude Code session with this MCP server, shown
 muted in the live demo while B narrates. Log numbers come from
 [worked-investigation.md](../worked-investigation.md); benchmark numbers from serenedb-bench REPORT.md (night run 2).
 
@@ -21,16 +21,12 @@ label: "Dramatization: real log data, AI-generated voices".*
 | Manager (calm, firm) | "How bad is it? Do we act tonight?" |
 | Engineer | "Give me a few hours." *(sigh, keyboard, scrolling)* |
 
-> **The reveal.** The voices are reconstructed. Everything else is real. Saturday, 11 June 2005, Lawrence
-> Livermore National Laboratory. Blue Gene/L, then the fastest supercomputer on Earth. That one node wrote
-> 152,229 fatal entries in a single evening. Tonight it could be CLAIX, here in Aachen.
->
-> **The fact.** That machine wrote 4.7 million log lines in seven months. No human reads that. No AI prompt
-> holds it either.
->
-> **Our answer.** So we flipped it. The AI does not read the logs. SereneDB searches and counts every line,
-> exactly. Claude asks the questions and explains the answers, and every number carries the query that proved
-> it. Let's answer that phone call.
+> **A:** The voices are made up. The logs are real. Blue Gene/L. Back then, the fastest computer on Earth. One
+> node: a hundred and fifty-two thousand fatal errors, in one evening. Tonight, that could be CLAIX, here in
+> Aachen. The whole machine wrote 4.7 million lines in seven months. Nobody reads that. No prompt holds it. But
+> lines repeat. Drain3 folds them into templates: 4.6 million lines, 320 templates. So we flipped it. The AI
+> never reads the logs. SereneDB counts every line, exactly. Claude asks the questions and explains, and every
+> number carries its query. Let's answer that phone call.
 
 *Production: generate the dialog with ElevenLabs (three distinct voices; its dialogue mode or one clip per line,
 stitched), export MP3, embed on slide 1 with auto-play. Fallback if audio fails: the presenter reads the three
@@ -46,15 +42,20 @@ a one-line answer and its next step. At the end all three are lit, with a quick 
 
 **B:**
 
-> Same agent, same logs, three people asking at once. The engineer gets a cause: one node, data TLB errors, and
-> an L2 cache read error just before. Next check: processor diagnostics. The team lead gets the pattern: "Link
-> has been severed" on 22 of 31 days. Investigate first: HPC Applications. The manager gets the priority: five
-> ranked risks, each with an owner, and no invented cost. And every number is a query: 152,734 counted,
-> 152,734 in BGL's own labels.
+> Same agent, same logs, three people asking. The engineer gets a cause: one node, an L2 cache error just
+> before. Next: processor diagnostics. The team lead gets the pattern: "Link has been severed", 22 of 31 days.
+> First stop: HPC Applications. The manager gets the priority: five ranked risks, each with an owner. No made-up
+> costs. And every number is a real query: our count matches BGL's own labels, line for line.
 
 ## Live demo (demo.mp4)
 
 *A real Claude Code session with the serenedb-extractor MCP server, cut and sped up, shown muted as a screen inside the film; B narrates it live in the corner (take `s-demo.mp4`, ≈ 15–25 s).*
+
+**B:**
+
+> And that's not an animation. This is the real session, sped up. Watch Claude pick different tools for each
+> role: search and context for the engineer, counts and trends for the team lead, a ranked list for the manager.
+> And every answer cites the query behind it.
 
 ## 1:50 – 2:18 · Benchmarks (slide 4)
 
@@ -63,14 +64,12 @@ time as you name them (pipeline, score, "+N pts"), about 4 s apart; then cost pe
 "−67%" and the caption "3× cheaper … with the top score". Slide: the three designs in
 the same order. Numbers in the video come from `benchmarks.json`; say the final ones.*
 
-> How did we get here? Same sealed questions, graded blind, at every step. We started small: seven fixed tools.
-> Then more tools: eighteen. No better score, and every answer cost almost twice as much. Then Drain3: it finds
-> the log templates when a question comes in, and Claude can also run SQL. The best score, and the cheapest
-> answer: about four times cheaper than eighteen tools. *(Final, night run 2: 93.5% / $0.26 · 92.9% / $0.46 ·
-> 96.9% / $0.12 per answer.)*
->
-> And it is not only logs. With metric and trace tools, on 116 held-out microservice incidents from RCAEval, it
-> names the right root cause first 96 percent of the time, and in the top three 99 percent.
+> **C:** How do we know it works? Thirty sealed questions, five runs each, graded blind, at every step. We
+> started small: seven fixed tools. 93.5 percent. Then more tools: eighteen. No better score, and every answer
+> cost almost twice as much. Then Drain3: it finds the log templates per question, and Claude writes its own
+> SQL. The best score, 96.9 percent, and about four times cheaper than eighteen tools. And it's not only logs.
+> With metrics and traces, on 116 microservice incidents, it names the right root cause first 96 percent of the
+> time.
 
 *Third shot (final numbers, RCAEval report `results/rca/REPORT-2026-10-18.md` on OrFrederick/serenedb-bench
 `bench/R-OrFrederick`): 96.3% AC@1, 99.1% AC@3 (arm T, k=3, 348 trials, Claude Sonnet); on the 48-case test set
@@ -86,8 +85,11 @@ logs only 56% → 100% with metric and trace tools, $0.54 → $0.30 per answer. 
 
 ## 2:05 – 2:30 · Close (slide 5)
 
-> So, back to that phone call. The engineer gets a cause to check, not a scroll bar. The team lead gets the
-> pattern. The manager gets the priority. And every number is traceable to a query. Thank you.
+> **a:** So, that phone call? The engineer gets a cause, not a scroll bar.
+>
+> **b:** The team lead gets the pattern. Every number traces to a query.
+>
+> **c:** The manager gets the priority, not a guess. Thank you!
 
 ---
 

@@ -19,14 +19,14 @@ set in `presentation/src/content.ts` (`presenters`).
 
 ## Files
 
-Read the quotes of each section in `docs/presentation/script.md` word for word.
+Read the quotes of each section word for word: [`docs/presentation/speakers.md`](../speakers.md) has them per presenter, with delivery notes (same words as `script.md`).
 
 | file | who | script section | facecam shown as | target length |
 |---|---|---|---|---|
-| `s1-reveal.mp4` | A | 0:00–1:00, the three quotes after the dialog ("The reveal" … "Let's answer that phone call.") | full screen, then corner | ≤ 40 s |
+| `s1-reveal.mp4` | A | 0:00–1:00, the reveal after the dialog ("The voices are made up." … "Let's answer that phone call.") | full screen, then corner | ≤ 40 s |
 | `s2-roles.mp4` | B | Three roles, one split: "B" | corner | about 30 s (target ≤ 30 s) |
 | `s-demo.mp4` | B | Live demo: narrate the `demo.mp4` screen recording (handoff 2) as it plays (no name tag, B already appeared) | corner | ≈ 15–25 s |
-| `s6-benchmarks.mp4` | C | Benchmarks | corner | ≤ 15 s |
+| `s6-benchmarks.mp4` | C | Benchmarks | corner | ≈ 40 s (three shots, incl. RCAEval) |
 | close, see below | all | Close | full screen | ≤ 25 s in total |
 
 `s2-roles.mp4` is the whole split in one take. The three columns build at the same time on screen, so the
@@ -41,9 +41,9 @@ manager sentences and before the closing "And every number is a query". There ar
 
   | file | who | line |
   |---|---|---|
-  | `s7-close-a.mp4` | A | "So, back to that phone call. The engineer gets a cause to check, not a scroll bar." |
-  | `s7-close-b.mp4` | B | "The team lead gets the pattern. And every number is traceable to a query." |
-  | `s7-close-c.mp4` | C | "The manager gets the priority. Thank you." |
+  | `s7-close-a.mp4` | A | "So, that phone call? The engineer gets a cause, not a scroll bar." |
+  | `s7-close-b.mp4` | B | "The team lead gets the pattern. Every number traces to a query." |
+  | `s7-close-c.mp4` | C | "The manager gets the priority, not a guess. Thank you!" |
 
   Each ≤ 8 s. Look into the camera.
 

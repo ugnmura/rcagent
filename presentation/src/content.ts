@@ -130,28 +130,28 @@ export const reveal = {
 	/** Caption under the How-it-works diagram (README on main, "How it works"). */
 	flowCaption: 'Claude never sees the raw logs.',
 	cues: [
-		'Saturday, 11 June 2005, Lawrence Livermore National Laboratory.',
-		'Blue Gene/L, then the fastest supercomputer on Earth.',
+		'The voices are made up. The logs are real.',
+		'Blue Gene/L. Back then, the fastest computer on Earth.',
 		// 152,229: WI §1 [step 2]
-		'That one node wrote 152,229 fatal entries in a single evening.',
-		'Tonight it could be CLAIX, here in Aachen.',
+		'One node: a hundred and fifty-two thousand fatal errors, in one evening.',
+		'Tonight, that could be CLAIX, here in Aachen.',
 		// 4.7 million: WI intro (4,747,963 BGL entries, 2005-06-03 to 2006-01-04)
-		'That machine wrote 4.7 million log lines in seven months.',
-		'No human reads that. No AI prompt holds it either.',
-		'We call it templating: Drain3 and SereneDB regex fold the lines into templates.',
+		'The whole machine wrote 4.7 million lines in seven months.',
+		'Nobody reads that. No prompt holds it.',
+		'But lines repeat. Drain3 folds them into templates:',
 		// Loghub-2.0, BGL: 4,631,261 annotated lines, 320 templates
-		"On Loghub's Blue Gene/L log, 4.6 million lines come down to 320 templates.",
-		'So we flipped it. The AI does not read the logs.',
-		'SereneDB searches and counts every line, exactly.',
-		'Claude asks the questions and explains the answers,',
-		'and every number carries the query that proved it.',
+		'4.6 million lines, 320 templates.',
+		'So we flipped it. The AI never reads the logs.',
+		'SereneDB counts every line, exactly.',
+		'Claude asks the questions and explains,',
+		'and every number carries its query.',
 		"Let's answer that phone call.",
 	],
-	/** Index of the cue from which the headline card shows (the cue that says 152,229). */
+	/** Index of the cue from which the headline card shows (the cue with the fatal count, 152,229 on screen). */
 	headlineFromCue: 2,
 	/** Index of the cue from which the 4.7 million shot shows. */
 	factFromCue: 4,
-	/** Index of the cue from which the templates shot shows ("Drain3 folds them…"). */
+	/** Index of the cue from which the templates shot shows ("But lines repeat. Drain3 folds them…"). */
 	templatesFromCue: 6,
 	/** Index of the cue from which the How-it-works diagram shows ("So we flipped it."). */
 	flowFromCue: 8,
@@ -322,12 +322,12 @@ export const benchmarks = {
 	rca: {ac1: 'right root cause, first guess', ac3: 'in the top three', logsOnly: 'logs only', withMetrics: 'with metric + trace tools'},
 	cheaper: 'cheaper than',
 	cues: [
-		'How did we get here? Same sealed questions, graded blind, at every step.',
-		'We started small: seven fixed tools.',
+		'How do we know it works? Thirty sealed questions, five runs each, graded blind, at every step.',
+		'We started small: seven fixed tools. 93.5 percent.',
 		'Then more tools: eighteen. No better score, and every answer cost almost twice as much.',
-		'Then Drain3: it finds the log templates when a question comes in, and Claude can also run SQL.',
-		'The best score, and the cheapest answer: about four times cheaper than eighteen tools.',
-		'And it is not only logs. On 116 held-out microservice incidents it names the right root cause first 96 percent of the time.',
+		'Then Drain3: it finds the log templates per question, and Claude writes its own SQL.',
+		'The best score, 96.9 percent, and about four times cheaper than eighteen tools.',
+		"And it's not only logs. With metrics and traces, on 116 microservice incidents, it names the right root cause first 96 percent of the time.",
 	],
 };
 
@@ -342,10 +342,10 @@ export const close = {
 	traceable: 'Every number is traceable to a query.',
 	cardLine: 'Every number traceable to a query',
 	cues: [
-		'So, back to that phone call.',
-		'The engineer gets a cause to check, not a scroll bar.',
-		'The team lead gets the pattern. The manager gets the priority.',
-		'And every number is traceable to a query. Thank you.',
+		'So, that phone call?',
+		'The engineer gets a cause, not a scroll bar.',
+		'The team lead gets the pattern. Every number traces to a query.',
+		'The manager gets the priority, not a guess. Thank you!',
 	],
 };
 
@@ -397,11 +397,11 @@ export const split = {
 	/** The evidence beat under the cards: the engineer's full-text count against BGL's own labels. */
 	evidence: {left: evidence.left.value, right: evidence.right.value, caption: evidence.snapCaption}, // WI [steps 23, 24]
 	cues: [
-		'Same agent, same logs, three people asking at once.',
-		'The engineer gets a cause: one node, data TLB errors, and an L2 cache read error just before. Next check: processor diagnostics.',
-		"The team lead gets the pattern: 'Link has been severed' on 22 of 31 days. Investigate first: HPC Applications.",
-		'The manager gets the priority: five ranked risks, each with an owner, and no invented cost.',
-		"And every number is a query: 152,734 counted, 152,734 in BGL's own labels.",
+		'Same agent, same logs, three people asking.',
+		'The engineer gets a cause: one node, an L2 cache error just before. Next: processor diagnostics.',
+		'The team lead gets the pattern: "Link has been severed", 22 of 31 days. First stop: HPC Applications.',
+		'The manager gets the priority: five ranked risks, each with an owner. No made-up costs.',
+		"And every number is a real query: our count matches BGL's own labels, line for line.",
 	],
 	/** Cue indices: the cards come in on `liftoff`; engineer, team lead, manager take centre stage in turn; then all lit. */
 	at: {liftoff: 0, engineer: 1, teamLead: 2, manager: 3, allLit: 4},
