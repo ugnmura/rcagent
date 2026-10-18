@@ -1,0 +1,5 @@
+[
+  {"tool": "setup_log_table", "args": {"name": "tb", "source": "https://public-pme.s3.eu-west-3.amazonaws.com/text_bench/part_000.parquet", "build_search_index": false}, "label": "own:setup_log_table"},
+  {"tool": "create_index", "args": {"log_table": "tb", "kind": "search"}, "label": "own:create_index_search"},
+  {"tool": "survey", "args": {"log_table": "tb"}, "label": "own:survey"}
+]
