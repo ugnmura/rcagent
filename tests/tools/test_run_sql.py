@@ -332,3 +332,15 @@ def test_growing_functions_are_limited_across_the_statement():
         )
     with pytest.raises(SqlRejected, match="longer than 100"):
         check_read_only("SELECT replace(message, 'a', '" + "x" * 200 + "') FROM extractor.lt_x")
+
+
+def test_concatenation_and_literal_limits():
+    import pytest
+
+    from serenedb_extractor.query.guard import SqlRejected, check_read_only
+
+    check_read_only("SELECT level || ' ' || component || ': ' || message FROM extractor.lt_x")
+    with pytest.raises(SqlRejected, match="at most 6"):
+        check_read_only("SELECT " + " || ".join(["message"] * 8) + " FROM extractor.lt_x")
+    with pytest.raises(SqlRejected, match="longer than 1000"):
+        check_read_only("SELECT '" + "x" * 1200 + "' FROM extractor.lt_x")

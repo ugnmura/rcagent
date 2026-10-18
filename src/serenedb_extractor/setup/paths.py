@@ -246,13 +246,13 @@ def check_private_path(path: str, source: str, *, verb: str = "read") -> None:
     candidates = [path]
     expanded = os.path.expanduser(path)
     folder, _, name = expanded.rpartition("/")
-    if any(c in folder for c in "*?["):  # a wildcard folder could reach a hidden one through a link
+    if any(c in folder for c in "*?[{"):  # a wildcard folder could reach a hidden one through a link
         raise UserFacingError(
             f"{source.strip()} is not {verb}: wildcards are allowed only in the file name, not in the folders."
         )
     if not any(c in expanded for c in "*?[{") and os.path.lexists(expanded):
         candidates.append(os.path.realpath(expanded))
-    elif folder and "{" not in folder and os.path.isdir(folder):
+    elif folder and os.path.isdir(folder):
         candidates.append(os.path.realpath(folder) + "/" + name)  # the folder after following links
     for cand in candidates:
         for f in expand_files(cand):

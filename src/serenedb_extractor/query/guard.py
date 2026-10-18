@@ -46,7 +46,9 @@ ALLOWED_FUNCTIONS = frozenset(
 )
 # String functions whose result can be much longer than their input; they may not be nested in one another.
 MAX_GROWING_CALLS = 2
+MAX_GROWING_OPS = 6
 MAX_GROWING_LITERAL = 100
+MAX_LITERAL = 1000
 GROWING_FUNCTIONS = frozenset("replace regexp_replace overlay translate concat concat_ws string_agg group_concat".split())
 # Keywords that may be followed by "(" without being a function call.
 SYNTAX_WORDS = frozenset(
@@ -112,6 +114,7 @@ def _check_tokens(text: str) -> None:
     # replace ...) can multiply a value's size in a single row, which the time-based cost check can't see.
     growing_open: list[int] = []
     growing_calls = 0
+    growing_ops = 0  # growing calls plus || concatenations
     for i, tok in enumerate(tokens):
         word = tok.text.lower() if "STRING" not in tok.token_type.name else ""
         if word.lstrip("_") in REG_TYPES:  # _regclass is the array type of regclass
@@ -126,11 +129,18 @@ def _check_tokens(text: str) -> None:
             if growing_open and growing_open[-1] == depth:
                 growing_open.pop()
             depth -= 1
-        if growing_open and "STRING" in tok.token_type.name and len(tok.text) > MAX_GROWING_LITERAL:
-            raise SqlRejected(
-                f"a text longer than {MAX_GROWING_LITERAL} characters inside a replace/concat-style function is not "
-                "allowed in run_sql (it can build huge values)"
-            )
+        if "STRING" in tok.token_type.name:
+            limit = MAX_GROWING_LITERAL if growing_open else MAX_LITERAL
+            if len(tok.text) > limit:
+                raise SqlRejected(
+                    f"a text longer than {limit} characters"
+                    + (" inside a replace/concat-style function" if growing_open else "")
+                    + " is not allowed in run_sql (it can build huge values)"
+                )
+        if tok.token_type == TokenType.DPIPE:  # || concatenates: it grows values too
+            growing_ops += 1
+            if growing_ops > MAX_GROWING_OPS:
+                raise SqlRejected(f"at most {MAX_GROWING_OPS} || concatenations and replace/concat-style calls per query")
         nxt = tokens[i + 1] if i + 1 < len(tokens) else None
         if nxt is not None and nxt.token_type == TokenType.AMP and word == "u":
             raise SqlRejected("unicode-escaped names (U&...) are not allowed in run_sql")
@@ -144,7 +154,8 @@ def _check_tokens(text: str) -> None:
                     "nest at most one of them"
                 )
             growing_calls += 1
-            if growing_calls > MAX_GROWING_CALLS:  # chained through subqueries or CTEs they multiply as well
+            growing_ops += 1
+            if growing_calls > MAX_GROWING_CALLS or growing_ops > MAX_GROWING_OPS:  # chained through subqueries or CTEs they multiply as well
                 raise SqlRejected(
                     f"at most {MAX_GROWING_CALLS} replace/concat-style functions per query (they can build huge values)"
                 )
