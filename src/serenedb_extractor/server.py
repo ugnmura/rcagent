@@ -18,6 +18,7 @@ from serenedb_extractor.context import AppContext
 from serenedb_extractor.instructions import SERVER_INSTRUCTIONS
 from serenedb_extractor.prompts import register_prompts
 from serenedb_extractor.query import stats
+from serenedb_extractor.telemetry import register_telemetry_tools
 from serenedb_extractor.tools import aggregate, catalog_tools, describe, evidence_tools, lookup, setup_tools
 from serenedb_extractor.tools import context as context_tool
 from serenedb_extractor.tools import investigate
@@ -420,6 +421,7 @@ def build_server(ctx_factory: Callable[[], AppContext]) -> FastMCP:
     mcp = FastMCP("serenedb-extractor", instructions=SERVER_INSTRUCTIONS)
     runner = ToolRunner(ctx_factory)
     register_tools(mcp, runner)
+    register_telemetry_tools(mcp, runner)
     register_prompts(mcp)
     return mcp
 

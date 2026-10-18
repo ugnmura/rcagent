@@ -6,6 +6,7 @@ from mcp.server.fastmcp import FastMCP
 
 from serenedb_extractor.catalog.models import UnknownLogTable
 from serenedb_extractor.server import ToolRunner
+from serenedb_extractor.telemetry import tool_annotations
 from tests.conftest import Client, call
 
 
@@ -74,7 +75,7 @@ async def test_annotations_registered(mcp_no_db):
     assert tools["describe_logs"].annotations.readOnlyHint is True
 
 
-EXPECTED_ANNOTATIONS = {
+LOG_TOOL_ANNOTATIONS = {
     **{
         n: (True, None)
         for n in (
@@ -96,12 +97,13 @@ EXPECTED_ANNOTATIONS = {
     "survey": (False, False),
     "rename_parameter": (False, False),
 }
+EXPECTED_ANNOTATIONS = {**LOG_TOOL_ANNOTATIONS, **tool_annotations()}
 
 
-async def test_exactly_fifteen_tools_with_expected_annotations(mcp_no_db):
+async def test_the_fifteen_log_tools_and_the_telemetry_tools_with_expected_annotations(mcp_no_db):
     listed = (await mcp_no_db.list_tools()).tools
     assert sorted(t.name for t in listed) == sorted(EXPECTED_ANNOTATIONS)
-    assert len(listed) == 15
+    assert len(listed) == 15 + len(tool_annotations())
     for t in listed:
         assert t.annotations is not None
         read_only, destructive = EXPECTED_ANNOTATIONS[t.name]
