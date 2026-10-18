@@ -103,7 +103,8 @@ Then run `claude` in this folder and ask (the role commands live in `.claude/com
 
 ## Worked investigation: one corpus, three roles
 
-One question per role over BGL (4,747,963 entries) and OpenStack (207,636). 25 tool calls, median 0.25 s, no
+One question per role, all about BGL (4,747,963 entries). Only the team lead's whole-corpus count also covers
+OpenStack, since the brief asks for one aggregation over the whole base corpus. 25 tool calls, median 0.25 s, no
 index. `[step n]` points to the [transcript](docs/worked-investigation-transcript.md) with every call, result and
 query. Full write-up: [docs/worked-investigation.md](docs/worked-investigation.md). BGL times are US Pacific.
 
