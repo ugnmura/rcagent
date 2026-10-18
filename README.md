@@ -223,6 +223,8 @@ Full list: [docs/reference.md](docs/reference.md#known-limits).
   tool call the agent chose
 - [docs/EVALUATION.md](docs/EVALUATION.md): benchmark method, the three designs, templating scores, RCAEval
 - [docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md): TextBench at 1 and 10 billion rows
+- [docs/live-session-textbench.md](docs/live-session-textbench.md): the same three roles live on 10 billion
+  TextBench rows
 - [docs/INDEX_TIMINGS.md](docs/INDEX_TIMINGS.md): base-corpus queries with and without a search index
 - [docs/reference.md](docs/reference.md): requirements checklist, all tools, configuration, security, tests
 

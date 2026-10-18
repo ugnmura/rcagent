@@ -1,0 +1,1 @@
+{"mcpServers": {"serenedb-extractor": {"command": "ssh", "args": ["-T", "-o", "BatchMode=yes", "rwth", "$HPCWORK/hpc-b51daa1/src/via_srun.sh 5121770 57895"]}}}
