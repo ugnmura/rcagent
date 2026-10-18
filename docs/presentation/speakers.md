@@ -74,7 +74,7 @@ RCAEval shot. This is the "we tested it" moment: confident, not salesy.
 > How do we know it works? Thirty sealed questions, five runs each, graded blind, at every step. /
 > We started small: seven fixed tools. 93.5 percent. /
 > Then more tools: eighteen. No better score, and every answer cost almost twice as much. /
-> Then Drain3: it finds the log templates per question, and Claude writes its own SQL. /
+> Then we went back to a small set of core tools, and added Drain3 templates and Claude's own SQL. /
 > The best score, 96.9 percent, and about four times cheaper than eighteen tools. /
 > And it's not only logs. With metrics and traces, on 116 microservice incidents, it names the right root
 > cause first 96 percent of the time.
