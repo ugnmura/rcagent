@@ -1,19 +1,22 @@
 # Index timings on the base corpus: with and without a search index
 
-On the base corpus, every text search and count without an index is an **exact scan that takes 0.05–0.37 s**.
-Building the search index takes **3.0 s for BGL** (4,747,963 entries, 119.7 MB) and **0.3 s for OpenStack**
-(207,636 entries, 12.3 MB). At this size an index doesn't pay off: the scans are already fast and exact, and
-setup itself says "none needed — … small enough to search without an index". The billion-row case, where the
-index matters, is in [HUGE_DATASETS.md](HUGE_DATASETS.md).
+On the base corpus, every text search and count without an index is an **exact scan that takes 0.05–0.85 s**,
+with a median of at most 0.27 s per query. Building the search index takes **2.6 s for BGL** (4,747,963 entries,
+120.0 MB) and **0.2 s for OpenStack** (207,636 entries, 12.3 MB). Once it exists:
 
-At `b51daa1` the searches below **did not use the index after it was built**. See
-[What the second run shows](#what-the-second-run-shows).
+- **Fuzzy search** works, and goes through the index: 0.17 s for a misspelled "parity eror", 121,358 matches.
+- **Plain searches** still scan, on purpose. Their result says why: "The search index wasn't needed: a scan of
+  this scope fits the cost budget, so the entries were searched directly (exact substring match)".
+
+At this size the index buys fuzzy matching, not speed. Setup itself says "none needed — … small enough to search
+without an index". The billion-row case, where the index is what makes a whole-file search fast, is in
+[HUGE_DATASETS.md](HUGE_DATASETS.md).
 
 ## What ran
 
 | | |
 |---|---|
-| Extractor | `main` at `b51daa1`, the server's own MCP tools over stdio |
+| Extractor | `main` at `cb4dfa2`, the server's own MCP tools over stdio |
 | Data | the base corpus loaded with `scripts/load_base_corpus.py` (Parquet read in place) |
 | SereneDB | 26.09.2 arm64 (`sha256:f9681a19f7f1…`), Docker on an Apple M1 (8 CPUs, 16 GB), 2026-10-18 |
 | Calls | [`index-timings/calls.json`](index-timings/calls.json), run by [`index-timings/driver.py`](index-timings/driver.py); every call with its full result is in [`index-timings/calls.jsonl`](index-timings/calls.jsonl) |
@@ -23,36 +26,33 @@ At `b51daa1` the searches below **did not use the index after it was built**. Se
 
 | Step | BGL | OpenStack |
 |---|---|---|
-| `create_index(kind="search", dry_run=true)`: trial build on a sample, estimate | 0.46 s: ≈103.4 MB, ~2 s (trial on 1,000,000 entries) | 0.38 s: ≈12.2 MB, under a second |
-| `create_index(kind="search")`: build time over every entry | **2.96 s**, 119.7 MB | **0.30 s**, 12.3 MB |
-| `drop_index` | 0.03 s | 0.02 s |
+| `create_index(kind="search", dry_run=true)`: trial build on a sample, estimate | 0.47 s: ≈103.4 MB, ~2 s (trial on 1,000,000 entries) | 0.33 s: ≈12.2 MB, under a second |
+| `create_index(kind="search")`: build time over every entry | **2.64 s**, 120.0 MB | **0.20 s**, 12.3 MB |
+| `drop_index` | 0.02 s | 0.03 s |
 
-The dry-run estimates were close to the real builds: 14% under on size for BGL, and about a second under on time.
+The dry-run estimates were close to the real builds: 14% under on size for BGL, and under a second off on time.
 
 ## Queries: medians of 5 runs
 
-| Query | Matches | No index | After `create_index` |
-|---|---|---|---|
-| `search_logs` "parity error", BGL, all time | 121,357 | **0.22 s** | 0.26 s |
-| `search_logs` "error", BGL, 11 June 2005 | 152,255 | **0.05 s** | 0.06 s |
-| `count_logs` "error" by component, BGL, all time | — | **0.11 s** | 0.13 s |
-| `search_logs` "error", OpenStack, all time | 8 | **0.07 s** | 0.08 s |
-| `search_logs` "parity eror" with `fuzzy=true`, BGL | — | refused: "fuzzy search needs a search index" | refused: "Fuzzy search can't use the search index for this question" |
+| Query | Matches | No index | After `create_index` | How the second column ran |
+|---|---|---|---|---|
+| `search_logs` "parity error", BGL, all time | 121,357 | **0.27 s** | 0.31 s | scan: "the search index wasn't needed" |
+| `search_logs` "error", BGL, 2005-06-11 00:00–24:00 UTC | 31 | **0.06 s** | 0.06 s | scan: "the search index wasn't needed" |
+| `count_logs` "error" by component, BGL, all time | — | **0.12 s** | 0.13 s | scan (`count_logs` doesn't use the search index) |
+| `search_logs` "error", OpenStack, all time | 8 | **0.10 s** | 0.11 s | scan: "the search index wasn't needed" |
+| `search_logs` "parity eror" with `fuzzy=true`, BGL | 121,358 | refused: "fuzzy search needs a search index" | **0.17 s** (1 run) | "exact search through the search index extractor."bgl_search_idx"" |
 
-Every result in both columns starts "How this was measured: exact search: every entry in scope was checked …
-no sampling; **no index used**". The matching counts are identical with and without the index.
+The plain searches give identical counts with and without the index. The first no-index run of "parity error" was
+the cold start (0.85 s); the other four were 0.22–0.28 s. The 11 June window is given in UTC. The BGL log's own
+time zone is America/Los_Angeles, so this window misses most of the 11 June storm, which falls on 12 June in UTC.
 
-## What the second run shows
+## When the index is used
 
-- **The index wasn't used.** After `create_index`, `search_logs` still scanned with `ILIKE`, and fuzzy search
-  was refused. The cause is in `_index_path` (`src/serenedb_extractor/tools/lookup.py`):
-  - The index is used only when every role of the log table is a plain column in the index.
-  - On tables the [team ownership](../README.md#team-ownership) rules cover (`bgl%`, `openstack%`,
-    `textbench%`), the `team` role is derived: it is a `CASE` expression over the component, not a column.
-  - So the index is never taken on those tables. The build result still says "search_logs uses it", which is
-    wrong for them.
-- **The TextBench run used the index.** It ran at `6cad141`, before teams existed, on a table named `tb` that no
-  ownership rule covers. Its whole-file search reported "exact search through the search index".
-- **The size of the cost:** on the base corpus none. The second column is the same scan, and 0.05–0.37 s is
-  already well inside the time budget. On a covered billion-row table it would mean no fast whole-file
-  search, and no fuzzy search.
+- **Fuzzy search:** always through the index; there is no other way to run it.
+- **Plain search:** through the index when a scan of the scope would not fit the time budget. On the base corpus
+  that never happens. On the billion-row TextBench file it does: a whole-file search goes through the index and is
+  exact, while without the index the tool answers from a stated block sample
+  (see [HUGE_DATASETS.md](HUGE_DATASETS.md)).
+- **Ownership-covered tables (`bgl`, `openstack`):** since `a0cc99e`, only the fields a search actually uses need to
+  be in the index. At `b51daa1` the derived `team` role kept these two tables off the index entirely, and fuzzy
+  search was refused.

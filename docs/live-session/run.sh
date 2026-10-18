@@ -14,11 +14,7 @@ run engineer engineer "What failed on BGL on 11 June 2005, and what happened jus
 run team-lead team-lead "Which problems keep recurring across BGL and OpenStack, and what should we look at first?" &
 run manager manager "What should we prioritise from these logs?" &
 wait
-# The manager session asked which logs were meant; it was answered once, in the same session:
-sid=$(head -1 manager.jsonl | python3 -c "import json,sys; print(json.loads(sys.stdin.readline())['session_id'])")
-echo "Both, please." > manager-2.prompt.txt
-claude -p "Both, please." --resume "$sid" --model claude-opus-5-5 --strict-mcp-config --mcp-config mcp.json \
-  --setting-sources "" --allowedTools "mcp__serenedb-extractor" --output-format stream-json --verbose --max-turns 40 \
-  > manager-2.jsonl 2> manager-2.err
+# If a session asks a clarifying question, answer it once in the same session and keep both parts:
+#   claude -p "<answer>" --resume <session_id> ... > <name>-2.jsonl   (and the answer in <name>-2.prompt.txt)
 # docs/live-session.md is its hand-written header followed by body.md
-python3 render.py body.md "Engineer:engineer.jsonl" "Team lead:team-lead.jsonl" "Manager:manager.jsonl,manager-2.jsonl"
+python3 render.py body.md "Engineer:engineer.jsonl" "Team lead:team-lead.jsonl" "Manager:manager.jsonl"
