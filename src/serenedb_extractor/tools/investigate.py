@@ -1,6 +1,7 @@
 """Exact investigation of chosen templates: locate_occurrences (counts + examples) and extract_params."""
 
 import re
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 from typing import Any
 
@@ -77,6 +78,39 @@ def _bucket_sql(lt: LogTable, cols: dict[str, str], n: int, unit: str, tz: str) 
         mm = f"lpad((((abs({off}) - (abs({off}) // 3600) * 3600) // 60))::varchar, 2, '0')"
         label = f"({label} || {sign} || {hh} || ':' || {mm})"
     return f"coalesce({label}, {NONE_SQL})"
+
+
+_LABEL = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2})([+-])(\d{2}):(\d{2})$")
+
+
+def real_label(label: str, tz: str) -> str:
+    """A sub-day bucket's label names a real instant. Buckets are cut on the local clock, so on the night the
+    clocks go back a bucket can hold entries of the second (repeated) hour under a start that, with their UTC
+    offset, never existed (00:00-08:00 when 01:00-08:00 is the first such minute); such a label moves to the
+    first minute of the bucket that has its offset."""
+    m = _LABEL.match(label)
+    if m is None or is_utc(tz):
+        return label
+    zone = get_zone(tz)
+    sign = 1 if m.group(2) == "+" else -1
+    offset = timedelta(hours=int(m.group(3)), minutes=int(m.group(4))) * sign
+    start = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M").replace(tzinfo=timezone(offset))
+    probe = start
+    for _ in range(24 * 60):
+        if probe.astimezone(zone).utcoffset() == offset:
+            break
+        probe += timedelta(minutes=1)
+    else:
+        return label
+    if probe == start:
+        return label
+    local = probe.astimezone(zone)
+    off = local.strftime("%z")
+    return f"{local:%Y-%m-%d %H:%M}{off[:3]}:{off[3:]}"
+
+
+def real_keys(key: tuple[str, ...], labels: list[str], tz: str) -> tuple[str, ...]:
+    return tuple(real_label(k, tz) if lbl.startswith("time:") else k for k, lbl in zip(key, labels, strict=True))
 
 
 def ordered(keys: list[tuple[str, ...]], labels: list[str], value: dict[tuple[str, ...], float]) -> list[tuple[str, ...]]:
@@ -299,7 +333,7 @@ def locate_occurrences(
         n_keys = len(groups)
         counts: dict[tuple[int, tuple[str, ...]], list[tuple[int, int]]] = {}
         for r in rows:
-            key = (int(r[0]), tuple(str(x) for x in r[1 : 1 + n_keys]))
+            key = (int(r[0]), real_keys(tuple(str(x) for x in r[1 : 1 + n_keys]), [g for g, _ in groups], sc.tz))
             b = 0 if plan.exact else int(r[1 + n_keys])
             counts.setdefault(key, []).append((b, int(r[-1])))
         entries = [] if plan.exact else _entries_per_block(sc, plan, scope_sql, timeout, what)
@@ -402,7 +436,7 @@ def _examples(
     )
     out: dict[tuple[int, tuple[str, ...]], list[str]] = {}
     for r in sc.db.read(sql, p, timeout_s=timeout, what=what, how_to_narrow=NARROW).dicts():
-        ekey = (int(r["tpl"]), tuple(str(r[k]) for k in key_names))
+        ekey = (int(r["tpl"]), real_keys(tuple(str(r[k]) for k in key_names), [g for g, _ in groups], sc.tz))
         out.setdefault(ekey, []).append(occurrence.encode_occurrence(lt, r))
     return out
 

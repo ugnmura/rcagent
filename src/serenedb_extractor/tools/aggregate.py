@@ -30,7 +30,7 @@ from serenedb_extractor.query.filters import (
 from serenedb_extractor.query.stats import role_columns
 from serenedb_extractor.setup.sniff import readable
 from serenedb_extractor.tools.describe import known_columns, like_pattern
-from serenedb_extractor.tools.investigate import _filter_columns, _group_columns, _one, ordered, parse_group_by
+from serenedb_extractor.tools.investigate import _filter_columns, _group_columns, _one, ordered, parse_group_by, real_keys
 
 DEFAULT_GROUPS = 25
 NARROW = "narrow it: a shorter period (start/end), filters such as level or team, or fewer log tables."
@@ -106,12 +106,12 @@ def _count_one(
             else f"SELECT count(*) AS n FROM ({inner})"
         )
         if keep is not None and plan.exact and key_names:
-            return _top_groups(db, lt, plan, labels, key_names, inner, params, timeout, what, keep, note)
+            return _top_groups(db, lt, plan, labels, key_names, inner, params, timeout, what, keep, note, tz)
         rows = db.read(sql, params, timeout_s=timeout, what=what, how_to_narrow=NARROW).rows
         per_key: dict[tuple[str, ...], list[tuple[int, int]]] = {}
         all_blocks: dict[int, int] = {}
         for r in rows:
-            key = tuple(str(x) for x in r[: len(key_names)])
+            key = real_keys(tuple(str(x) for x in r[: len(key_names)]), labels, tz)
             b = 0 if plan.exact else int(r[len(key_names)])
             n = int(r[-1])
             per_key.setdefault(key, []).append((b, n))
@@ -139,7 +139,7 @@ def _count_one(
 
 def _top_groups(
     db: Any, lt: LogTable, plan: cost.Plan, labels: list[str], key_names: list[str], inner: str,
-    params: dict[str, Any], timeout: float, what: str, keep: int, note: str | None,
+    params: dict[str, Any], timeout: float, what: str, keep: int, note: str | None, tz: str,
 ) -> TableCount:
     """The first `keep` groups in the order `ordered` gives, ordered and cut inside SereneDB."""
     timed = [k for k, lbl in zip(key_names, labels, strict=True) if lbl.startswith("time:")]
@@ -158,7 +158,7 @@ def _top_groups(
     )
     rows = db.read(sql, params, timeout_s=timeout, what=what, how_to_narrow=NARROW).rows
     k = len(key_names)
-    groups = [(tuple(str(x) for x in r[:k]), fmt.Measured(float(r[k]), True)) for r in rows]
+    groups = [(real_keys(tuple(str(x) for x in r[:k]), labels, tz), fmt.Measured(float(r[k]), True)) for r in rows]
     n_groups = int(rows[0][k + 1]) if rows else 0
     total = fmt.Measured(float(rows[0][k + 2]) if rows else 0.0, True)
     return TableCount(lt, plan, total, groups, labels, note=note, n_groups=n_groups)

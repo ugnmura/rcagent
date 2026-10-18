@@ -175,3 +175,13 @@ def test_a_local_time_skipped_by_the_spring_change_is_explained():
     with pytest.raises(UserFacingError, match="does not exist in America/Los_Angeles"):
         parse_time_range("2005-04-03 02:30", "2005-04-03 04:00", "America/Los_Angeles")
     assert parse_time_range("2005-04-03 01:30", "2005-04-03 04:00", "America/Los_Angeles").start is not None
+
+
+def test_bucket_labels_name_real_instants_on_the_fall_back_night():
+    from serenedb_extractor.tools.investigate import real_label
+
+    la = "America/Los_Angeles"
+    assert real_label("2005-10-30 00:00-08:00", la) == "2005-10-30 01:00-08:00"  # PST starts at 01:00
+    assert real_label("2005-10-30 00:00-07:00", la) == "2005-10-30 00:00-07:00"
+    assert real_label("2005-10-30 02:00-08:00", la) == "2005-10-30 02:00-08:00"
+    assert real_label("2005-10-30 00:00", "UTC") == "2005-10-30 00:00"
