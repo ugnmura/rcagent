@@ -126,11 +126,11 @@ export const engineer = {
 export const teamLead = {
 	title: 'Team lead: what keeps coming back?',
 	chapter: {title: 'The team lead', question: 'What keeps coming back?'},
-	// WI §2 "The numbers" table [step 9]: BGL entries at level FATAL, by team, whole corpus.
+	// WI §2 "The numbers" table [step 9]: BGL entries at level FATAL, by team, whole corpus; top two teams only
+	// (the next, Control System, has 3 FATAL and would read as an empty bar).
 	fatalBars: [
 		{team: 'Node OS', value: '626,756'},
 		{team: 'HPC Applications', value: '228,536'},
-		{team: 'Control System', value: '3'},
 	],
 	fatalBarsLabel: 'BGL fatal entries, by team',
 	// WI §2 [step 21]: "Link has been severed" on 22 of 31 days in December, +4% against November
