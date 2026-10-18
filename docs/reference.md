@@ -44,7 +44,7 @@ write-up in [docs/worked-investigation.md](worked-investigation.md).
 | Optional: larger datasets, such as the remote OpenTelemetry Parquet data | [Large datasets: TextBench](#large-datasets-textbench-remote-parquet-1-billion-rows-per-file) |
 | Optional: phrase and fuzzy matching | `search_logs` through the search index: phrase search finds the words in order (`ts_phrase`), `fuzzy=True` matches each word within a typo or two (`ts_levenshtein`). Without the index, text search is an exact substring scan and fuzzy is refused |
 | Optional: row-level security per role | Not implemented. There is a reader/writer split of database roles ([Reader and writer roles](#reader-and-writer-roles)), not per-role row access |
-| Optional: correlate logs with traces or metrics | Metric and trace tables next to the log tables. `telemetry_overview` shows a system's logs, metrics and traces around one moment, per service. `metric_changes`, `metric_series`, `trace_changes` (self time and network time per call) and `get_trace` go deeper. See [Optional features](../README.md#optional-features) |
+| Optional: correlate logs with traces or metrics | Metric and trace tables next to the log tables. `telemetry_overview` shows a system's logs, metrics and traces around one moment, per service. `metric_changes`, `metric_series`, `trace_changes` (self time and network time per call) and `get_trace` go deeper. RCAEval held-out root cause: AC@1 96.3% over 348 trials ([evaluation](EVALUATION.md#rcaeval-logs-metrics-and-traces)) |
 
 ## Tools
 

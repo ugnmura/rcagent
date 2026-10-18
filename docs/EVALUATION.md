@@ -102,6 +102,47 @@ DELETE request lines fall into one template.
 ¹ By default the 18-tool server also matches regexes built from the Loghub-2.0 templates, which would score the
 labels against themselves. That tier is off here, so both fixed-tool servers score the same.
 
+## RCAEval: logs, metrics and traces
+
+The metric and trace tools were tested on [RCAEval](https://github.com/phamquiluan/RCAEval): microservice failures
+in Online Boutique, Sock Shop and Train Ticket, with logs, metrics and traces and a known faulty service. The agent
+answers "which service is the root cause?" and ends with a ranking. AC@1 counts a first pick that is right, AC@3 a
+right service in the top three. The hypotheses were fixed before the first scored run.
+
+| Set | Tools | k | Trials | AC@1 | AC@3 |
+|---|---|---|---|---|---|
+| **Held-out** (116 cases, primary) | **logs, metrics, traces** (no `run_sql`) | 3 | 348 | **96.3%** (335/348) | 99.1% (345/348) |
+| Held-out | same plus `run_sql` | 1 | 116 | 97.4% (113/116) | 100% |
+| Held-out | BARO (RCAEval's non-LLM method) | | 116 | 21% | 90% |
+| Test (48 cases of issue #23) | logs only (`b022894`) | 1 | 48 | 56% (27/48) | 58% |
+| Test | **logs, metrics, traces** | 1 | 48 | **100%** (48/48) | 100% |
+| Test | same plus `run_sql` | 1 | 48 | 100% (48/48) | 100% |
+| Test | BARO | | 48 | 23% | 92% |
+
+Held-out, logs, metrics and traces, by subset:
+
+| Subset | Trials | AC@1 | AC@3 |
+|---|---|---|---|
+| Online Boutique, resource faults | 90 | 100% | 100% |
+| Sock Shop, resource faults | 87 | 95.4% | 100% |
+| Train Ticket, resource faults | 84 | 95.2% | 96.4% |
+| Sock Shop, code faults | 87 | 94.3% | 100% |
+
+- **Pre-registered hypothesis H1** (held-out resource faults, AC@1 at least 0.90): confirmed at 96.9% (253/261).
+- **Logs alone miss resource faults.** On the test set AC@1 rose from 56% to 100%, all of it on CPU, memory, disk
+  and network faults (Online Boutique resource faults: 30% to 100%). Code faults were already at 100% with logs.
+  The metric and trace tools were also cheaper per answer ($0.30 against $0.54).
+- **Misses** are mostly network-loss faults (Sock Shop and Train Ticket, 11 of 15 each) and Sock Shop code faults.
+- **No regression for log users:** all 627 tests passed at the frozen build. The log benchmark was not rerun on it.
+
+Comparability: extractor `785b7ba` (branch `feat/metrics-traces`), Sonnet 5.5, no effort override, 40 turns,
+1,200 s timeout, a fresh SereneDB 26.10.1 container per trial holding only that case, scored with RCAEval's
+`score_rca` on the last `RANKING:` line. Case IDs are new (seed 20261018) and a leak scan found nothing. The held-out
+set is RE2 (resource faults) for all three systems plus RE3 (code faults) for Sock Shop. Not comparable with the
+7-tool design's earlier 1.00 (Opus, k=1, other case IDs). The test set is at its ceiling (bare SQL also scored 1.00
+there), so its 100% shows parity only. BARO reads raw metric names and ranks every service, so it is a reference,
+not a contestant. The trials and report are in the team's private benchmark repository.
+
 ## Weak spots and threats to validity
 
 - **Key facts:** 54% against 63–67% for the other designs, despite higher rubric and exact scores.

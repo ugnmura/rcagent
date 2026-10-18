@@ -26,7 +26,7 @@ Beyond the required workflow:
 | **Polished MCP server** | 18 tools that say when to use them, what they take and what they return. Results are capped and say when they were cut. Role prompts `/engineer`, `/team-lead`, `/manager` | **96.9%** on 30 sealed held-out questions, blind-graded, at **$0.117** per answer, benchmarked when it had 12 tools ([evaluation](docs/EVALUATION.md)) |
 | **Huge datasets** | Reads one TextBench file, **1 billion rows**, in place from the public S3 bucket. Nothing is downloaded | one minute searched without an index: **2.88 s**. Whole file searched with an index: **4.18 s**, after a **69.9 s** build needing over 64 GB of RAM ([timings](docs/HUGE_DATASETS.md)) |
 | **Agent-managed indexes** | `create_index` (with a `dry_run` size and time estimate) and `drop_index`. The agent builds an index for an investigation and removes it after | build time against query time in [docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md#the-trade-off-index-build-time-against-query-time) |
-| **Logs with metrics and traces** | Metric and trace tables next to the log tables. `telemetry_overview` shows a system's logs, metrics and traces around one moment, per service. `metric_changes`, `metric_series`, `trace_changes` (self time and network time per call) and `get_trace` go deeper | |
+| **Logs with metrics and traces** | Metric and trace tables next to the log tables. `telemetry_overview` shows a system's logs, metrics and traces around one moment, per service. `metric_changes`, `metric_series`, `trace_changes` (self time and network time per call) and `get_trace` go deeper || RCAEval root-cause benchmark: right service ranked first in **96.3%** of 348 held-out trials ([below](#rcaeval-root-cause-from-logs-metrics-and-traces)) |
 | **Phrase and fuzzy search** | `search_logs` matches words in order, or with `fuzzy` each word within a typo or two, through the search index | |
 | **Template mining** | Groups log lines into message templates at question time (SQL masking, then Drain), kept as stable IDs `T1, T2, …` | best BGL grouping score (FGA 0.745) of every approach compared, published parsers included ([table](docs/EVALUATION.md#templating-better-grouping-than-drain-on-the-full-loghub-20-data)) |
 
@@ -43,6 +43,23 @@ With this server, by model (both at commit `6cad141`):
 | Sonnet 5.5 | 30 screening, 3 trials each | 93.3% | 96% | **0.036** |
 
 The two models answered different question sets, so this is not a head-to-head.
+
+### RCAEval: root cause from logs, metrics and traces
+
+[RCAEval](https://github.com/phamquiluan/RCAEval) cases are microservice failures (Online Boutique, Sock Shop,
+Train Ticket) with the faulty service known. The agent names the root-cause service. AC@1 is the share of trials
+where its first pick is right, AC@3 where the right one is in its top three.
+
+| question set | tools | trials | AC@1 | AC@3 |
+|---|---|---|---|---|
+| **held-out, 116 cases** | logs, metrics and traces | 348 | **96.3%** | 99.1% |
+| held-out, 116 cases | BARO (RCAEval's non-LLM method, reference only) | 116 | 21% | 90% |
+| test, 48 cases | logs only | 48 | 56% | 58% |
+| test, 48 cases | logs, metrics and traces | 48 | 100% | 100% |
+
+Sonnet 5.5, 3 trials per held-out case, extractor `785b7ba`. Resource faults (CPU, memory, disk, network) show up
+in metrics, not logs, which is where logs alone fail. The test set is at its ceiling, so the held-out set is the
+result. BARO is not a like-for-like contestant. Details: [docs/EVALUATION.md](docs/EVALUATION.md#rcaeval-logs-metrics-and-traces).
 
 <img src="docs/img/bench-textbench.svg" alt="TextBench, 1 billion rows read in place on S3: search of the whole file with the index 4.18 s, search of one minute without an index 2.88 s, survey of message types 7.8 s. The index was built once in 69.9 s." width="100%">
 
@@ -194,7 +211,7 @@ Claude picks these from their descriptions. Every result says how it was measure
 - Counts are log entries, not incidents.
 - The team-ownership table is a fictional stand-in. `edit_team_ownership` imports a real one.
 - Log tables are snapshots and are not refreshed.
-- The benchmarks ran at commit `6cad141`. Later changes were only rerun on the smaller screening set.
+- The log benchmarks ran at commit `6cad141`, RCAEval at `785b7ba`. Later changes were only rerun on the smaller screening set.
 
 Full list: [docs/reference.md](docs/reference.md#known-limits).
 
