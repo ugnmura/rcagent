@@ -10,7 +10,6 @@ import {split, type SplitFact, type SplitRole} from './content';
 import {BlackFades, easeOut, FilmFacecam, Grain, NameTag, ramp, Vignette} from './film';
 import {DaysRing} from './shots2';
 import {color, font} from './theme';
-import {cueFrames} from './timeline';
 
 const INK = '#0b0f14';
 /** Flat card surfaces, as in the reveal's flow and template cards: neutral panel; the card in focus gets the thin gold
@@ -289,18 +288,16 @@ const Sfx: React.FC<{name: string; from: number; volume: number}> = ({name, from
 		</Sequence>
 	) : null;
 
-/** Beat frames for a scene of `frames` frames (the s2 take), from the cue timing of B's take. B opens full screen for his
- * first sentence (cue `at.liftoff`); the cards come in as it ends, while the webcam shrinks to the corner, and the
- * engineer takes centre stage just after the next cue starts so the row is seen for a moment first. */
+/** Beat frames for a scene of `frames` frames (the s2 take), from when Frederick actually says each part (`split.sec`,
+ * scaled by the take length). He opens full screen for his first sentence; the cards come in as he starts on the
+ * questions, while the webcam shrinks to the corner; each role takes centre stage as he starts its answer. */
 export const splitTimes = (frames: number): SplitTimes => {
-const cues = cueFrames(split.cues, frames);
-const c = cues.map(([a]) => a);
-const at = split.at;
-const intro = cues[at.liftoff];
-return {
-liftoff: Math.max(intro[0] + 30, intro[1] - 24),
-spot: [c[at.engineer] + 14, c[at.teamLead], c[at.manager]],
-		allLit: c[at.allLit],
+	const s = split.sec;
+	const f = (sec: number) => Math.round((sec / s.take) * frames);
+	return {
+		liftoff: f(s.liftoff),
+		spot: [f(s.engineer), f(s.teamLead), f(s.manager)],
+		allLit: f(s.allLit),
 	};
 };
 

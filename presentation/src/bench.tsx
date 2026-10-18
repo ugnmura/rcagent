@@ -24,6 +24,16 @@ const colX = (k: number) => COL_LEFT + k * (COL_W + COL_GAP);
 const FADE = 15;
 const GROW = 24;
 
+/**
+ * Deni's take s6-benchmarks.mp4 (43.0 s), timed from its transcript. Shot lengths in seconds, usable directly as
+ * ShotRun weights: steps 0 to 26.0 s (through "Then we added Drain3"), cost 26.0 to 33.4 s ("about 4 times cheaper"),
+ * RCAEval from 33.4 s ("And it's not only logs") to the end.
+ */
+export const BENCH_TAKE_SECONDS = 43.035;
+export const BENCH_SHOT_SECONDS = {steps: 26.0, cost: 7.4, rca: BENCH_TAKE_SECONDS - 33.4};
+/** When each step's column comes in, seconds into the steps shot: 7 tools, 18 tools, Drain3. */
+const STEP_AT_SECONDS = [5.0, 12.8, 20.4];
+
 const pct = (v: number) => `${v.toFixed(1)}%`;
 const usd = (v: number) => `$${v.toFixed(2)}`;
 
@@ -110,12 +120,12 @@ const Title: React.FC<{opacity: number; children: React.ReactNode}> = ({opacity,
 
 // ------------------------------------------------------------------ shot 1: the steps, one column each
 
-/** Columns come in one at a time, spaced for the narration; each stays on screen to the end of the shot. */
+/** Columns come in one at a time as Deni names each step (STEP_AT_SECONDS); each stays on screen to the end of the shot. */
 export const BenchStepsShot: React.FC<{frames: number; benchmarks: Benchmarks}> = ({frames, benchmarks: b}) => {
 	const frame = useCurrentFrame();
 	const ds = b.designs.slice(0, 3);
 	const at = (v: number) => Math.max(0, Math.min(1, (v - AXIS_MIN) / (100 - AXIS_MIN)));
-	const step = Math.round(frames * 0.3);
+	const stepAt = (k: number) => Math.round((STEP_AT_SECONDS[k] / BENCH_SHOT_SECONDS.steps) * frames);
 	const setup = [b.questions ? `${b.questions} ${benchContent.setup.questions}` : null, benchContent.setup.blind].filter(Boolean).join(' · ');
 	return (
 		<AbsoluteFill style={{fontFamily: font.sans}}>
@@ -128,7 +138,7 @@ export const BenchStepsShot: React.FC<{frames: number; benchmarks: Benchmarks}> 
 				<div style={{position: 'absolute', left: COL_LEFT - 110, top: BASE - BAR_MAX - 18, width: 80, textAlign: 'right', fontSize: 26, color: color.muted}}>100%</div>
 			</div>
 			{ds.map((d, k) => {
-				const t = frame - (10 + k * step);
+				const t = frame - stepAt(k);
 				if (t < 0) return null;
 				const v = d.score_pct ?? 0;
 				return <Column key={d.name} d={d} k={k} h={at(v) * BAR_MAX} value={pct(v)} t={t} />;

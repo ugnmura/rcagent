@@ -2,7 +2,7 @@
 import React from 'react';
 import {AbsoluteFill, Audio, Freeze, Sequence, spring, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
 import {ASSETS, type AssetKey, type ResolvedAssets} from './assets';
-import {BenchCostShot, BenchRcaShot, BenchStepsShot} from './bench';
+import {BENCH_SHOT_SECONDS, BenchCostShot, BenchRcaShot, BenchStepsShot} from './bench';
 import {hasNumbers, type Benchmarks} from './benchmarks';
 import {DialogAudio} from './components';
 import {coldOpen, reveal} from './content';
@@ -117,13 +117,17 @@ export const ColdOpenScene: React.FC<SceneProps> = ({assets, frames}) => {
 export const RevealScene: React.FC<SceneProps> = ({assets, frames}) => {
 	const frame = useCurrentFrame();
 	const {fps} = useVideoConfig();
-	const timing = cueFrames(reveal.cues, frames);
-	const statFrom = reveal.statsFromCue.map((c) => timing[c][0]);
-	const counterFrom = statFrom[0];
-	const introFrom = timing[reveal.introFromCue][0];
-	const templatesFrom = timing[reveal.templatesFromCue][0];
-	const flowFrom = timing[reveal.flowFromCue][0];
-	const corner = spring({frame: frame - counterFrom, fps, config: {damping: 200}, durationInFrames: 22});
+	// Shots start where A says the line (take seconds, scaled to the scene so a placeholder keeps the same shape).
+	const at = (sec: number) => Math.round((sec / reveal.takeSeconds) * frames);
+	const shot = reveal.shotSeconds;
+	const statFrom = shot.stats.map(at);
+	const introFrom = at(shot.intro);
+	const gapFrom = at(shot.gap);
+	const templatesFrom = at(shot.templates);
+	const flowFrom = at(shot.flow);
+	// Facecam to the corner for the numbers, back to full screen for the gap, to the corner again from the templates.
+	const slide = (from: number) => spring({frame: frame - from, fps, config: {damping: 200}, durationInFrames: 22});
+	const corner = slide(statFrom[0]) - slide(gapFrom) + slide(templatesFrom);
 	// Opens on black after the dead line; the facecam fades up as the narration starts.
 	const up = ramp(frame, REVEAL_UP_FROM, REVEAL_UP_TO);
 	return (
@@ -134,7 +138,7 @@ export const RevealScene: React.FC<SceneProps> = ({assets, frames}) => {
 			<Shot from={statFrom[1]} to={introFrom} name="$2M an hour">
 				<StatShot index={1} />
 			</Shot>
-			<Shot from={introFrom} to={templatesFrom} name="Introducing RCAgent">
+			<Shot from={introFrom} to={gapFrom} name="Introducing RCAgent">
 				<IntroducingShot />
 			</Shot>
 			<Shot from={templatesFrom} to={flowFrom} name="templates (Drain3)">
@@ -196,9 +200,9 @@ export const BenchmarksScene: React.FC<SceneProps & {benchmarks: Benchmarks | nu
 				{...p}
 				facecam="s6"
 				shots={[
-					{name: 'steps', weight: 3, render: (f) => <BenchStepsShot frames={f} benchmarks={b} />},
-					{name: 'cost', weight: 2, render: (f) => <BenchCostShot frames={f} benchmarks={b} />},
-					...(b.rca ? [{name: 'root cause', weight: 2, render: (f: number) => <BenchRcaShot frames={f} benchmarks={b} />}] : []),
+					{name: 'steps', weight: BENCH_SHOT_SECONDS.steps, render: (f) => <BenchStepsShot frames={f} benchmarks={b} />},
+					{name: 'cost', weight: BENCH_SHOT_SECONDS.cost, render: (f) => <BenchCostShot frames={f} benchmarks={b} />},
+					...(b.rca ? [{name: 'root cause', weight: BENCH_SHOT_SECONDS.rca, render: (f: number) => <BenchRcaShot frames={f} benchmarks={b} />}] : []),
 				]}
 			/>
 		</AbsoluteFill>

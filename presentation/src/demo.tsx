@@ -11,6 +11,22 @@ import {FPS} from './timeline';
 /** Shifted up-left so the corner facecam (bottom right) never covers the recording, even at the end of the push-in. */
 const PANEL = {w: 1440, h: 810, radius: 22, dx: -80, dy: -40};
 const FADE_FRAMES = 10;
+/**
+ * s-demo.mp4 is two of Frederick's clips joined at normal speed: slide2-three-commands.mp4 (he introduces the three
+ * slash commands /engineer, /team-lead, /manager) then demo-commentary.mp4 (commentary over the /engineer run).
+ * INTRO_SECONDS is the exact length of the first clip (ffprobe), TAKE_SECONDS the nominal length of the joined take.
+ * During the intro his facecam is full screen; the screen recording starts when the commentary begins.
+ */
+const INTRO_SECONDS = 21.873197;
+const TAKE_SECONDS = 21.873197 + 20.767869;
+/** Frames the facecam takes to shrink into the corner once the recording starts. */
+const TO_CORNER_FRAMES = 18;
+
+/** The intro length in frames; scaled to the scene length if the take is missing (placeholder timing). */
+const introFrames = (assets: ResolvedAssets, frames: number): number => {
+	const raw = assets.sDemo.present ? Math.round(INTRO_SECONDS * FPS) : Math.round((INTRO_SECONDS / TAKE_SECONDS) * frames);
+	return Math.max(0, Math.min(frames - 1, raw));
+};
 
 const DemoTag: React.FC = () => {
 	const frame = useCurrentFrame();
@@ -63,7 +79,15 @@ const DemoVideo: React.FC<{seconds: number; frames: number}> = ({seconds, frames
 export const DemoScene: React.FC<{assets: ResolvedAssets; frames: number}> = ({assets, frames}) => {
 	const frame = useCurrentFrame();
 	const {fps} = useVideoConfig();
-	const s = spring({frame, fps, config: {damping: 200}, durationInFrames: 24});
+	const intro = introFrames(assets, frames);
+	const demoFrames = frames - intro;
+	// 0..intro: the three-commands intro, facecam full screen. From intro on: the recording, facecam in the corner.
+	const corner = interpolate(frame, [intro, intro + TO_CORNER_FRAMES], [0, 1], {
+		extrapolateLeft: 'clamp',
+		extrapolateRight: 'clamp',
+		easing: easeOut,
+	});
+	const s = spring({frame: frame - intro, fps, config: {damping: 200}, durationInFrames: 24});
 	// The screen settles once and then stays still: no push-in, so the recording reads like a real screen.
 	const scale = interpolate(s, [0, 1], [0.9, 1]);
 	return (
@@ -82,7 +106,9 @@ export const DemoScene: React.FC<{assets: ResolvedAssets; frames: number}> = ({a
 					}}
 				>
 					{assets.demo.present ? (
-						<DemoVideo seconds={assets.demo.seconds} frames={frames} />
+						<Sequence from={intro} durationInFrames={demoFrames} name="recording (after intro)">
+							<DemoVideo seconds={assets.demo.seconds} frames={demoFrames} />
+						</Sequence>
 					) : (
 						<SoftPlaceholder
 							assetKey="demo"
@@ -92,8 +118,10 @@ export const DemoScene: React.FC<{assets: ResolvedAssets; frames: number}> = ({a
 					)}
 				</div>
 			</AbsoluteFill>
-			<DemoTag />
-			<FilmFacecam assetKey="sDemo" assets={assets} corner={1} />
+			<Sequence from={intro} name="LIVE DEMO tag">
+				<DemoTag />
+			</Sequence>
+			<FilmFacecam assetKey="sDemo" assets={assets} corner={corner} />
 			<Vignette strength={0.5} />
 			<Grain />
 			<BlackFades frames={frames} fadeIn={FADE_FRAMES} fadeOut={FADE_FRAMES} />

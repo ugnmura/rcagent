@@ -1,21 +1,27 @@
-# Demo script: Making Sense of Logs (about 3:20, limit 5 minutes)
+# Demo script: Making Sense of Logs (about 4:39, limit 4:59)
 
-Spoken text (about 340 words at a calm 140 words per minute) plus 27 seconds of dialog audio comes to about 3:20.
-Screen cues are in *italics*. Every spoken line below is the subtitle text in `presentation/src/content.ts`; change
-both together. The one recording is a pre-run Claude Code session with this MCP server, shown muted in the live demo
-while B narrates. Log numbers come from [worked-investigation.md](../worked-investigation.md); world numbers from the
-sources named on screen; benchmark numbers from serenedb-bench REPORT.md (night run 2).
+Presenters: Eugene Matsumura (A), Frederick Ortmanns (B), Deni Ismailov (C).
+
+The estimate adds the recorded parts (intro 3 s, cold open 26.8 s, Eugene's reveal take 135 s, demo recording 20 s)
+to the table's estimates for the takes not yet recorded; the total is to check once all takes are recorded, since
+it could go past the 4:59 limit. Screen cues are in *italics*. Every spoken line below is the subtitle text in
+`presentation/src/content.ts`; change both together. The demo recording is a pre-run Claude Code session with this
+MCP server, shown muted in the live demo while Frederick narrates. Log numbers come from
+[worked-investigation.md](../worked-investigation.md); world numbers from the sources named on screen; benchmark
+numbers from serenedb-bench REPORT.md (night run 2).
 
 | Time | Scene | Who | Slide |
 |---|---|---|---|
 | 0:00 – 0:03 | Intro card | — | 1 (title) |
 | 0:03 – 0:30 | Cold open: the phone call | ElevenLabs voices | 2 |
-| 0:30 – 1:27 | Reveal: how often, RCAgent, templating, how it works | A (`s1-reveal.mp4`) | 3 – 7 |
-| 1:27 – 2:01 | Three roles, one split | B (`s2-roles.mp4`) | 8 |
-| 2:01 – 2:21 | Live demo | B (`s-demo.mp4`) | 9 |
-| 2:21 – 2:59 | Benchmarks | C (`s6-benchmarks.mp4`) | 10 – 12 |
-| 2:59 – 3:15 | Close | A, B, C (`s7-close-a/b/c.mp4`) | 13 |
-| 3:15 – 3:21 | Star gag | — | — |
+| 0:30 – 2:14 | Reveal: the story, how often, RCAgent, templating, how it works | Eugene (A) (`s1-reveal.mp4`, 2:15 recorded, 1:44 at 1.3×) | 3 – 7 |
+| 2:14 – 2:54 | Three roles, one split | Frederick (B) (`s2-roles.mp4`, 40 s) | 8 |
+| 2:54 – 3:37 | Live demo | Frederick (B) (`s-demo.mp4`, 43 s; recording `demo.mp4`, 20 s) | 9 |
+| 3:37 – 4:20 | Benchmarks | Deni (C) (`s6-benchmarks.mp4`, 43 s) | 10 – 12 |
+| 4:20 – 4:26 | Star gag | — | — |
+
+The close (slide 13) is only on the slides; the video has no close scene. Total 4:26 (limit 4:59), measured from the
+real takes.
 
 ---
 
@@ -37,51 +43,61 @@ line goes dead: one hang-up click, and the last 0.4 s is a frozen picture in sil
 *Audio: `presentation/public/assets/dialog.mp3` (26.8 s; team lead and manager through a phone filter; credits in
 `presentation/public/assets/CREDITS.md`). Sound effects: `scripts/sfx-cold.mjs`.*
 
-## 0:30 – 1:27 · Reveal: how often, RCAgent, templating, how it works (slides 3 – 7)
+## 0:30 – 2:45 · Reveal: the story, how often, RCAgent, templating, how it works (slides 3 – 7)
 
-*Opens on black after the dead line; A's facecam fades up as A starts. A moves to the corner when the first number
-appears.*
+Eugene's recorded take `s1-reveal.mp4` (134.99 s). Times in brackets are from the start of the take.
 
-**A:**
+*[0:00] Opens on black after the dead line; Eugene's facecam fades up full screen as he starts.*
 
-> Saturday, 11 June 2005, Lawrence Livermore National Laboratory. Blue Gene/L, then the fastest supercomputer on
-> Earth.
+**Eugene (A):**
 
-*Slide 3: "419 · unexpected failures in 54 days on one AI cluster" (Meta, The Llama 3 Herd of Models, 2024).*
+> This is a story that really happened, on the Blue Gene/L, at the time the fastest supercomputer. And this is not
+> rare, especially now in the age of generative AI.
 
-> On a 16,000-GPU AI cluster, something fails every three hours.
+*[0:18] Slide 3: "419 · unexpected failures in 54 days on one AI cluster" (Meta, The Llama 3 Herd of Models, 2024).
+Eugene moves to the corner.*
 
-*Slide 4: "$2M · per hour of a high-impact outage" (New Relic Observability Forecast 2025).*
+> For example, Meta reported 419 unexpected failures in just 54 days in 2024.
 
-> Each high-impact outage costs a company two million dollars an hour. Tonight it could be CLAIX, here in Aachen.
-> No human can read those logs fast enough. No AI prompt holds them either.
+*[0:27] Slide 4: "$2M · per hour of a high-impact outage" (New Relic Observability Forecast 2025).*
 
-*Slide 5: "Introducing RCAgent" (RCAgent in gold).*
+> A high-impact outage such as this costs a company around $2 million per hour.
 
-> So we built RCAgent.
+*[0:36] Slide 5: "Introducing RCAgent" (RCAgent in gold).*
 
-*Slide 6: Templating, powered by Drain3 and SereneDB regex. Real BGL lines mask and fold into four template cards;
-"4.6 million lines → 320 templates", source line Loghub-2.0 (BGL: 4,631,261 annotated lines, 320 templates).*
+> To prevent this entire problem, we built RCAgent. It reads millions of log lines and finds the root cause in
+> seconds.
 
-> We call it templating: Drain3 and SereneDB regex fold the lines into templates. On Loghub's Blue Gene/L log,
-> 4.6 million lines come down to 320 templates.
+*[0:49] Eugene's facecam full screen again.*
 
-*Slide 7: How it works (the README diagram, `docs/img/flow.svg`), built step by step: You → Claude → MCP tools
+> To build this tool, we tried several approaches, including embedding the logs in SereneDB using vector search.
+
+*[0:59] Slide 6: Templating, powered by Drain3 and SereneDB regex. Real BGL lines mask and fold into four template
+cards; "4.6 million lines → 320 templates", source line Loghub-2.0 (BGL: 4,631,261 annotated lines, 320 templates).*
+
+> But what really worked was templating. Millions of log lines are mostly the same few messages with different
+> numbers. So using templating, we can fold them into a few hundred templates, so that the agent sees the whole
+> picture without drowning in repetition.
+
+*[1:21] Slide 7: How it works (the README diagram, `docs/img/flow.svg`), built step by step: You → Claude → MCP tools
 (with Templating) → SereneDB; question, tool call, SQL; Q46 coming back; Evidence Q46; `show_evidence`.*
 
-> So we flipped it. The AI does not read the logs. SereneDB searches and counts every line, exactly. Claude asks
-> the questions and explains the answers, and every number carries the query that proved it. Let's answer that
-> phone call.
+> But how does the whole pipeline work? You ask Claude, or any other agent, a question. And the agent then uses our
+> RCAgent tools to run the search and templating inside SereneDB, which is very, very fast. And then the agent only
+> gets back a short, complete summary. And this helps the agent not to drown in context. Every query is also saved,
+> so we can trace back where the agent got its claims, and especially the exact data behind those claims.
 
-## 1:27 – 2:01 · Three roles, one split (slide 8)
+*[2:15] End of take.*
 
-One scene, one presenter (B, take `s2-roles.mp4`, about 30 s; design:
+## 2:45 – 3:19 · Three roles, one split (slide 8)
+
+One scene, one presenter (Frederick (B), take `s2-roles.mp4`, about 30 s; design:
 `docs/superpowers/specs/2026-10-19-three-way-split-design.md`). *The three
-columns, Engineer / Team lead / Manager, fly in right away on B's first sentence and build at the same time: question → the role's tool calls →
+columns, Engineer / Team lead / Manager, fly in right away on Frederick's first sentence and build at the same time: question → the role's tool calls →
 a one-line answer and its next step. At the end all three are lit, with a quick evidence beat: `[Q46]` →
 152,734 = 152,734.*
 
-**B:**
+**Frederick (B):**
 
 > Same agent, same logs, three people asking at once. The engineer gets a cause: one node, data TLB errors, and
 > an L2 cache read error just before. Next check: processor diagnostics. The team lead gets the pattern: "Link
@@ -89,16 +105,22 @@ a one-line answer and its next step. At the end all three are lit, with a quick 
 > ranked risks, each with an owner, and no invented cost. And every number is a query: 152,734 counted,
 > 152,734 in BGL's own labels.
 
-## 2:01 – 2:21 · Live demo (slide 9)
+## 3:19 – 3:39 · Live demo (slide 9)
 
-*A real Claude Code session with the RCAgent MCP server, cut and sped up, shown muted as a screen inside the film; B narrates it live in the corner (take `s-demo.mp4`, ≈ 15–25 s).*
+*A real Claude Code session with the RCAgent MCP server, cut and sped up, shown muted as a screen inside the film;
+Frederick narrates it live in the corner (take `s-demo.mp4`, ≈ 15–25 s).*
+
+*Recording: `docs/video/engineer-test-run.mp4` (20 s, recorded by Frederick), used in the film as
+`presentation/public/assets/demo.mp4`.*
 
 *Slide 9 (without the video): "LIVE DEMO" and the three role prompts to type in Claude Code:
 `/engineer What failed on BGL on 11 June 2005, and what happened just before?`,
 `/team-lead Which problems keep recurring across BGL and OpenStack, and what should we look at first?`,
 `/manager What should we prioritise from these logs?`*
 
-## 2:21 – 2:59 · Benchmarks (slides 10 – 12)
+## 3:39 – 4:17 · Benchmarks (slides 10 – 12)
+
+**Deni (C):**
 
 *Video, two calm shots to talk over (plain fades, no sound effects): the three steps appear one column at a
 time as you name them (pipeline, score, "+N pts"), about 4 s apart; then cost per answer per step with "+93%",
@@ -126,7 +148,9 @@ logs only 56% → 100% with metric and trace tools, $0.54 → $0.30 per answer. 
 - [x] RCAEval result for metrics and traces (third shot of the benchmark scene)
 - [ ] Slide footnote: model, number of questions, runs per question, blind grader
 
-## 2:59 – 3:15 · Close (slide 13)
+## 4:17 – 4:33 · Close (slide 13)
+
+**Eugene (A), Frederick (B), Deni (C):**
 
 > So, back to that phone call. The engineer gets a cause to check, not a scroll bar. The team lead gets the
 > pattern. The manager gets the priority. And every number is traceable to a query. Thank you.
@@ -153,7 +177,10 @@ Every page carries SchubKI × SereneDB in the bottom right corner (the close sho
 
 ## Recording checklist
 
-- Record `demo.mp4`: a real session on the loaded base corpus, e.g. the three role prompts (handoff 2).
+- Eugene's reveal take is played at **1.3× speed** (pitch kept; 2:15 recorded, 1:44 played) so the talk fits 4:59:
+  `ffmpeg -i IN -map 0:v:0 -map 0:a:0 -filter:v "setpts=PTS/1.3,scale=1920:1080" -r 30 -filter:a "atempo=1.3" -c:v libx264 -crf 22 -preset veryfast -pix_fmt yuv420p -c:a aac -movflags +faststart OUT.mp4`.
+  The other takes play at normal speed.
+- [x] `demo.mp4`: `docs/video/engineer-test-run.mp4` (20 s, Frederick), copied to `presentation/public/assets/demo.mp4`.
 - Check that the live numbers match worked-investigation.md before recording. If a number differs,
   use the live number in the script.
 - Cut and speed it up yourself to fit the `s-demo.mp4` take (≈ 15–25 s); the last frame holds if shorter.

@@ -9,11 +9,11 @@ export const PROJECT_NAME = 'RCAgent';
 export type PresenterId = 'A' | 'B' | 'C';
 export type Presenter = {id: PresenterId; name: string; role?: string};
 
-/** Placeholder names; fill in the real names (and an optional role line) here. */
+/** The presenters' names (and an optional role line), shown on their name tags. */
 export const presenters: Record<PresenterId, Presenter> = {
-	A: {id: 'A', name: 'Presenter A'},
-	B: {id: 'B', name: 'Presenter B'},
-	C: {id: 'C', name: 'Presenter C'},
+	A: {id: 'A', name: 'Eugene Matsumura'},
+	B: {id: 'B', name: 'Frederick Ortmanns'},
+	C: {id: 'C', name: 'Deni Ismailov'},
 };
 
 /** Who speaks in which facecam take: A the reveal, B the three roles, C the benchmarks. The close s7 is all three
@@ -132,32 +132,49 @@ export const reveal = {
 	},
 	/** The card after the 4.7 million view. */
 	introducing: {kicker: 'Introducing', name: 'RCAgent'},
+	/** What A says in s1-reveal.mp4 (whisper transcript, mishearings fixed), one cue per sentence. */
 	cues: [
-		'Saturday, 11 June 2005, Lawrence Livermore National Laboratory.',
-		'Blue Gene/L, then the fastest supercomputer on Earth.',
-		// 419 unexpected interruptions in 54 days (about one every three hours): Meta, Llama 3 paper
-		'On a 16,000-GPU AI cluster, something fails every three hours.',
+		'This is a story that really happened, on the Blue Gene/L, at the time the fastest supercomputer.',
+		'And this is not rare, especially now in the age of generative AI.',
+		// 419 unexpected interruptions in 54 days: Meta, Llama 3 paper
+		'For example, Meta reported 419 unexpected failures in just 54 days in 2024.',
 		// $2M per hour: New Relic Observability Forecast 2025
-		'Each high-impact outage costs a company two million dollars an hour. Tonight it could be CLAIX, here in Aachen.',
-		'No human can read those logs fast enough. No AI prompt holds them either.',
-		'So we built RCAgent.',
-		'We call it templating: Drain3 and SereneDB regex fold the lines into templates.',
-		// Loghub-2.0, BGL: 4,631,261 annotated lines, 320 templates
-		"On Loghub's Blue Gene/L log, 4.6 million lines come down to 320 templates.",
-		'So we flipped it. The AI does not read the logs.',
-		'SereneDB searches and counts every line, exactly.',
-		'Claude asks the questions and explains the answers,',
-		'and every number carries the query that proved it.',
-		"Let's answer that phone call.",
+		'A high-impact outage such as this costs a company around $2 million per hour.',
+		'To prevent this entire problem, we built RCAgent.',
+		'It reads millions of log lines and finds the root cause in seconds.',
+		'To build this tool, we tried several approaches, including embedding the logs in SereneDB using vector search.',
+		'But what really worked was templating.',
+		'Millions of log lines are mostly the same few messages with different numbers.',
+		'So using templating, we can fold them into a few hundred templates,',
+		'so that the agent sees the whole picture without drowning in repetition.',
+		'But how does the whole pipeline work?',
+		'You ask Claude, or any other agent, a question.',
+		'And the agent then uses our RCAgent tools to run the search and templating inside SereneDB, which is very, very fast.',
+		'And then the agent only gets back a short, complete summary.',
+		'And this helps the agent not to drown in context.',
+		'Every query is also saved, so we can trace back where the agent got its claims,',
+		'and especially the exact data behind those claims.',
 	],
-	/** Index of the cue from which each How-often number shows (one per cue). */
-	statsFromCue: [2, 3],
-	/** Index of the cue from which the "Introducing RCAgent" card shows ("So we built RCAgent."). */
-	introFromCue: 5,
-	/** Index of the cue from which the templates shot shows ("We call it templating…"). */
-	templatesFromCue: 6,
-	/** Index of the cue from which the How-it-works diagram shows ("So we flipped it."). */
-	flowFromCue: 8,
+	/** Start of each cue in seconds from the start of s1-reveal.mp4 (from its transcript), one per cue. */
+	cueSeconds: [0, 13.2, 18.4, 27.4, 35.6, 41.7, 49.3, 58.8, 63.2, 68.0, 73.5, 81.2, 83.7, 90.0, 102.2, 108.9, 116.5, 126.2],
+	/** Length of s1-reveal.mp4 the seconds above refer to; they are scaled to the scene when the take differs (placeholder). */
+	// The times above are from the original 135.0 s recording; s1-reveal.mp4 is that recording at 1.3x speed
+	// (103.9 s). Shots are placed relative to the take's real length, so the speed-up needs no change here.
+	takeSeconds: 135.0,
+	/** When each shot starts, in take seconds (each is a cue start above). Before `stats[0]` and between `gap` and
+	 * `templates` the facecam is full screen. */
+	shotSeconds: {
+		/** The 419 number ("For example, Meta reported 419…"), then $2M ("A high-impact outage…"). */
+		stats: [18.4, 27.4],
+		/** "Introducing RCAgent" ("To prevent this entire problem, we built RCAgent."). */
+		intro: 35.6,
+		/** Facecam full screen again ("To build this tool, we tried several approaches…"). */
+		gap: 49.3,
+		/** The templates shot ("But what really worked was templating."). */
+		templates: 58.8,
+		/** The How-it-works diagram, to the end ("But how does the whole pipeline work?"). */
+		flow: 81.2,
+	},
 };
 
 // ---------------------------------------------------------------- 2 engineer (slide 2)
@@ -335,12 +352,12 @@ export const benchmarks = {
 		source: 'RCAEval (Pham et al., WWW 2025) · Claude Sonnet · the test set is at its ceiling: 100% means parity with the best',
 	},
 	cues: [
-		'How did we get here? Same sealed questions, graded blind, at every step.',
-		'We started small: seven fixed tools.',
-		'Then more tools: eighteen. No better score, and every answer cost almost twice as much.',
-		'Then Drain3: it finds the log templates when a question comes in, and Claude can also run SQL.',
-		'The best score, and the cheapest answer: about four times cheaper than eighteen tools.',
-		'And it is not only logs. On 116 held-out microservice incidents it names the right root cause first 96 percent of the time.',
+		'But how do we know how it works?',
+		'We benchmarked 30 questions. At first we gave Claude 7 tools to work with, and we got a score of 93.5%.',
+		'Then we increased the number of tools to 18, but the score remained, while every answer almost doubled the cost.',
+		'Then we added Drain3. It finds the log templates per question, and Claude uses our tools.',
+		'It performed the best, with 96.9%, and about 4 times cheaper than 18 tools.',
+		"And it's not only logs. With metrics and traces on 116 microservice incidents, it names the right root cause first 96% of the time.",
 	],
 };
 
@@ -420,15 +437,19 @@ export const split = {
 			],
 		},
 	] as SplitRole[],
+	// Frederick's take (docs/video/slide1-three-roles.mp4 -> assets/s2-roles.mp4), as he says it.
 	cues: [
-		'Same agent, same logs, three people asking at once.',
-		'The engineer gets a cause: one node, data TLB errors, and an L2 cache read error just before. Next check: processor diagnostics.',
-		"The team lead gets the pattern: 'Link has been severed' on 22 of 31 days. Investigate first: HPC Applications.",
-		'The manager gets the priority: five ranked risks, each with an owner, and no invented cost.',
-		"And every number is a query: 152,734 counted, 152,734 in BGL's own labels.",
+		"Logs are the same for everyone, but the questions aren't. An engineer at 2 a.m. wants to know what failed. A team lead wants to know what keeps coming back. A manager wants to know what to fix first. Point all three to the same pile of logs, and each one gets a different answer.",
+		'The engineer gets one node producing 17.9% of failure entries.',
+		'A team lead sees a problem showing up on 22 of 31 days.',
+		'And a manager learns that the job launches are the top risk, up 91%.',
+		"All three answers come from the same logs. They're just counted and framed differently for each person.",
 	],
 	/** Cue indices: the cards come in on `liftoff`; engineer, team lead, manager take centre stage in turn; then all lit. */
 	at: {liftoff: 0, engineer: 1, teamLead: 2, manager: 3, allLit: 4},
+	/** Seconds into the take (whisper, base.en) at which each beat lands; `take` is the take's length. The cards come in as
+	 * he starts on the questions, each role takes centre stage as he starts its answer, all lit on "All three answers". */
+	sec: {take: 40.37, liftoff: 3.78, engineer: 16.28, teamLead: 21.4, manager: 25.96, allLit: 31.92},
 };
 
 // ---------------------------------------------------------------- 8 star gag (after the close)
