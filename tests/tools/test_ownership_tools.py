@@ -170,7 +170,9 @@ async def test_export_dry_run_writes_nothing_and_relative_paths_are_refused(mcp,
     assert out.startswith("Dry run: nothing was written") and not target.exists()
     assert "full path" in await call(mcp, "edit_team_ownership", action="export", csv_path="relative.csv")
     await call(mcp, "edit_team_ownership", action="export", csv_path=str(target))
-    again = await call(mcp, "edit_team_ownership", action="export", csv_path=str(target))
+    kept = await call(mcp, "edit_team_ownership", action="export", csv_path=str(target))
+    assert "overwrite=True" in kept
+    again = await call(mcp, "edit_team_ownership", action="export", csv_path=str(target), overwrite=True)
     assert "replaced the file that was there" in again
 
 

@@ -376,6 +376,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         """Look at a log source before setting it up; changes nothing.
         Use when: the user points at a new file, URL or table and you need its columns, size and proposed field roles.
         Inputs: source = a Parquet/JSON/CSV file or URL (several remote files as part_{000..009}.parquet), a raw .log file, or a table name; format_hint parquet|json|csv|table|raw_text when the file name does not say (e.g. a ;- or tab-separated file named .txt); line_format for raw logs (bgl, openstack, generic).
+        Refused: files without a log or data extension (.log .txt .out .err, .parquet, .json/.jsonl, .csv/.tsv, optionally .gz; a format_hint does not lift this), hidden folders and system locations (/etc, /proc, ~/.ssh), .. leaving the logs folder, and tables in system schemas (pg_catalog, information_schema) or the extractor schema.
         Returns: columns, sample entries, size and row count from metadata, proposed field roles with the reason for each, and index size estimates."""
         return await runner.run_tool(
             setup_tools.inspect_source, source=source, format_hint=format_hint, line_format=line_format
@@ -395,6 +396,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         """Register a log source as a log table so the other tools can query it. A Parquet/JSON/CSV file SereneDB can reach (a remote URL, the mounted logs folder, or its own disk) is read in place, nothing downloaded; a file only on this machine is copied in (CSV with , ; tab or | separators; a repeated column name gets a suffix: level, level_1), and raw text logs are parsed and copied.
         Use when: the user wants new logs analysed. Re-running on an existing name only corrects roles or the time zone. The timestamp role is checked: a column that mostly holds no times is refused; text times, time types and Unix epoch seconds or milliseconds are accepted, and a few values that are not times become entries without a time.
         Inputs: name (lowercase); source as for inspect_source (several remote files: part_{000..009}.parquet); roles = {"timestamp": col, "message": col, "level": col, "component": col, "service": col, "host": col, "trace": col} to confirm or correct the proposal; timezone (IANA) for timestamps without a zone: default the line format's own zone where it has one (bgl: America/Los_Angeles), else UTC; for timestamps that are already real instants it only sets how times are shown; build_filter_index / build_search_index only when the user asks; format_hint (parquet, json, csv, table, raw_text) when the file name does not say.
+        Refused as for inspect_source: non-log files, hidden or system locations, and system or extractor tables.
         Returns: the field roles, entry count, files, size, how long setup took and index estimates. Teams come from the ownership table automatically when it covers the table."""
         return await runner.run_tool(
             setup_tools.setup_log_table,
@@ -436,14 +438,16 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         rules: list[dict[str, Any]] | None = None,
         team: str | None = None,
         dry_run: bool = False,
+        overwrite: bool = False,
     ) -> str:
         """Change the team-ownership table: import a CSV, set or remove rules, export to a CSV file, or reset. Team breakdowns in every tool follow the change at once. Only when the user asks for it.
         Use when: the user supplies an ownership table (e.g. the organisers' component-to-team CSV), corrects a team, or wants the rules as a file to edit.
         Inputs: action = "import" | "set" | "remove" | "export" | "reset".
-          import: csv_path (a file on this machine) or csv_text; columns are matched loosely: log table from log_table/dataset/table, value from component/service/pattern/value, team from team/owner, optional role and area/description. log_table names the log table when the file has no such column; role ("component" or "service") the field the values name when the file or rules do not say (default component). mode "replace" (default) replaces the rules of the log tables the file covers, "merge" adds to and updates them, "replace_all" removes every other rule.
+          import: csv_path (a .csv, .tsv or .txt file on this machine) or csv_text; columns are matched loosely: log table from log_table/dataset/table, value from component/service/pattern/value, team from team/owner, optional role and area/description. log_table names the log table when the file has no such column; role ("component" or "service") the field the values name when the file or rules do not say (default component). mode "replace" (default) replaces the rules of the log tables the file covers, "merge" adds to and updates them, "replace_all" removes every other rule.
           set: rules=[{"log_table": "bgl", "component": "KERNEL", "team": "Kernel"}] adds or changes rules.
           remove: rules=[{"log_table": "bgl", "component": "KERNEL"}] or team="Kernel" (every rule of that team).
-          export: csv_path = the full path of the file to write (~ allowed; a relative path is refused; an existing file is replaced, and the result says so); edit it, then import it; dry_run=True only says what it would write.
+          export: csv_path = the full path of a .csv or .tsv file to write (~ allowed; a relative path is refused; an existing file is replaced only with overwrite=True); edit it, then import it; dry_run=True only says what it would write.
+          Refused: files in hidden folders (~/.ssh) or system locations (/etc, /dev), team or area names with line breaks or over 80 characters, and a list as a rule value (one rule per component).
           reset: back to the packaged stand-in (fictional) rules.
           Values are matched case-insensitively; % matches any text (nova.compute.% covers every nova.compute module) and everything else, _ included, is literal (SERV_NET). The most specific rule wins: an exact name beats a pattern, then the longer fixed text; on the same value a rule naming the log table exactly (bgl) beats a table pattern (bgl%). dry_run=True shows the change without making it.
         Returns: the rules added, changed and removed, then per affected log table the entries per team and the component values still without a team."""
@@ -458,6 +462,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
             rules=rules,
             team=team,
             dry_run=dry_run,
+            overwrite=overwrite,
         )
 
     @mcp.tool(annotations=ToolAnnotations(destructiveHint=True))

@@ -51,6 +51,23 @@ CHANGES_DDL = """CREATE TABLE IF NOT EXISTS extractor.ownership_changes (
     )"""
 
 _CACHE_S = 30.0
+MAX_NAME_CHARS = 80
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+
+
+def clean_name(value: str, what: str = "team") -> str:
+    """A team (or area) name as stored: stripped, on one line, at most 80 characters. Line breaks and other
+    control characters would break the exported CSV and every listing, so they are refused, as is a longer name."""
+    text = value.strip()
+    if _CONTROL.search(text):
+        raise UserFacingError(
+            f"The {what} name {text[:40]!r} contains a line break or another control character; give it on one line."
+        )
+    if len(text) > MAX_NAME_CHARS:
+        raise UserFacingError(
+            f"The {what} name '{text[:40]}...' is {len(text)} characters long; at most {MAX_NAME_CHARS} are allowed."
+        )
+    return text
 
 
 @dataclass(frozen=True)
@@ -255,7 +272,11 @@ def parse_csv(text: str, log_table: str | None, role: str | None, source: str) -
         if r_role not in OWNER_ROLES:
             notes.append(f"line {n} skipped: role '{r_role}' is not one of {', '.join(OWNER_ROLES)}")
             continue
-        rules.append(Rule(table, r_role, value, team, get(area_h) or None, source))
+        try:
+            team, area = clean_name(team), clean_name(get(area_h), "area") or None
+        except UserFacingError as exc:
+            raise UserFacingError(f"Line {n} of the CSV: {exc}") from None
+        rules.append(Rule(table, r_role, value, team, area, source))
     if not rules:
         raise UserFacingError("The CSV has no usable rows. " + "; ".join(notes[:5]))
     dupes = len(rules) - len({r.key for r in rules})

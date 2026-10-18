@@ -12,7 +12,7 @@ import psycopg
 from serenedb_extractor.db import Database, quote_ident
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.format import shorten
-from serenedb_extractor.setup.paths import ResolvedSource, source_sql, sql_literal
+from serenedb_extractor.setup.paths import ResolvedSource, check_table_source, source_sql, sql_literal
 from serenedb_extractor.setup.roles import is_nested
 
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
@@ -143,15 +143,19 @@ def sniff(db: Database, rs: ResolvedSource, source: str, for_setup: bool = False
     if rs.kind == "table":
         schema, _, table = rs.db_path.rpartition(".")
         found = db.read(
-            "SELECT 1 FROM information_schema.tables WHERE table_name = %(t)s "
+            "SELECT table_schema FROM information_schema.tables WHERE table_name = %(t)s "
             "AND table_schema = COALESCE(NULLIF(%(s)s, ''), current_schema())",
             {"t": table, "s": schema},
         )
-        if not found.rows or schema == "extractor":
+        if not found.rows:
             raise UserFacingError(
                 f"There is no database table named '{rs.db_path}' to use as a log source. If it is a log table set up "
                 "here, describe_logs shows it; for a file, give its path with the extension (.parquet, .json, .csv, .log)."
             )
+        actual = str(found.rows[0][0])
+        check_table_source(f"{actual}.{table}")
+        # Name the schema it was found in, so the view can't resolve the bare name to a system table instead.
+        from_sql = f"{quote_ident(actual)}.{quote_ident(table)}"
     columns = relation_columns(db, from_sql, source, rs.remote)
     with readable(source, rs.remote):
         sample = db.read(

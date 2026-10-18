@@ -143,15 +143,15 @@ async def test_raw_log_only_on_the_sereneDB_side(mcp):
 
 def test_raw_and_raw_text_hints_are_both_accepted_and_errors_say_raw_text():
     settings = Settings.from_env({"SERENEDB_READER_URL": "postgresql://x@127.0.0.1:1/x"})
-    assert resolve_source("/tmp/a.dat", settings, "raw").kind == "raw_text"
-    assert resolve_source("/tmp/a.dat", settings, "raw_text").kind == "raw_text"
+    assert resolve_source("/tmp/a.csv", settings, "raw").kind == "raw_text"
+    assert resolve_source("/tmp/a.csv", settings, "raw_text").kind == "raw_text"
     with pytest.raises(UserFacingError, match="raw_text"):
-        resolve_source("/tmp/a.dat", settings, "rawtext")
+        resolve_source("/tmp/a.csv", settings, "rawtext")
 
 
 @db
 async def test_inspect_names_the_raw_text_kind(mcp, tmp_path: Path):
-    p = tmp_path / "x.dat"
+    p = tmp_path / "x.csv"
     p.write_text(PLAIN)
     out = await call(mcp, "inspect_source", source=str(p), format_hint="raw")
     assert "(raw_text)" in out and "(raw)" not in out
