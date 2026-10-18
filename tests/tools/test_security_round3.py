@@ -250,7 +250,7 @@ def test_a_wildcard_that_could_match_a_hidden_folder_is_refused():
     from serenedb_extractor.setup.paths import check_private_path
 
     for p in ("/Users/me/*ssh/id.log", "/Users/me/?aws/x.csv", "/Users/me/[.]x/y.log", "/Users/me/x/[.]y.log"):
-        with pytest.raises(UserFacingError, match="hidden|only in the file name"):
+        with pytest.raises(UserFacingError, match="hidden|only in the file name|start with a wildcard"):
             check_private_path(p, p)
 
 
@@ -286,7 +286,9 @@ def test_final_round_path_rules():
     s = Settings.from_env({"SERENEDB_READER_URL": "postgresql://x@localhost/db"})
     with pytest.raises(UserFacingError, match="scheme"):
         resolve_source("file:///etc/x.csv", s)
-    check_private_path("/logs/*.csv", "/logs/*.csv")  # a wildcard file name is fine
+    check_private_path("/logs/app_*.csv", "/logs/app_*.csv")  # a wildcard after a plain start is fine
+    with pytest.raises(UserFacingError, match="may not start with a wildcard"):
+        check_private_path("/logs/*.csv", "/logs/*.csv")
     limited = Settings.from_env({"SERENEDB_READER_URL": "postgresql://x@localhost/db", "SERENEDB_SOURCE_DIRS": "/data/logs"})
     with pytest.raises(UserFacingError, match="SERENEDB_SOURCE_DIRS"):
         resolve_source("/tmp/elsewhere_r3.csv", limited)

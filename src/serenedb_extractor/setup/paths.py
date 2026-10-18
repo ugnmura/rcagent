@@ -270,12 +270,14 @@ def check_private_path(path: str, source: str, *, verb: str = "read") -> None:
         for f in expand_files(cand):
             parts = [p for p in posixpath.normpath(f).split("/") if p not in ("", ".", "..")]
             # A part starting with a wildcard could match a hidden name (*ssh matches .ssh): treat it as hidden.
-            # A folder starting with a wildcard is refused earlier; the file name may start with * or ? (e.g. *.csv)
-            # but not with "[", which could spell out a dot.
-            hidden = next(
-                (p for i, p in enumerate(parts) if p.startswith(".") or (p.startswith("[") and i == len(parts) - 1)),
-                None,
-            )
+            hidden = next((p for p in parts if p.startswith(".")), None)
+            if parts and parts[-1][:1] in ("*", "?", "["):
+                # SereneDB's wildcards match hidden files too (*.csv matches .secret.csv), so a file name must
+                # start with a plain character: part_*.parquet, not *.parquet.
+                raise UserFacingError(
+                    f"{source.strip()} is not {verb}: a file name may not start with a wildcard (it would also match "
+                    "hidden files). Start it with a plain character, e.g. part_*.parquet or app*.log."
+                )
             if hidden:
                 raise UserFacingError(
                     f"{source.strip()} is not {verb}: it is in a hidden folder or is a hidden file ({hidden}). Hidden "
