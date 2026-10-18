@@ -490,11 +490,11 @@ def _render(
         measured = measures[m.template]
         flag = {"new": "  NEW", "generalized": "  GENERALIZED"}.get(status, "")
         out.append("")
-        out.append(f"{template.template_id}  {m.template}{flag}")
+        out.append(f"{template.template_id}  {fmt.template_text(m.template)}{flag}")
         out.append(f"    {fmt.render(measured)}, {_share(m.count, run.sampled, exact)} of matching entries")
         for role in ("service", "component"):
             line = _breakdown_line(role, m.breakdown.get(role, {}), m.count, exact)
             if line:
                 out.append(line)
-        out.append(f"    example: {fmt.shorten(m.example)}")
+        out.append(f"    example: {fmt.shorten(fmt.template_text(m.example))}")
     return "\n".join(out)

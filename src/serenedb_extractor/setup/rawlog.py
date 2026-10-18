@@ -13,6 +13,7 @@ _ISO_TS = (
     r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?"
 )
 _LEVELS = "TRACE|DEBUG|INFO|NOTICE|WARN|WARNING|ERROR|SEVERE|CRITICAL|FATAL"
+_BGL_LEVELS = "INFO|WARNING|SEVERE|ERROR|FATAL|FAILURE"
 
 
 @dataclass(frozen=True)
@@ -26,13 +27,19 @@ class LineFormat:
     ignore: tuple[str, ...] = ()  # groups already carried by another field
 
 
+# Every line that starts with its format's header is an entry of its own, even when parts the header
+# usually has are missing (an empty message, no request context, no repeated node): only lines
+# without a header continue the entry before them.
 LINE_FORMATS: dict[str, LineFormat] = {
     "bgl": LineFormat(
         "bgl",
         re.compile(
             r"^(?P<label>\S+) (?P<timestamp>\d+) (?P<date>\d{4}\.\d{2}\.\d{2}) (?P<node>\S+) "
-            r"(?P<time>\d{4}-\d{2}-\d{2}-\d{2}\.\d{2}\.\d{2}(?:\.\d+)?) (?P<noderepeat>\S+) "
-            r"(?P<type>\S+) (?P<component>\S+) (?P<level>\S+) (?P<content>.*)$"
+            r"(?P<time>\d{4}-\d{2}-\d{2}-\d{2}\.\d{2}\.\d{2}(?:\.\d+)?) "
+            # NodeRepeat normally repeats Node. A line without a node ("-") has no NodeRepeat and goes
+            # straight on to Type; any other field is still NodeRepeat when <Type> <Component> <Level> follow.
+            rf"(?:(?P<noderepeat>(?P=node)|\S+(?= \S+ \S+ (?:{_BGL_LEVELS})(?: |$))) )?"
+            r"(?P<type>\S+) (?P<component>\S+) (?P<level>\S+)(?: (?P<content>.*))?$"
         ),
         "<Label> <Timestamp> <Date> <Node> <Time> <NodeRepeat> <Type> <Component> <Level> <Content>",
         ("time",),
@@ -44,7 +51,8 @@ LINE_FORMATS: dict[str, LineFormat] = {
         "openstack",
         re.compile(
             r"^(?P<logrecord>\S+) (?P<date>\d{4}-\d{2}-\d{2}) (?P<time>\d{2}:\d{2}:\d{2}(?:\.\d+)?) "
-            r"(?P<pid>\d+) (?P<level>[A-Z]+) (?P<component>\S+) \[(?P<addr>[^\]]*)\] (?P<content>.*)$"
+            # Traceback lines carry the full header but no [<ADDR>]; each is its own entry.
+            r"(?P<pid>\d+) (?P<level>[A-Z]+) (?P<component>\S+)(?: \[(?P<addr>[^\]]*)\])?(?: (?P<content>.*))?$"
         ),
         "<Logrecord> <Date> <Time> <Pid> <Level> <Component> [<ADDR>] <Content>",
         ("date", "time"),

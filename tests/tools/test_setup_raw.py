@@ -94,6 +94,66 @@ def test_known_line_formats():
     assert set(LINE_FORMATS) == {"generic", "bgl", "openstack"}
 
 
+# A line that starts with its format's header is an entry of its own, even when parts the header
+# usually has are missing; only lines without a header continue the entry before them.
+
+_BGL_FULL = (
+    "- 1120866513 2005.07.08 R02-M1-N8-C:J13-U01 2005-07-08-16.48.33.904234 R02-M1-N8-C:J13-U01 "
+    "RAS KERNEL FATAL data TLB error interrupt"
+)
+_BGL_EMPTY = "- 1120866514 2005.07.08 R02-M1-N8-C:J13-U01 2005-07-08-16.48.34.004234 R02-M1-N8-C:J13-U01 RAS KERNEL FATAL"
+_BGL_NO_NODE = "- 1119415930 2005.06.21 - 2005-06-21-21.52.10.214285 RAS KERNEL FATAL Kill job 20251 timed out. Block freed."
+
+
+def test_bgl_line_with_an_empty_message_is_its_own_entry():
+    entries = list(parse_entries([_BGL_FULL, _BGL_EMPTY, _BGL_EMPTY], "bgl", "UTC"))
+    assert [(e.line_start, e.line_end) for e in entries] == [(1, 1), (2, 2), (3, 3)]
+    assert entries[0].message == "data TLB error interrupt"
+    empty = entries[1]
+    assert (empty.level, empty.component, empty.host, empty.message) == ("FATAL", "KERNEL", "R02-M1-N8-C:J13-U01", "")
+    assert empty.ts == datetime(2005, 7, 8, 16, 48, 34, 4234, tzinfo=UTC)
+
+
+def test_bgl_line_without_a_repeated_node_keeps_its_component_and_level():
+    (e,) = parse_entries([_BGL_NO_NODE], "bgl", "UTC")
+    assert (e.level, e.component, e.host) == ("FATAL", "KERNEL", "-")
+    assert e.message == "Kill job 20251 timed out. Block freed."
+    assert e.attrs["type"] == "RAS" and "noderepeat" not in e.attrs
+
+
+def test_bgl_line_with_a_garbled_node_repeat_still_parses():
+    garbled = "- 1133447861 2005.12.01 - 2005-12-01-06.37.41.417709 .x!zq@ RAS KERNEL INFO 3 ddr errors detected"
+    (e,) = parse_entries([garbled], "bgl", "UTC")
+    assert (e.level, e.component, e.message) == ("INFO", "KERNEL", "3 ddr errors detected")
+    assert e.attrs["noderepeat"] == ".x!zq@"
+
+
+def test_bgl_detection_counts_the_new_shapes():
+    assert detect_line_format([_BGL_EMPTY, _BGL_NO_NODE]) == "bgl"
+
+
+_OS_HEAD = "nova-compute.log.1.2017-05-16_13:55:31 2017-05-16 03:19:45.356 2931 ERROR oslo_service.periodic_task"
+
+
+def test_openstack_lines_without_a_request_context_are_their_own_entries():
+    lines = [
+        f"{_OS_HEAD} [req-addc1839-2ed5-4778-b57e-5854eb7b8b09 - - - - -] Error during ComputeManager._run_image_cache_manager_pass",
+        f"{_OS_HEAD} Traceback (most recent call last):",
+        f'{_OS_HEAD}   File "/usr/lib/python2.7/dist-packages/oslo_service/periodic_task.py", line 220, in run_periodic_tasks',
+        f"{_OS_HEAD}     task(self, context)",
+        "    a line without any header",
+    ]
+    assert detect_line_format(lines) == "openstack"
+    entries = list(parse_entries(lines, "openstack", "UTC"))
+    assert [(e.line_start, e.line_end) for e in entries] == [(1, 1), (2, 2), (3, 3), (4, 5)]
+    assert all((e.level, e.component) == ("ERROR", "oslo_service.periodic_task") for e in entries)
+    assert entries[0].attrs["addr"].startswith("req-addc1839")
+    assert entries[1].message == "Traceback (most recent call last):" and "addr" not in entries[1].attrs
+    assert entries[2].message.startswith('  File "/usr/lib/python2.7/dist-packages/oslo_service/periodic_task.py"')
+    assert entries[3].message == "    task(self, context)\n    a line without any header"
+    assert all(e.ts == datetime(2017, 5, 16, 3, 19, 45, 356000, tzinfo=UTC) for e in entries)
+
+
 # --- through the MCP tools, against a real SereneDB ---
 
 db = pytest.mark.db
@@ -145,6 +205,22 @@ async def test_bgl_and_openstack_parse(mcp, tmp_path):
     assert "KERNEL" in await call(mcp, "describe_logs", log_table="bgl")
     assert "nova" in await call(mcp, "describe_logs", log_table="openstack")
     assert "host" in (await call(mcp, "describe_logs", log_table="bgl"))
+
+
+@db
+async def test_bgl_header_lines_each_become_an_entry_in_the_copy(mcp, tmp_path, database):
+    p = tmp_path / "bgl_shapes.log"
+    p.write_text("\n".join([_BGL_NO_NODE, _BGL_FULL, _BGL_EMPTY, _BGL_EMPTY]) + "\n")
+    assert "copied" in await call(mcp, "setup_log_table", name="shapes", source=str(p))
+    rows = database.read("SELECT line_start, line_end, component, level, message FROM extractor.lt_shapes ORDER BY entry_id").rows
+    assert rows == [
+        (1, 1, "KERNEL", "FATAL", "Kill job 20251 timed out. Block freed."),
+        (2, 2, "KERNEL", "FATAL", "data TLB error interrupt"),
+        (3, 3, "KERNEL", "FATAL", ""),
+        (4, 4, "KERNEL", "FATAL", ""),
+    ]
+    out = await call(mcp, "survey", log_table="shapes")
+    assert "(empty message)" in out
 
 
 @db

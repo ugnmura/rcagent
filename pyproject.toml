@@ -37,6 +37,7 @@ markers = [
 ]
 
 [tool.mypy]
+files = ["src", "tests"]
 check_untyped_defs = true
 python_version = "3.12"
 
