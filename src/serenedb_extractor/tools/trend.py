@@ -588,6 +588,9 @@ def trend(
     if truncated is not None:
         n_cmp = len(truncated[0])
         over = f"compared over the {n_cmp} {unit}{'' if n_cmp == 1 else 's'} the data covers in both periods"
+    if truncated is None and prev_cover.status == "full" and not any(complete(b, prev) for b in prev_buckets):
+        # Shorter than one bucket: a gap in the data can't be seen, so "none before" proves nothing.
+        prev_cover = Coverage("partial", f"the preceding period is shorter than one whole {unit}, so a gap in the data there can't be ruled out (use bucket='hour' or a longer period)")
     limited = [] if truncated else [c.why for c in (prev_cover, cur_cover) if c.status != "full"]
     out = [_head(lt, cur, prev, f, plan, timezone, unit)]
     out += [n if n.startswith('showing') else fmt.sentence(n) for n in [*plan.notes, *notes]]

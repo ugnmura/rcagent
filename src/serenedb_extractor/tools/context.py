@@ -33,6 +33,7 @@ SAME_TS_CAP = 200
 _TICK = timedelta(microseconds=1)  # timestamps come back with microsecond precision
 
 MAX_SIDE = 200  # entries shown at most on each side of the occurrence
+MAX_WINDOW_MINUTES = 30 * 24 * 60
 
 
 @dataclass(frozen=True)
@@ -374,8 +375,8 @@ def get_context(
 ) -> str:
     lt = ctx.store.get_log_table(log_table)
     timezone = shown_zone(lt, timezone)
-    if window_minutes <= 0:
-        raise UserFacingError("window_minutes must be greater than 0.")
+    if not (0 < window_minutes <= MAX_WINDOW_MINUTES):  # also refuses NaN
+        raise UserFacingError(f"window_minutes must be more than 0 and at most {MAX_WINDOW_MINUTES:,} (30 days).")
     if before < 0 or after < 0 or before > MAX_SIDE or after > MAX_SIDE:
         raise UserFacingError(f"before and after are numbers of entries to show: 0 to {MAX_SIDE} each.")
     occ_mod.decode_occurrence(lt, occurrence)  # a malformed ID is explained before any query
