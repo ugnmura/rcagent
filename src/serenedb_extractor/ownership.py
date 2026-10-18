@@ -16,8 +16,6 @@ from dataclasses import dataclass
 from importlib import resources
 from typing import TYPE_CHECKING
 
-from serenedb_extractor.setup.paths import sql_literal
-
 if TYPE_CHECKING:
     from serenedb_extractor.db import Database
 
@@ -113,11 +111,26 @@ class Ownership:
         return role, [r for r in rules if r.role == role]
 
 
+def _literal(text: str) -> str:
+    """A string literal left raw like every role expression: `%` is escaped where the role is used (role_sql)."""
+    return "'" + text.replace("'", "''") + "'"
+
+
 def team_expr(role_expression: str, rules: list[Rule]) -> str:
     """CASE over the role's value: the most specific matching pattern's team, else Unassigned.
     Built from literals only, so it can be used anywhere a role expression can."""
     ordered = sorted(rules, key=lambda r: (-len(r.pattern.replace("%", "")), r.pattern))
     whens = " ".join(
-        f"WHEN ({role_expression})::varchar ILIKE {sql_literal(r.pattern)} THEN {sql_literal(r.team)}" for r in ordered
+        f"WHEN ({role_expression})::varchar ILIKE {_literal(r.pattern)} THEN {_literal(r.team)}" for r in ordered
     )
-    return f"(CASE {whens} ELSE {sql_literal(UNASSIGNED)} END)"
+    return f"(CASE {whens} ELSE {_literal(UNASSIGNED)} END)"
+
+
+def team_of(value: str | None, rules: list[Rule]) -> str:
+    """The team owning one component or service value, by the same precedence as team_expr."""
+    if value is None:
+        return UNASSIGNED
+    for r in sorted(rules, key=lambda r: (-len(r.pattern.replace("%", "")), r.pattern)):
+        if _like(value, r.pattern):
+            return r.team
+    return UNASSIGNED

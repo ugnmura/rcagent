@@ -262,15 +262,17 @@ def write_parquet(rows: Iterator[dict[str, Any]], schema: pa.Schema, out: Path) 
     return total
 
 
-def parse(data_dir: Path, force: bool) -> dict[str, Path]:
+def parse(data_dir: Path, force: bool) -> tuple[dict[str, Path], set[str]]:
+    """The Parquet file per dataset, and the datasets whose file was (re)written now."""
     out_dir = data_dir / "parquet"
     out_dir.mkdir(parents=True, exist_ok=True)
     outputs = {"bgl": out_dir / "bgl.parquet", "openstack": out_dir / "openstack.parquet"}
-    if force or not outputs["bgl"].exists():
+    written = {name for name, path in outputs.items() if force or not path.exists()}
+    if "bgl" in written:
         log("parsing BGL …")
         n = write_parquet(bgl_rows(data_dir / "BGL" / "BGL.log"), BGL_SCHEMA, outputs["bgl"])
         log(f"BGL: {n:,} entries → {outputs['bgl']}")
-    if force or not outputs["openstack"].exists():
+    if "openstack" in written:
         os_dir = data_dir / "OpenStack"
         labels = os_dir / "anomaly_labels.txt"
         anomalous = {ln.strip() for ln in labels.read_text().splitlines() if re.fullmatch(r"[0-9a-f-]{36}", ln.strip())}
@@ -278,7 +280,7 @@ def parse(data_dir: Path, force: bool) -> dict[str, Path]:
         log("parsing OpenStack …")
         n = write_parquet(openstack_rows(files, anomalous), OS_SCHEMA, outputs["openstack"])
         log(f"OpenStack: {n:,} entries → {outputs['openstack']} ({len(anomalous)} labelled anomalous instances)")
-    return outputs
+    return outputs, written
 
 
 # ---------------------------------------------------------------- setup
@@ -304,7 +306,9 @@ def docker_cp(container: str, files: dict[str, Path], target_dir: str) -> dict[s
     return out
 
 
-def setup_tables(sources: dict[str, str], replace: bool) -> None:
+def setup_tables(sources: dict[str, str], replace: bool, rewritten: set[str]) -> None:
+    """Set up each log table; one whose file was rewritten now (or that points elsewhere, with --replace) is
+    registered again so its entry count and roles match the new file (its template catalog starts over)."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
     from serenedb_extractor.config import Settings
     from serenedb_extractor.context import AppContext
@@ -314,8 +318,11 @@ def setup_tables(sources: dict[str, str], replace: bool) -> None:
     try:
         known = {lt.name: lt for lt in ctx.store.list_log_tables()}
         for name, source in sources.items():
-            if name in known and known[name].source != source:
-                if not replace:
+            if name in known and known[name].source == source and name not in rewritten:
+                log(f"log table '{name}' is already set up for {source}; nothing to do")
+                continue
+            if name in known:
+                if known[name].source != source and not replace:
                     log(f"log table '{name}' already exists for {known[name].source}; pass --replace to set it up again")
                     continue
                 for table, col in (("log_tables", "name"), ("templates", "log_table"),
@@ -340,14 +347,14 @@ def main() -> None:
     args = ap.parse_args()
     data_dir = args.data_dir.expanduser().resolve()
     download(data_dir, args.force)
-    files = parse(data_dir, args.force)
+    files, rewritten = parse(data_dir, args.force)
     if args.skip_setup:
         return
     if args.docker_cp:
         sources = docker_cp(args.docker_cp, files, args.container_dir)
     else:
         sources = {k: str(v) for k, v in files.items()}
-    setup_tables(sources, args.replace)
+    setup_tables(sources, args.replace, rewritten)
 
 
 if __name__ == "__main__":

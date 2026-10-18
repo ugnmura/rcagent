@@ -50,7 +50,8 @@ async def test_setup_and_describe(mcp, fx_path):
     await call(mcp, "setup_log_table", name="fx", source=fx_path)
     out = await call(mcp, "describe_logs", log_table="fx")
     assert "in place" in out and "host: absent" in out and "context scopes: trace, service, everything" in out
-    assert "sampled — rare values may be missing" in out and "ERROR" in out
+    # 5,000 entries are cheap to count: the top values are exact, over every entry
+    assert "top values (exact, counted over every entry)" in out and "ERROR" in out
     assert "entries: 5,000" in out and "indexes: none" in out and "2026-03-01 00:00:00 to 2026-03-02" in out
 
 

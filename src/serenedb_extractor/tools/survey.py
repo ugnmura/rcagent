@@ -18,6 +18,7 @@ from typing import Any, Literal
 from serenedb_extractor import format as fmt
 from serenedb_extractor.catalog.models import CandidateTemplate, LogTable, Template, UpsertResult
 from serenedb_extractor.context import AppContext
+from serenedb_extractor.ownership import Rule, team_of
 from serenedb_extractor.db import Rows
 from serenedb_extractor.query import cost, sampling
 from serenedb_extractor.query.filters import (
@@ -155,7 +156,7 @@ def _breakdown_line(role: str, counts: dict[str, int], hits: int, exact: bool) -
     if not counts:
         return None
     top = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:TOP_BREAKDOWN]
-    label = {"service": "services", "component": "components"}[role]
+    label = {"service": "services", "component": "components", "teams": "teams"}[role]
     return f"    {label}: " + ", ".join(f"{name} {_share(n, hits, exact)}" for name, n in top)
 
 
@@ -466,6 +467,15 @@ def _measure_template(m: MergedTemplate, run: _Run) -> fmt.Measured:
     return sampling.block_estimate(list(zip(run.looked_at, hits, strict=True)), run.looked_fraction)
 
 
+def _team_counts(by_value: dict[str, int], rules: list[Rule]) -> dict[str, int]:
+    """A component (or service) breakdown folded into owning teams."""
+    out: dict[str, int] = {}
+    for value, n in by_value.items():
+        team = team_of(None if value == NONE_LABEL else value, rules)
+        out[team] = out.get(team, 0) + n
+    return out
+
+
 def _render(
     ctx: AppContext,
     lt: LogTable,
@@ -479,6 +489,7 @@ def _render(
 ) -> str:
     merged = merge_groups(run.groups)
     exact = run.method == "every"
+    owners = ctx.store.ownership.for_table(lt.name, lt.roles.present())
     measures = {m.template: _measure_template(m, run) for m in merged}
     candidates = [_candidate(m, measures[m.template]) for m in merged]
     result = ctx.store.upsert_survey_templates(lt.name, candidates, datetime.now(UTC))
@@ -510,6 +521,10 @@ def _render(
         out.append(f"    {fmt.render(measured)}, {_share(m.count, run.sampled, exact)} of matching entries")
         for role in ("service", "component"):
             line = _breakdown_line(role, m.breakdown.get(role, {}), m.count, exact)
+            if line:
+                out.append(line)
+        if owners is not None:
+            line = _breakdown_line("teams", _team_counts(m.breakdown.get(owners[0], {}), owners[1]), m.count, exact)
             if line:
                 out.append(line)
         out.append(f"    example: {fmt.shorten(m.example)}")

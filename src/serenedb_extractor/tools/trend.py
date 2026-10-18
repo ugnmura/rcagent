@@ -12,6 +12,7 @@ from typing import Any, Literal
 from serenedb_extractor import format as fmt
 from serenedb_extractor.catalog.models import LogTable, Template
 from serenedb_extractor.context import AppContext
+from serenedb_extractor.ownership import team_of
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.query import cost, sampling
 from serenedb_extractor.query.filters import (
@@ -490,6 +491,8 @@ def trend(
         skipped = f" ({edge} partial {unit}{'' if edge == 1 else 's'} at the edge of the period or the data not counted)" if edge else ""
         out.append(f"    present in {present} of {len(whole_now)} {unit}s{late}{skipped}")
         out.append("    " + _components(series[i], lt, plan))
+        if (teams := _teams(ctx, series[i], lt, plan)) is not None:
+            out.append("    " + teams)
         out += _series_lines(per_now, per_before, unit, plan.exact)
     return "\n".join(out)
 
@@ -501,6 +504,20 @@ def _components(s: Series, lt: LogTable, plan: cost.Plan) -> str:
     shown = ", ".join(top[:SHOWN_COMPONENTS]) + (", …" if len(top) > SHOWN_COMPONENTS else "")
     where = "" if plan.exact else " (in the sample)"
     return f"components affected this period{where}: {shown} ({len(top)})" if top else "components affected this period: none"
+
+
+def _teams(ctx: AppContext, s: Series, lt: LogTable, plan: cost.Plan) -> str | None:
+    """The owning teams of the components affected, from the ownership rules on component."""
+    found = ctx.store.ownership.for_table(lt.name, lt.roles.present())
+    if found is None or found[0] != "component" or not s.comps:
+        return None
+    counts: dict[str, int] = {}
+    for comp, n in s.comps.items():
+        team = team_of(None if comp == "(none)" else comp, found[1])
+        counts[team] = counts.get(team, 0) + n
+    top = sorted(counts, key=lambda t: (-counts[t], t))
+    where = "" if plan.exact else " (in the sample)"
+    return f"owning teams this period{where}: {', '.join(top)} ({len(top)})"
 
 
 def _series_lines(now: list[fmt.Measured], before: list[fmt.Measured], unit: Bucket, exact: bool) -> list[str]:
