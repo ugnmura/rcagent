@@ -4,6 +4,7 @@ import re
 
 from serenedb_extractor.instructions import ANSWER_RULES, SERVER_INSTRUCTIONS
 from serenedb_extractor.prompts import ENGINEER_PROMPT, MANAGER_PROMPT, PROMPTS as REGISTERED, TEAM_LEAD_PROMPT
+from serenedb_extractor.telemetry import tool_annotations
 from tests.conftest import Client
 
 PROMPTS = {"engineer": ENGINEER_PROMPT, "team-lead": TEAM_LEAD_PROMPT, "manager": MANAGER_PROMPT}
@@ -13,7 +14,7 @@ async def test_fifteen_tools_and_annotations(mcp_no_db):
     tools = {t.name: t for t in (await mcp_no_db.list_tools()).tools}
     assert set(tools) == {"inspect_source", "setup_log_table", "create_index", "describe_logs", "survey", "locate_occurrences",
                           "extract_params", "trend", "get_context", "search_logs", "run_sql", "rename_parameter",
-                          "count_logs", "show_evidence", "drop_index"}
+                          "count_logs", "show_evidence", "drop_index"} | set(tool_annotations())
     assert tools["create_index"].annotations.destructiveHint and tools["setup_log_table"].annotations.destructiveHint
     assert tools["survey"].annotations.readOnlyHint is False and tools["trend"].annotations.readOnlyHint is True
 

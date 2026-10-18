@@ -34,6 +34,7 @@ Why it matters: today the extractor reads logs only. v2's logs-only arm scored A
 1. Log tables: no schema change, no renames, `log_tables` registry untouched.
 2. All existing tests and outputs byte-identical, `mypy` green, except this allowed list:
    - `tests/tools/test_skeleton.py`: the expected tool set and count grow by the new tools.
+   - `tests/tools/test_prompts.py`: its expected tool set grows by the new tools; `tests/tools/test_indexes.py`: the list of tables bootstrap may create grows by `metric_tables` and `trace_tables`.
    - `trend`: the `bucket` error text and docstring name `minute` as a third value (`tools/trend.py`, `server.py`).
    - Server instructions (`instructions.py`): one added sentence, "If metric or trace tables exist, start with `telemetry_overview`."
 3. No new required dependency.
