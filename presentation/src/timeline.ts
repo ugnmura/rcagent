@@ -8,9 +8,7 @@ export const MAX_SECONDS = 299;
 
 // ---- Tunables for handoff 5 (one constant per scene) ----
 
-/** The split scene: silent hold between the manager's take (s4) and the evidence take (s5), where "all lit" lands. */
-export const SPLIT_HOLD_SECONDS = 0.8;
-/** Playback speed of roles.mp4 in the split's proof clip. */
+/** Minimum playback speed of roles.mp4 in the split's proof clip (faster if the recording would not fit its slot). */
 export const PROOF_RATE = 3;
 
 /** Seconds at the end of the close during which the end card (slide 7) shows. */
@@ -34,7 +32,7 @@ export type SceneTiming = {
 	lengthFrom: AssetKey | null;
 	frames: number;
 	placeholder: boolean;
-	/** The takes played back to back: the split (s2, s3, s4, hold, s5), and the close when s7-close.mp4 is missing. */
+	/** The takes played back to back: the close when s7-close.mp4 is missing. */
 	parts?: ScenePart[];
 };
 
@@ -42,21 +40,6 @@ export type ScenePart = {key: AssetKey; frames: number; placeholder: boolean};
 
 /** The per-presenter close clips, in order, used when the joint take is missing. */
 export const CLOSE_PARTS: AssetKey[] = ['s7a', 's7b', 's7c'];
-
-/** The split's takes, in order: engineer (A), team lead (B), manager (C), evidence (B). The hold sits before s5. */
-export const SPLIT_PARTS: AssetKey[] = ['s2', 's3', 's4', 's5'];
-
-/** Start frame of each split part within the scene, including the hold before s5. */
-export const splitStarts = (parts: ScenePart[]): number[] => {
-	const hold = secondsToFrames(SPLIT_HOLD_SECONDS);
-	let at = 0;
-	return parts.map((p, i) => {
-		if (i === parts.length - 1) at += hold;
-		const from = at;
-		at += p.frames;
-		return from;
-	});
-};
 
 const SCENES: {id: SceneId; label: string; lengthFrom: AssetKey | null; fixedSeconds?: number}[] = [
 	{id: 'intro', label: '0  Intro card', lengthFrom: null, fixedSeconds: INTRO_SECONDS},
@@ -72,16 +55,6 @@ export const secondsToFrames = (s: number) => Math.max(1, Math.ceil(s * FPS));
 
 export const buildTimeline = (assets: ResolvedAssets): SceneTiming[] =>
 	SCENES.map(({fixedSeconds, ...s}) => {
-		if (s.id === 'split') {
-			const parts = SPLIT_PARTS.map((key) => ({key, frames: secondsToFrames(assets[key].seconds), placeholder: !assets[key].present}));
-			const starts = splitStarts(parts);
-			return {
-				...s,
-				frames: starts[starts.length - 1] + parts[parts.length - 1].frames,
-				placeholder: parts.some((p) => p.placeholder),
-				parts,
-			};
-		}
 		if (s.id === 'close' && !assets.s7.present) {
 			const parts = CLOSE_PARTS.map((key) => ({
 				key,

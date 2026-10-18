@@ -17,10 +17,8 @@ export const ASSETS = {
 	/** One terminal recording of the three role prompts, played sped up as the split's proof clip. */
 	rolesRec: {file: 'roles.mp4', kind: 'recording', placeholderSeconds: 18, target: 'any length (played ~3×)'},
 	s1: {file: 's1-reveal.mp4', kind: 'facecam', placeholderSeconds: 40, target: '≤ 40 s'},
-	s2: {file: 's2-engineer.mp4', kind: 'facecam', placeholderSeconds: 32, target: '≤ 32 s'},
-	s3: {file: 's3-team-lead.mp4', kind: 'facecam', placeholderSeconds: 25, target: '≤ 25 s'},
-	s4: {file: 's4-manager.mp4', kind: 'facecam', placeholderSeconds: 25, target: '≤ 25 s'},
-	s5: {file: 's5-evidence.mp4', kind: 'facecam', placeholderSeconds: 15, target: '≤ 15 s'},
+	/** Presenter B's single take for the three roles, all in parallel. */
+	s2: {file: 's2-roles.mp4', kind: 'facecam', placeholderSeconds: 30, target: '≤ 30 s'},
 	s6: {file: 's6-benchmarks.mp4', kind: 'facecam', placeholderSeconds: 15, target: '≤ 15 s'},
 	s7: {file: 's7-close.mp4', kind: 'facecam', placeholderSeconds: 25, target: '≤ 25 s'},
 	/** Used only while s7-close.mp4 (the joint take) is missing: one close clip per presenter, back to back. */

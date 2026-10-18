@@ -1,9 +1,8 @@
-# Demo script: Making Sense of Logs (5 minutes)
+# Demo script: Making Sense of Logs (about 2:20, limit 5 minutes)
 
-Spoken text is about 500 words plus 20 seconds of dialog audio, which is about 4:00 at a calm pace (140 words per minute). The rest of
-the 5 minutes is buffer for pauses on the recordings.
-Screen cues are in *italics*. Recordings are pre-run Claude Code sessions with this MCP server; play
-them sped up and pause on the frames named in each cue. Log numbers come from
+Spoken text plus 20 seconds of dialog audio comes to about 2:20 at a calm pace (140 words per minute).
+Screen cues are in *italics*. The one recording is a pre-run Claude Code session with this MCP server, played
+sped up as a short proof clip. Log numbers come from
 [worked-investigation.md](../worked-investigation.md); benchmark numbers from serenedb-bench REPORT.md (night run 2).
 
 ---
@@ -37,63 +36,28 @@ label: "Dramatization: real log data, AI-generated voices".*
 stitched), export MP3, embed on slide 1 with auto-play. Fallback if audio fails: the presenter reads the three
 questions aloud.*
 
-## 1:00 – 1:45 · Engineer (slide 2 + recording 1)
+## 1:00 – 1:30 · Three roles, one split (slide 2 + the proof clip)
 
-*Recording: `/engineer What failed on BGL on 11 June 2005, and what happened just before?`
-Pause on the `search_logs` result, then on the `get_context` timeline.*
+One scene, one presenter (B, take `s2-roles.mp4`, about 30 s; design:
+`docs/superpowers/specs/2026-10-19-three-way-split-design.md`). *A 3–4 s sped-up proof clip of `roles.mp4`;
+then three columns, Engineer / Team lead / Manager, build at the same time: question → the role's tool calls →
+a one-line answer and its next step. At the end all three are lit, with a quick evidence beat: `[Q46]` →
+152,734 = 152,734.*
 
-> The engineer asks: what failed? Claude counts fatal entries by node, over the whole log. One node:
-> R30-M0-N9-C:J16-U01. 152,229 of 855,501 fatal entries, 17.8 percent. Full-text search names it: "data TLB
-> error interrupt", non-stop from 17:17 to 23:39.
->
-> And just before? `get_context` shows one line in the same second: an L2 cache read error. Three times in
-> seven months, twice on this node.
->
-> The hypothesis is a failing L2 cache, labelled as a hypothesis. The next check: processor diagnostics. If
-> they fail, replace the card. If they pass, look at the job that ran at 17:17.
+**B:**
 
-## 1:45 – 2:25 · Team lead (slide 3 + recording 2)
+> Same agent, same logs, three people asking at once. The engineer gets a cause: one node, data TLB errors, and
+> an L2 cache read error just before. Next check: processor diagnostics. The team lead gets the pattern: "Link
+> has been severed" on 22 of 31 days. Investigate first: HPC Applications. The manager gets the priority: five
+> ranked risks, each with an owner, and no invented cost. And every number is a query: 152,734 counted,
+> 152,734 in BGL's own labels.
 
-*Recording: `/team-lead Which problems keep recurring across BGL and OpenStack, and what should we look at first?`
-Pause on the `count_logs` table by team and level, then on the `trend` result.*
+## 1:30 – 1:45 · Benchmarks (slide 4)
 
-> The team lead asks: what keeps coming back? That needs counts, not examples: every entry in both datasets,
-> grouped by team. Then December against November.
->
-> The winner is not the biggest number. It is the most persistent: "Link has been severed" on the I/O
-> sockets, on 22 of 31 days, and not falling. Investigate first: HPC Applications. Second: Node OS confirms
-> the 14 June event.
+*Slide: title "Same questions, graded blind". Three bars, one per design, ours highlighted.*
 
-## 2:25 – 3:05 · Manager (slide 4 + recording 3)
-
-*Recording: `/manager What should we prioritise from these logs?` Hold on the ranked list.*
-
-> The manager gets no node names. Five ranked risks, each with an owner and one action. First: failing job
-> launches, up 91 percent month over month, "permission denied" on program images. Owner: HPC Applications.
-> Second: the broken links. Third: the faulty node, out of service until it passes diagnostics.
->
-> And one honest line: these logs do not measure downtime or cost, so the answer does not invent them.
-
-## 3:05 – 3:40 · Why you can trust the numbers (slide 5)
-
-*Slide: one evidence footer with `[Q46]` and its SQL; below it the two numbers 152,734 = 152,734.*
-
-> Every number carries a citation, like Q46. `show_evidence` returns the exact SQL, its time and its rows.
-> And we checked against ground truth: a full-text count of "data TLB error interrupt" over all of BGL gives
-> 152,734. BGL's own alert labels: exactly 152,734. Real counts, not a sample.
-
-## 3:40 – 4:20 · Benchmarks (slide 6)
-
-*Slide: title "Same questions, graded blind". Three bars, one per design, ours highlighted. Score and cost per
-answer on each bar.*
-
-> We did not guess which design works. We built three, gave them the same sealed questions for all three
-> roles, and a grader scored the answers without knowing which design wrote them.
->
-> Ours came out on top, and it was the cheapest per answer. *[TODO: final score and cost.]*
->
-> What lost? A broad toolbox with many tools: more calls, more cost, a lower score. A lean server without an
-> index: close, but behind. *[TODO: one number each.]*
+> We didn't guess which design works. Three designs, the same sealed questions, graded blind. Ours scored
+> highest, and it was the cheapest per answer. *[TODO: final score and cost.]*
 
 **TODO when all runs finish:**
 
@@ -102,7 +66,7 @@ answer on each bar.*
 - [ ] RCAEval result for metrics and traces, if it lands in time
 - [ ] Slide footnote: model, number of questions, runs per question, blind grader
 
-## 4:20 – 4:45 · Close (slide 7)
+## 1:45 – 2:10 · Close (slide 5)
 
 > So, back to that phone call. The engineer gets a cause to check, not a scroll bar. The team lead gets the
 > pattern. The manager gets the priority. And every number is traceable to a query. Thank you.
@@ -112,16 +76,14 @@ answer on each bar.*
 ## Slides
 
 1. Dark title card "Lawrence Livermore National Laboratory · Blue Gene/L · Saturday, 11 June 2005, 17:17" with the ElevenLabs dialog and subtitles, then "152,229 fatal entries · one node · one evening", then the flow line
-2. Engineer: the node, 152,229 of 855,501 (17.8%), the L2 line before the run
-3. Team lead: counts by team table; "22 of 31 days"
-4. Manager: the five ranked risks with owners
-5. Evidence: `[Q46]` footer + 152,734 = 152,734
-6. Benchmarks: blind rubric bars per design, cost per answer on each bar, comparability footnote
-7. Close: the three answers in one line each
+2. Three roles: the split's final frame, all three columns built (Question / Evidence / Next step)
+3. Evidence: `[Q46]` footer + 152,734 = 152,734
+4. Benchmarks: blind rubric bars per design, cost per answer on each bar, comparability footnote
+5. Close: the three answers in one line each
 
 ## Recording checklist
 
-- Run each role prompt in a fresh Claude Code session on the loaded base corpus.
+- Record `roles.mp4`: the three role prompts in turn on the loaded base corpus (handoff 2).
 - Check that the live numbers match worked-investigation.md before recording. If a number differs,
   use the live number in the script.
-- Keep each clip under 60 seconds after speed-up; cut waiting time, never the tool results.
+- Raw length is free: the video speeds it up to fit a 3–4 s proof clip.
