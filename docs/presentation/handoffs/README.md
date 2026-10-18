@@ -41,6 +41,7 @@ exists, the project shows a labelled placeholder of the target length.
 | `manager.mp4` | screen recording of the `/manager` answer | same | ≤ 35 s |
 | `s1-reveal.mp4` … `s7-close.mp4` | facecam with voice, one file per script section (names in handoff 3) | 1080p or 720p, H.264 + AAC | as spoken |
 | `benchmarks.json` | final benchmark numbers (handoff 5) | JSON, shape in handoff 4 | – |
+| `music.mp3` (optional) | music bed under the whole talk; played low, ducked under every voice, faded in and out; loops if short | MP3 | any; missing = silence, no placeholder |
 
 Scene lengths come from the asset lengths, so a longer take moves everything after it. The render fails if the
 total is over 4:59.

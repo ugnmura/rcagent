@@ -5,6 +5,7 @@ import type {Benchmarks} from './benchmarks';
 import type {TalkProps} from './calculate-metadata';
 import {Facecam, Recording, Subtitles} from './components';
 import {benchmarks, close, evidence, manager, teamLead} from './content';
+import {MusicBed} from './music';
 import {ColdOpenScene, EngineerScene, RevealScene} from './scenes';
 import {Slide3, Slide4, Slide5, Slide6, Slide7} from './slides';
 import {color} from './theme';
@@ -134,6 +135,7 @@ export const Talk: React.FC<TalkProps> = ({assets, scenes, benchmarks: b}) => {
 					</Series.Sequence>
 				))}
 			</Series>
+			<MusicBed assets={assets} scenes={scenes} />
 		</AbsoluteFill>
 	);
 };

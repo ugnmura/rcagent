@@ -1,7 +1,7 @@
 // Asset contract: docs/presentation/handoffs/README.md ("Asset contract").
 // Every file lives in public/assets/. Until it exists, a labelled placeholder of `placeholderSeconds` is shown.
 
-export type AssetKind = 'audio' | 'facecam' | 'recording';
+export type AssetKind = 'audio' | 'facecam' | 'recording' | 'music';
 
 export type AssetSpec = {
 	file: string;
@@ -24,6 +24,8 @@ export const ASSETS = {
 	s5: {file: 's5-evidence.mp4', kind: 'facecam', placeholderSeconds: 35, target: '≤ 35 s'},
 	s6: {file: 's6-benchmarks.mp4', kind: 'facecam', placeholderSeconds: 40, target: '≤ 40 s'},
 	s7: {file: 's7-close.mp4', kind: 'facecam', placeholderSeconds: 25, target: '≤ 25 s'},
+	/** Optional music bed under the whole talk (loops, low, ducked under voices). Missing = silence, no placeholder. */
+	music: {file: 'music.mp3', kind: 'music', placeholderSeconds: 0, target: 'optional, any length (loops)'},
 } as const satisfies Record<string, AssetSpec>;
 
 export type AssetKey = keyof typeof ASSETS;

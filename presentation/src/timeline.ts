@@ -70,6 +70,7 @@ export const describeTimeline = (scenes: SceneTiming[], assets: ResolvedAssets):
 	);
 	const total = totalFrames(scenes);
 	lines.push(`  ${'TOTAL'.padEnd(14)} ${fmt(total).padStart(6)}  limit ${fmt(MAX_SECONDS * FPS)}`);
+	lines.push(`  ${'music.mp3'.padEnd(14)} ${assets.music.present ? 'present (loops under the talk)' : 'absent, optional (silence)'}`);
 	const warnings = recordingWarnings(scenes, assets);
 	return [...lines, ...warnings.map((w) => `  WARNING: ${w}`)].join('\n');
 };
