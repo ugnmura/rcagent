@@ -99,10 +99,16 @@ def _top_values_indexed(
     return shown + more, index
 
 
-def _zone_line(lt: LogTable) -> str:
+def _zone_line(lt: LogTable, cols: dict[str, str]) -> str:
     """The log table's own time zone: what results show unless a timezone is given."""
     if is_utc(lt.timezone):
         return f"time zone: {lt.timezone}"
+    typ = cols.get(role_column(lt.roles.timestamp or "") or "", "").upper()
+    if "WITH TIME ZONE" in typ or typ.startswith("TIMESTAMPTZ"):
+        return (
+            f"time zone: {lt.timezone} (not UTC): the timestamps are real instants; results show them in this zone "
+            "with the UTC offset, unless timezone is given (timezone='UTC' for UTC)"
+        )
     return (
         f"time zone: {lt.timezone} (not UTC): the log's local time, which results show with its UTC offset "
         "unless timezone is given (timezone='UTC' for UTC)"
@@ -151,7 +157,7 @@ def _describe_one(ctx: AppContext, lt: LogTable, tr: TimeRange, top: _TopSources
     out += role_lines(lt.roles, "    ")
     out.append("    " + _team_line(ctx, lt))
     out.append(f"  entries: {lt.row_count:,}" if lt.row_count is not None else "  entries: not counted")
-    out.append("  " + _zone_line(lt))
+    out.append("  " + _zone_line(lt, cols))
     out.append("  " + _time_range_line(db, lt, cols, tr))
     idx = [n for n in (lt.filter_index_name, lt.search_index_name) if n]
     ts_cols = role_columns(lt.roles.timestamp)
