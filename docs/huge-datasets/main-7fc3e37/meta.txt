@@ -1,0 +1,13 @@
+job 5121922 (hpc-Am) node r23m0124.hpc.itc.rwth-aachen.de start 2026-10-18T18:30:35Z
+image $HPCWORK/night-run-2/sdb-26.10.1.sif sha256 9d141a5424e4f49d4ec574b33154e3380e97902c72a8436043990001309283f2
+extractor 7fc3e372cd9e485a1f72e74e04b01502f8e17c84 dirty=0
+PostgreSQL 18.3 (SereneDB 26.10.1)
+end 2026-10-18T18:34:05Z
+sacct -j 5121922 --format=JobID,Elapsed,MaxRSS,TotalCPU,State:
+JobID           Elapsed     MaxRSS   TotalCPU      State 
+------------ ---------- ---------- ---------- ---------- 
+5121922        00:03:34             45:13.969  COMPLETED 
+5121922.bat+   00:03:34  96848684K  45:13.969  COMPLETED 
+5121922.ext+   00:03:34              00:00:00  COMPLETED 
+extractor checkout: $HPCWORK/hpc-b51daa1/src/extractor-main, fetched from a git bundle of origin/main, detached at 7fc3e372cd9e485a1f72e74e04b01502f8e17c84 (contains a0cc99e), uv sync, no edits (dirty=0)
+same SereneDB image, node type and setup as job 5120494 (hpc/2026-10-18-b51daa1/meta.txt); started earlier than the 22:38 UTC estimate (backfill)
