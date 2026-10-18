@@ -24,6 +24,8 @@ It is a prototype built for the *Making Sense of Logs* challenge (National AI Ha
 - **Worked investigation:** [docs/worked-investigation.md](docs/worked-investigation.md) answers one question
   per role on the base corpus, citing every number. The full tool calls, results and queries are in
   [docs/worked-investigation-transcript.md](docs/worked-investigation-transcript.md).
+- **Evaluation:** [docs/EVALUATION.md](docs/EVALUATION.md): on 30 sealed held-out questions, Opus 5.5 with this server
+  scored 96.9% on a blind rubric and 98% on exact values, at $0.117 per answer; method and weak spots included.
 - **Requirements checklist:** [every requirement of the brief, with where it is met](#requirements-checklist).
 - **How the parts fit:** [CONTEXT.md](CONTEXT.md) (glossary) and [docs/adr/](docs/adr/) (decisions).
 
