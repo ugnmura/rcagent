@@ -142,26 +142,27 @@ def _top_groups(
     params: dict[str, Any], timeout: float, what: str, keep: int, note: str | None, tz: str,
 ) -> TableCount:
     """The first `keep` groups in the order `ordered` gives, ordered and cut inside SereneDB."""
-    timed = [k for k, lbl in zip(key_names, labels, strict=True) if lbl.startswith("time:")]
-    rest = [k for k in key_names if k not in timed]
-    if not timed:
-        order = "n DESC, " + ", ".join(key_names)
-    elif not rest:
-        order = ", ".join(timed)
-    else:
-        order = "series DESC, " + ", ".join(rest + timed)
-    series = f", sum(n) OVER (PARTITION BY {', '.join(rest)}) AS series" if timed and rest else ""
+    # The largest `keep` groups (ties by key), then put in reading order here, so a cut never hides the peaks.
     gcols = ", ".join(key_names)
     sql = (
-        f"SELECT {gcols}, n, count(*) OVER () AS all_groups, sum(n) OVER () AS all_n{series} "
-        f"FROM (SELECT {gcols}, count(*) AS n FROM ({inner}) GROUP BY {gcols}) ORDER BY {order} LIMIT {int(keep)}"
+        f"SELECT {gcols}, n, count(*) OVER () AS all_groups, sum(n) OVER () AS all_n "
+        f"FROM (SELECT {gcols}, count(*) AS n FROM ({inner}) GROUP BY {gcols}) ORDER BY n DESC, {gcols} LIMIT {int(keep)}"
     )
     rows = db.read(sql, params, timeout_s=timeout, what=what, how_to_narrow=NARROW).rows
     k = len(key_names)
-    groups = [(real_keys(tuple(str(x) for x in r[:k]), labels, tz), fmt.Measured(float(r[k]), True)) for r in rows]
+    found = {real_keys(tuple(str(x) for x in r[:k]), labels, tz): fmt.Measured(float(r[k]), True) for r in rows}
+    groups = [(key, found[key]) for key in ordered(list(found), labels, {key: m.value for key, m in found.items()})]
     n_groups = int(rows[0][k + 1]) if rows else 0
     total = fmt.Measured(float(rows[0][k + 2]) if rows else 0.0, True)
     return TableCount(lt, plan, total, groups, labels, note=note, n_groups=n_groups)
+
+
+def _largest(groups: list[tuple[tuple[str, ...], fmt.Measured]], limit: int) -> list[tuple[tuple[str, ...], fmt.Measured]]:
+    """The `limit` largest groups, kept in the reading order they come in."""
+    if len(groups) <= limit:
+        return groups
+    keep = {k for k, _ in sorted(groups, key=lambda g: (-g[1].value, g[0]))[:limit]}
+    return [g for g in groups if g[0] in keep]
 
 
 def _share(part: fmt.Measured, whole: fmt.Measured | None) -> str:
@@ -282,10 +283,10 @@ def _render(
         for n in t.plan.notes if t.plan is not None else ():
             lines.append(f"  note: {n}")
         if t.groups:
-            cut = t.groups[:limit]
+            cut = _largest(t.groups, limit)
             n_all = t.n_groups if t.n_groups is not None else len(t.groups)
             if len(cut) < n_all:
-                lines.append(f"  showing {len(cut):,} of {n_all:,} groups (raise limit to see more)")
+                lines.append(f"  showing the {len(cut):,} largest of {n_all:,} groups (raise limit to see more)")
             for key, m in cut:
                 lines.append(f"  {_key_text(t.labels, key)}: {_num(m)}{_share(m, t.total)}")
         for why in t.empty_why or []:

@@ -113,6 +113,14 @@ def real_keys(key: tuple[str, ...], labels: list[str], tz: str) -> tuple[str, ..
     return tuple(real_label(k, tz) if lbl.startswith("time:") else k for k, lbl in zip(key, labels, strict=True))
 
 
+def _largest(items: list[Any], limit: int) -> list[Any]:
+    """The `limit` largest (key, measured) items, kept in the order they come in."""
+    if len(items) <= limit:
+        return items
+    keep = {id(it) for it in sorted(items, key=lambda it: -it[1].value)[:limit]}
+    return [it for it in items if id(it) in keep]
+
+
 def ordered(keys: list[tuple[str, ...]], labels: list[str], value: dict[tuple[str, ...], float]) -> list[tuple[str, ...]]:
     """Group keys in reading order: with time buckets among other keys, each series (the non-time part) is kept
     together, largest series first, in time order inside; time alone is in time order; otherwise largest first."""
@@ -343,7 +351,7 @@ def locate_occurrences(
         for (ti, gkey), m in ordered:
             shown.setdefault(ti, []).append((gkey, m))
         totals = _totals(plan, counts, entries, len(tpls))
-        cut_groups = {ti: items[:shown_limit] for ti, items in shown.items()}
+        cut_groups = {ti: _largest(items, shown_limit) for ti, items in shown.items()}
         examples: dict[tuple[int, tuple[str, ...]], list[str]] = {}
         if per_group and has_ids and cut_groups:
             examples = _examples(sc, plan, scope_sql, groups, cut_groups, per_group, case, params, timeout, what)
@@ -488,7 +496,7 @@ def _render_locate(
             if ex:
                 out.append(f"    {'    ' if groups else ''}examples: {', '.join(ex)}")
         if len(shown[ti]) > len(items):
-            out.append(f"    showing {len(items)} of {len(shown[ti])} groups")
+            out.append(f"    showing the {len(items):,} largest of {len(shown[ti]):,} groups")
     if not any(cut_groups.values()):
         out += empty_why
     return "\n".join(out)

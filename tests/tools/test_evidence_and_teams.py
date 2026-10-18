@@ -105,7 +105,7 @@ async def test_count_logs_text_and_time_bucket(mcp, corpus):
 
 async def test_count_logs_cuts_and_says_so(mcp, corpus):
     out = await call(mcp, "count_logs", log_tables=["openstack"], group_by=["component"], limit=2)
-    assert "showing 2 of" in out
+    assert "showing the 2 largest of" in out
 
 
 def test_team_of_prefers_the_most_specific_pattern():
