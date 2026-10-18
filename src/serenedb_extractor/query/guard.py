@@ -44,6 +44,8 @@ ALLOWED_FUNCTIONS = frozenset(
     timestamp timestamptz time timetz date interval bit
     """.split()
 )
+# String functions whose result can be much longer than their input; they may not be nested in one another.
+GROWING_FUNCTIONS = frozenset("replace regexp_replace overlay translate concat concat_ws string_agg group_concat".split())
 # Keywords that may be followed by "(" without being a function call.
 SYNTAX_WORDS = frozenset(
     """
@@ -104,6 +106,9 @@ def _check_tokens(text: str) -> None:
     if any(tok.token_type == TokenType.SEMICOLON for tok in tokens):
         raise SqlRejected("run_sql runs one statement at a time; send each query on its own")
     depth = 0
+    # Paren depths at which a size-growing string function's arguments are open: one inside another (replace of a
+    # replace ...) can multiply a value's size in a single row, which the time-based cost check can't see.
+    growing_open: list[int] = []
     for i, tok in enumerate(tokens):
         word = tok.text.lower() if "STRING" not in tok.token_type.name else ""
         if word.lstrip("_") in REG_TYPES:  # _regclass is the array type of regclass
@@ -115,6 +120,8 @@ def _check_tokens(text: str) -> None:
             if depth > MAX_PAREN_DEPTH:
                 raise SqlRejected(COMPLEX)
         elif tok.token_type == TokenType.R_PAREN:
+            if growing_open and growing_open[-1] == depth:
+                growing_open.pop()
             depth -= 1
         nxt = tokens[i + 1] if i + 1 < len(tokens) else None
         if nxt is not None and nxt.token_type == TokenType.AMP and word == "u":
@@ -122,6 +129,13 @@ def _check_tokens(text: str) -> None:
         if nxt is None or nxt.token_type != TokenType.L_PAREN or not re.fullmatch(r"[a-z_][a-z0-9_$ ]*", word):
             continue
         quoted_or_plain = tok.token_type in (TokenType.VAR, TokenType.IDENTIFIER)
+        if word in GROWING_FUNCTIONS:
+            if growing_open:
+                raise SqlRejected(
+                    f"{word}() inside another replace/concat-style function can build huge values; "
+                    "nest at most one of them"
+                )
+            growing_open.append(depth + 1)  # its "(" comes next
         if word in ALLOWED_FUNCTIONS:
             continue
         if not quoted_or_plain and word.split()[0] in SYNTAX_WORDS:

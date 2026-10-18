@@ -250,7 +250,8 @@ def check_private_path(path: str, source: str, *, verb: str = "read") -> None:
     for cand in candidates:
         for f in expand_files(cand):
             parts = [p for p in posixpath.normpath(f).split("/") if p not in ("", ".", "..")]
-            hidden = next((p for p in parts if p.startswith(".")), None)
+            # A part starting with a wildcard could match a hidden name (*ssh matches .ssh): treat it as hidden.
+            hidden = next((p for p in parts if p.startswith((".", "*", "?", "["))), None)
             if hidden:
                 raise UserFacingError(
                     f"{source.strip()} is not {verb}: it is in a hidden folder or is a hidden file ({hidden}). Hidden "

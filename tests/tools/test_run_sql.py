@@ -305,3 +305,16 @@ def test_refusals_name_the_real_reason():
         check_read_only("WITH x AS (DELETE FROM extractor.lt_x RETURNING *) SELECT * FROM x")
     check_read_only("SELECT timezone('UTC', ts) FROM extractor.lt_x")  # read-only: allowed
     check_read_only("SELECT 'a;b' FROM extractor.lt_x;")  # a ; inside a string, and a trailing one, are fine
+
+
+def test_nested_growing_string_functions_are_refused():
+    import pytest
+
+    from serenedb_extractor.query.guard import SqlRejected, check_read_only
+
+    with pytest.raises(SqlRejected, match="nest at most one"):
+        check_read_only("SELECT replace(replace(message, 'a', 'aaaa'), 'a', 'aaaa') FROM extractor.lt_x")
+    with pytest.raises(SqlRejected, match="nest at most one"):
+        check_read_only("SELECT regexp_replace(concat(message, message), 'a', 'bb') FROM extractor.lt_x")
+    check_read_only("SELECT replace(message, 'a', 'b'), concat(level, '-', component) FROM extractor.lt_x")
+    check_read_only("SELECT lower(replace(message, 'a', 'b')) FROM extractor.lt_x")

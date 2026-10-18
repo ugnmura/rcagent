@@ -241,3 +241,25 @@ async def test_export_through_the_tool_takes_overwrite(mcp, tmp_path: Path):
     assert "overwrite=True" in out and target.read_text() == "mine", out
     out = await call(mcp, "edit_team_ownership", action="export", csv_path=str(target), overwrite=True)
     assert "replaced the file" in out and target.read_text() != "mine", out
+
+
+def test_a_wildcard_that_could_match_a_hidden_folder_is_refused():
+    import pytest
+
+    from serenedb_extractor.errors import UserFacingError
+    from serenedb_extractor.setup.paths import check_private_path
+
+    for p in ("/Users/me/*ssh/id.log", "/Users/me/?aws/x.csv", "/Users/me/[.]x/y.log"):
+        with pytest.raises(UserFacingError, match="hidden"):
+            check_private_path(p, p)
+
+
+async def test_export_through_a_linked_folder_is_checked_after_the_link(mcp, tmp_path):
+    import os
+
+    hidden = tmp_path / ".private"
+    hidden.mkdir()
+    link = tmp_path / "innocent"
+    os.symlink(hidden, link)
+    out = await call(mcp, "edit_team_ownership", action="export", csv_path=str(link / "rules.csv"))
+    assert "hidden" in out and not (hidden / "rules.csv").exists()

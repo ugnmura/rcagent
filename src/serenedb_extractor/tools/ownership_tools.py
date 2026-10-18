@@ -394,6 +394,9 @@ def _export(
     check_private_path(str(path), str(path), verb="written")
     if not path.parent.is_dir():
         raise UserFacingError(f"The folder {path.parent} does not exist.")
+    # The folder after following links: a linked folder must not lead somewhere private either.
+    real = Path(os.path.realpath(path.parent)) / path.name
+    check_private_path(str(real), str(path), verb="written")
     replaced = os.path.lexists(path)
     if replaced and (path.is_symlink() or not path.is_file()):
         raise UserFacingError(f"{path} exists and is not a regular file (a folder, link or device), so it is not written.")
@@ -407,7 +410,16 @@ def _export(
             f"Dry run: nothing was written. Would write {len(rules)} ownership rules to {path}"
             + (" (replacing the file there)." if replaced else ".")
         )
-    path.write_text(own.to_csv(rules), encoding="utf-8")
+    # Never follow a link at the last step, and create the file only if it is new unless overwrite was given.
+    flags = os.O_WRONLY | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0) | (os.O_TRUNC if overwrite else os.O_EXCL)
+    try:
+        fd = os.open(real, flags, 0o644)
+    except FileExistsError:
+        raise UserFacingError(f"{path} already exists; run export again with overwrite=True to replace it.") from None
+    except OSError as exc:
+        raise UserFacingError(f"{path} could not be written: {exc.strerror}.") from None
+    with os.fdopen(fd, "w", encoding="utf-8") as out:
+        out.write(own.to_csv(rules))
     return (
         f"Wrote {len(rules)} ownership rules to {path}"
         + (" (it replaced the file that was there)" if replaced else "")
