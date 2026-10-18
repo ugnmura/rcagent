@@ -23,10 +23,10 @@ Beyond the required workflow:
 
 | feature | what it does | measured |
 |---|---|---|
-| **Polished MCP server** | 18 tools that say when to use them, what they take and what they return. Results are capped and say when they were cut. Role prompts `/engineer`, `/team-lead`, `/manager` | **96.9%** on 30 sealed held-out questions, blind-graded, at **$0.117** per answer, benchmarked when it had 12 tools ([evaluation](docs/EVALUATION.md)) |
+| **Polished MCP server** | 26 tools that say when to use them, what they take and what they return. Results are capped and say when they were cut. Role prompts `/engineer`, `/team-lead`, `/manager` | **96.9%** on 30 sealed held-out questions, blind-graded, at **$0.117** per answer, benchmarked when it had 12 tools ([evaluation](docs/EVALUATION.md)) |
 | **Huge datasets** | Reads TextBench in place from the public S3 bucket: one file of **1 billion rows** and ten files of **10 billion rows**. Nothing is downloaded | 1B rows: whole file searched in **2.32 s** with an index, **15.4 s** without. 10B rows: one minute searched in **3.49 s**, all rows counted in **31.8 s** ([timings](docs/HUGE_DATASETS.md)) |
 | **Agent-managed indexes** | `create_index` (with a `dry_run` size and time estimate) and `drop_index`. The agent builds an index for an investigation and removes it after | the 1B-row index takes **70.7 s** to build and repays itself after about 5 whole-file searches ([trade-off](docs/HUGE_DATASETS.md#the-trade-off-index-build-time-against-query-time)) |
-| **Logs with metrics and traces** | Metric and trace tables next to the log tables. `telemetry_overview` shows a system's logs, metrics and traces around one moment, per service. `metric_changes`, `metric_series`, `trace_changes` (self time and network time per call) and `get_trace` go deeper || RCAEval root-cause benchmark: right service ranked first in **96.3%** of 348 held-out trials ([below](#rcaeval-root-cause-from-logs-metrics-and-traces)) |
+| **Logs with metrics and traces** | Metric and trace tables next to the log tables, grouped by a shared name prefix. `telemetry_overview` shows a system's logs, metrics and traces around one moment, per service. `metric_changes`, `trace_changes` (self time and network time per call) and `log_changes` show what moved. `metric_series` and `get_trace` go deeper | RCAEval root-cause benchmark: right service ranked first in **96.3%** of 348 held-out trials ([below](#rcaeval-root-cause-from-logs-metrics-and-traces)) |
 | **Phrase and fuzzy search** | `search_logs` matches words in order, or with `fuzzy` each word within a typo or two, through the search index | |
 | **Template mining** | Groups log lines into message templates at question time (SQL masking, then Drain), kept as stable IDs `T1, T2, …` | best BGL grouping score (FGA 0.745) of every approach compared, published parsers included ([table](docs/EVALUATION.md#templating-better-grouping-than-drain-on-the-full-loghub-20-data)) |
 
@@ -195,9 +195,11 @@ Claude picks these from their descriptions. Every result says how it was measure
 | `survey` | the most common kinds of message |
 | `trend` | what is rising, falling or new compared with the period before |
 | `rank_problems` | what to look at first, ranked by a stated, measured score |
+| `telemetry_overview` | a system's logs, metrics and traces around one moment, per service. The starting point when metrics or traces exist |
+| `metric_changes`, `trace_changes`, `log_changes` | what moved across that moment, per service |
 | `show_evidence` | the exact SQL and result behind any cited number |
 
-18 tools in total, including setup, indexes and team ownership. Inputs and outputs: [docs/reference.md](docs/reference.md#tools).
+26 tools in total, including setup, indexes, team ownership and metric and trace drill-down. Inputs and outputs: [docs/reference.md](docs/reference.md#tools).
 
 ## Evidence
 

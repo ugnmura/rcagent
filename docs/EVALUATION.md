@@ -44,7 +44,7 @@ Other suites at the same commit:
 | Localisation: right node and time at the first answer (Sonnet, k=3, 42 trials) | **100%** [92–100] | 100% | 86% |
 | Templating accuracy, BGL (GA / FGA) | 0.929 / **0.745** | 0.939 / 0.694 | 0.939 / 0.694 |
 | Templating accuracy, OpenStack (GA / FGA) | **0.355** / 0.682 | 1.000 / 1.000 | 1.000 / 1.000 |
-| TextBench, 1 billion rows: search in a 60 s window | 2.88 s, plus a whole-file search in 4.2 s after a 70 s index build (at `6cad141`; at `b51daa1`: 1.71 s and 2.32 s, [HUGE_DATASETS.md](HUGE_DATASETS.md)) | not supported | 0.82 s, 60 s windows only |
+| TextBench, 1 billion rows: search in a 60 s window | 2.88 s, plus a whole-file search in 4.18 s after a 69.9 s index build (at `6cad141`). At `b51daa1`: 1.71 s and 2.32 s ([HUGE_DATASETS.md](HUGE_DATASETS.md)) | not supported | 0.82 s, 60 s windows only |
 
 ## The current `main`
 
@@ -69,7 +69,7 @@ All three are MCP servers over the same SereneDB data, built by the same team:
 |---|---|---|---|
 | Data | Parquet/JSON read in place, also from S3, raw text copied once | copied into tables at load | copied into tables at load, TextBench read in place |
 | Templates | at question time: SQL masking, then Drain, kept as stable IDs `T1, T2, …` | at load time: Loghub template regexes, then a regex mask chain | at load time: the regex mask chain only |
-| Tools Claude sees | 12 tools at `6cad141` (18 now), including `run_sql` and setup | 18 tools: incidents, precursors, patterns, baselines, … | 7 tools, each extra tool had to win a benchmark |
+| Tools Claude sees | 12 tools at `6cad141` (26 now), including `run_sql` and setup | 18 tools: incidents, precursors, patterns, baselines, … | 7 tools, each extra tool had to win a benchmark |
 | Evidence | every query saved as `Q<n>`, with its SQL | evidence ledger `[E<n>]` plus `verify_answer` | evidence ledger `[E<n>]` |
 | Roles | prompts and slash commands | `role` parameter on every tool | `role` parameter on every tool |
 
@@ -135,7 +135,7 @@ Held-out, logs, metrics and traces, by subset:
 - **Misses** are mostly network-loss faults (Sock Shop and Train Ticket, 11 of 15 each) and Sock Shop code faults.
 - **No regression for log users:** all 627 tests passed at the frozen build. The log benchmark was not rerun on it.
 
-Comparability: extractor `785b7ba` (branch `feat/metrics-traces`), Sonnet 5.5, no effort override, 40 turns,
+Comparability: extractor `785b7ba` (tag `metrics-traces-freeze-1`), Sonnet 5.5, no effort override, 40 turns,
 1,200 s timeout, a fresh SereneDB 26.10.1 container per trial holding only that case, scored with RCAEval's
 `score_rca` on the last `RANKING:` line. Case IDs are new (seed 20261018) and a leak scan found nothing. The held-out
 set is RE2 (resource faults) for all three systems plus RE3 (code faults) for Sock Shop. Not comparable with the
