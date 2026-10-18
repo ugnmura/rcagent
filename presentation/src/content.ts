@@ -45,8 +45,6 @@ export const intro = {
 	schubkiIcon: 'assets/logos/schubki-icon.png',
 };
 
-export const DRAMATIZATION_LABEL = 'Dramatization: real log data';
-
 // ---------------------------------------------------------------- 1a cold open (slide 1)
 export const coldOpen = {
 	caption: 'Lawrence Livermore National Laboratory · Blue Gene/L · Saturday, 11 June 2005, 17:17',
@@ -100,17 +98,6 @@ export const reveal = {
 	counter: {value: '152,229', label: 'fatal entries · one node · one evening'}, // WI §1 [step 2]
 	// 4.7 million: WI intro (4,747,963 BGL entries, 2005-06-03 to 2006-01-04); "seven months": script
 	fact: {value: '4.7 million', label: 'log lines · seven months'},
-	flow: ['Question', 'Agent picks a tool', 'SereneDB searches / counts', 'Evidence', 'Answer'],
-	/** Who does each flow step, shown above its box. */
-	flowOwners: ['you', 'Claude', 'SereneDB', 'SereneDB', 'Claude'],
-	/** Second line under each flow box, from the README diagram (README.md, top). */
-	flowDetails: [
-		'engineer · team lead · manager',
-		'tool descriptions say when to use each',
-		'full text, exact counts, trends, nearby events',
-		'queries, filters, truncation, margins',
-		'facts, hypotheses, next steps per role',
-	],
 	/** Raw lines → masked in SereneDB (SQL regexp_replace) → merged by Drain3 into templates (ADR 0002 on main).
 	 * Example lines and templates: the BGL survey in the transcript, step 11; headline numbers: Loghub-2.0. */
 	templates: {
@@ -414,4 +401,14 @@ export const split = {
 export const star = {
 	repo: {owner: 'serenedb', name: 'serenedb'},
 	caption: 'As requested.',
+};
+
+// ---------------------------------------------------------------- live demo slide
+// The prompts typed into Claude Code (README on main, Quick start).
+export const demo = {
+	prompts: [
+		{command: '/engineer', question: 'What failed on BGL on 11 June 2005, and what happened just before?'},
+		{command: '/team-lead', question: 'Which problems keep recurring across BGL and OpenStack, and what should we look at first?'},
+		{command: '/manager', question: 'What should we prioritise from these logs?'},
+	],
 };

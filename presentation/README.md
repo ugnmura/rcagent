@@ -1,7 +1,7 @@
 # Presentation: Making Sense of Logs
 
 Remotion project that renders the demo video (`out/video.mp4`, 1920×1080, 30 fps, ≤ 4:59) and the slides PDF
-(`out/slides.pdf`, 5 pages) from the same slide components. Spec: `docs/presentation/handoffs/04-remotion.md`;
+(`out/slides.pdf`, 10 pages) from the same slide components. Spec: `docs/presentation/handoffs/04-remotion.md`;
 words and numbers: `docs/presentation/script.md`.
 
 ## Setup

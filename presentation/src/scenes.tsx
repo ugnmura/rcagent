@@ -4,7 +4,7 @@ import {AbsoluteFill, Audio, Freeze, Sequence, spring, staticFile, useCurrentFra
 import {ASSETS, type AssetKey, type ResolvedAssets} from './assets';
 import type {Benchmarks} from './benchmarks';
 import {DialogAudio} from './components';
-import {coldOpen, DRAMATIZATION_LABEL, reveal} from './content';
+import {coldOpen, reveal} from './content';
 import {BarSubtitles, BlackFades, FilmFacecam, Grain, Letterbox, LETTERBOX, NameTag, PushIn, ramp, Vignette} from './film';
 import {BenchShot, EndCard, IntroShot, StarShot} from './shots2';
 import {CounterShot, FactShot, FlowDiagramShot, LogStorm, TemplatesShot, TitleCaption} from './shots';
@@ -37,25 +37,6 @@ const FilmFinish: React.FC<{vignette?: number; tint?: string}> = ({vignette, tin
 );
 
 // ---------------------------------------------------------------- 1a cold open
-
-export const DramatizationTag: React.FC<{top?: number}> = ({top = (LETTERBOX - 44) / 2}) => (
-	<div
-		style={{
-			position: 'absolute',
-			top,
-			right: 48,
-			fontFamily: font.sans,
-			fontSize: 24,
-			fontWeight: 600,
-			color: '#d0d7de',
-			border: '1px solid rgba(208,215,222,0.35)',
-			borderRadius: 8,
-			padding: '8px 14px',
-		}}
-	>
-		{DRAMATIZATION_LABEL}
-	</div>
-);
 
 /** The line goes dead: the last 0.4 s of the cold open is a frozen picture and silence after one click. */
 const DEAD_LINE_FRAMES = 12;
@@ -113,7 +94,6 @@ export const ColdOpenScene: React.FC<SceneProps> = ({assets, frames}) => {
 					</PushIn>
 					<FilmFinish vignette={0.55 + 0.25 * glow} tint={`${Math.round(90 * glow)},0,0`} />
 					<Letterbox />
-					<DramatizationTag />
 					{assets.dialog.present ? null : (
 						<div style={{position: 'absolute', left: 48, top: (LETTERBOX - 30) / 2, fontFamily: font.sans, fontSize: 22, fontWeight: 700, color: color.placeholder}}>
 							PLACEHOLDER · dialog.mp3 (audio, 18–24 s) is missing
