@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from serenedb_extractor.catalog.models import LogTable
 from serenedb_extractor.context import AppContext
+from serenedb_extractor.db import quote_ident
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.setup.paths import sql_literal
 from serenedb_extractor.setup.roles import is_temporal
@@ -154,6 +155,26 @@ def duration_us_sql(expr: str, unit: str) -> str:
 
 
 # ------------------------------------------------------------------ coverage
+
+
+def services_by_source(ctx: AppContext, tables: TableSet) -> dict[str, set[str]]:
+    """The services seen in each kind of table of a prefix (log tables need a service role to count)."""
+    out: dict[str, set[str]] = {s: set() for s in SOURCES}
+    for lt in tables.logs:
+        expr = lt.roles.service
+        if expr:
+            rows = ctx.db.read(f"SELECT DISTINCT CAST({expr} AS VARCHAR) FROM {lt.relation} WHERE {expr} IS NOT NULL", {})
+            out["logs"].update(str(r[0]) for r in rows.rows)
+    for mt in tables.metrics:
+        if mt.service:
+            col = quote_ident(mt.service)
+            rows = ctx.db.read(f"SELECT DISTINCT CAST({col} AS VARCHAR) FROM {mt.relation} WHERE {col} IS NOT NULL", {})
+            out["metrics"].update(str(r[0]) for r in rows.rows)
+    for tt in tables.traces:
+        col = quote_ident(tt.service)
+        rows = ctx.db.read(f"SELECT DISTINCT CAST({col} AS VARCHAR) FROM {tt.relation} WHERE {col} IS NOT NULL", {})
+        out["traces"].update(str(r[0]) for r in rows.rows)
+    return out
 
 
 def coverage_lines(by_source: dict[str, set[str]], indent: str = "  ") -> list[str]:
