@@ -188,3 +188,53 @@ def coverage_lines(by_source: dict[str, set[str]], indent: str = "  ") -> list[s
     if not services:
         out.append(f"{indent}no services found")
     return out
+
+
+# ------------------------------------------------------------------ how much of the window the data covers
+
+COVER_SHARE = 0.9
+"""A side of the window counts as covered when the data spans at least this share of it; otherwise
+before/after comparisons on counts are not comparable (a nearly empty side is missing data, not quiet)."""
+
+
+@dataclass(frozen=True)
+class Extent:
+    """First and last timestamp (epoch µs) of a table's data; None when the table is empty."""
+
+    first_us: int | None
+    last_us: int | None
+
+    def covered_us(self, lo: int, hi: int) -> int:
+        if self.first_us is None or self.last_us is None:
+            return 0
+        return max(0, min(hi, self.last_us + 1) - max(lo, self.first_us))
+
+    def covers(self, lo: int, hi: int) -> bool:
+        """True when the data spans the whole interval [lo, hi)."""
+        return self.first_us is not None and self.last_us is not None and self.first_us <= lo and self.last_us >= hi - 1
+
+
+def extent(ctx: AppContext, relation: str, epoch_us_expr: str) -> Extent:
+    row = ctx.db.read(
+        f"SELECT min({epoch_us_expr}) AS a, max({epoch_us_expr}) AS b FROM {relation}", {}, what=f"reading the time range of {relation}"
+    ).rows[0]
+    return Extent(None if row[0] is None else int(row[0]), None if row[1] is None else int(row[1]))
+
+
+def window_note(name: str, ext: Extent, w: Window) -> str | None:
+    """A plain sentence when the data covers less than COVER_SHARE of either side of the window, else None."""
+    before, after = w.pivot_us - w.start_us, w.end_us - w.pivot_us
+    cb, ca = ext.covered_us(w.start_us, w.pivot_us), ext.covered_us(w.pivot_us, w.end_us)
+    if cb >= COVER_SHARE * before and ca >= COVER_SHARE * after:
+        return None
+    span = f"its data runs from {fmt_us(ext.first_us)} to {fmt_us(ext.last_us)} UTC" if ext.first_us is not None else "it has no data"
+    return (
+        f"{name}: the data covers only {cb / 1e6:,.0f} s of the {before / 1e6:,.0f} s before the pivot and "
+        f"{ca / 1e6:,.0f} s of the {after / 1e6:,.0f} s after it ({span}), so before/after counts are not comparable "
+        "(missing data, not a change)."
+    )
+
+
+def minute_covered(ext: Extent, start_us: int) -> bool:
+    """Whether the whole minute starting at start_us lies inside the data; minutes outside are unknown, not zero."""
+    return ext.covers(start_us, start_us + 60_000_000)

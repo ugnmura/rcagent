@@ -23,9 +23,13 @@ from serenedb_extractor.query.templatematch import template_match_sql
 from serenedb_extractor.setup.sniff import readable
 from serenedb_extractor.telemetry import stats
 from serenedb_extractor.telemetry.common import (
+    Extent,
     TableSet,
     Window,
     coverage_lines,
+    extent,
+    minute_covered,
+    window_note,
     fmt_us,
     parse_window,
     services_by_source,
@@ -110,6 +114,8 @@ class _Counts:
         self.entries = [0, 0]
         self.errorish = [0, 0]
         self.minutes = [[0] * n_before_buckets, [0] * n_after_buckets]
+        # Minutes the table's data does not cover are unknown, not quiet: they are left out of the volume.
+        self.known = [[True] * n_before_buckets, [True] * n_after_buckets]
         self.templates: dict[str, list[int]] = {}
 
 
@@ -150,6 +156,13 @@ def _count(
             c.errorish[p] += int(e or 0)
             if 0 <= m < len(c.minutes[p]):
                 c.minutes[p][int(m)] += int(n)
+        ext = extent(ctx, lt.relation, f"epoch_us({ts_tz_sql(lt, cols)})")
+        known = [
+            [minute_covered(ext, w.start_us + i * MINUTE_US) for i in range(n_before)],
+            [minute_covered(ext, w.pivot_us + i * MINUTE_US) for i in range(n_after)],
+        ]
+        for c in out.values():
+            c.known = known
         for start in range(0, len(templates), TEMPLATES_PER_QUERY):
             chunk = templates[start : start + TEMPLATES_PER_QUERY]
             t_params = dict(params)
@@ -167,8 +180,9 @@ def _count(
     return out, rule
 
 
-def _volume_change(minutes: list[list[int]]) -> stats.Change:
-    before, after = [float(v) for v in minutes[0]], [float(v) for v in minutes[1]]
+def _volume_change(minutes: list[list[int]], known: list[list[bool]]) -> stats.Change:
+    before = [float(v) for v, k in zip(minutes[0], known[0]) if k]
+    after = [float(v) for v, k in zip(minutes[1], known[1]) if k]
     if not before or not after:
         return stats.change(None, None, None, len(before), None, len(after))
     med = statistics.median(before)
@@ -225,7 +239,7 @@ def _service_lines(name: str, c: _Counts, by_id: dict[str, Template], rule: str)
     else:
         out.append("  biggest count changes: none (templates seen before have the same counts after)")
     out.append(f"  error-ish rate: {_rate(c.errorish[0], c.entries[0])} before, {_rate(c.errorish[1], c.entries[1])} after  [{rule}]")
-    out.append(f"  log volume per minute: {_volume_text(_volume_change(c.minutes))}")
+    out.append(f"  log volume per minute: {_volume_text(_volume_change(c.minutes, c.known))}")
     return out
 
 
@@ -261,7 +275,8 @@ def log_changes(
         templates = ctx.store.templates(lt.name)
         counts, rule = _count(ctx, lt, w, services, templates)
         by_id = {t.template_id: t for t in templates}
-        lines += ["", f"log table {lt.name}: {len(templates)} catalog templates counted.", *notes]
+        cover = window_note(f"log table {lt.name}", _extent(ctx, lt), w)
+        lines += ["", f"log table {lt.name}: {len(templates)} catalog templates counted.", *notes, *([cover] if cover else [])]
         if not counts:
             lines.append("No entries with a service in either window.")
         for name in sorted(counts):
@@ -271,6 +286,10 @@ def log_changes(
         by_source = {k: v & set(services) for k, v in by_source.items()}
     lines += ["", *coverage_lines(by_source)]
     return "\n".join(lines)
+
+
+def _extent(ctx: AppContext, lt: LogTable) -> Extent:
+    return extent(ctx, lt.relation, f"epoch_us({ts_tz_sql(lt, known_columns(ctx.db, lt))})")
 
 
 _log_changes = log_changes  # the registered tool below shadows the name

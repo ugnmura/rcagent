@@ -14,13 +14,17 @@ from serenedb_extractor import format as fmt
 from serenedb_extractor.context import AppContext
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.telemetry.common import (
+    Extent,
     TableSet,
     Window,
     coverage_lines,
+    extent,
     fmt_us,
+    minute_covered,
     parse_window,
     services_by_source,
     tables_with_prefix,
+    window_note,
 )
 from serenedb_extractor.telemetry.registry import TelemetryStore, TraceTable
 from serenedb_extractor.telemetry.stats import MIN_POINTS, Change, change
@@ -141,9 +145,13 @@ def _count(v: float | None) -> str:
     return "?" if v is None else f"{v:.1f}"
 
 
-def _volume(per_minute: dict[int, int], before_buckets: int, after_buckets: int) -> Change:
-    before = [per_minute.get(b, 0) for b in range(-before_buckets, 0)]
-    after = [per_minute.get(b, 0) for b in range(0, after_buckets)]
+def _volume(per_minute: dict[int, int], before_buckets: int, after_buckets: int, ext: Extent, pivot_us: int) -> Change:
+    # Minutes the data does not cover are unknown, not zero spans: they are left out.
+    def known(b: int) -> bool:
+        return minute_covered(ext, pivot_us + b * 60_000_000)
+
+    before = [per_minute.get(b, 0) for b in range(-before_buckets, 0) if known(b)]
+    after = [per_minute.get(b, 0) for b in range(0, after_buckets) if known(b)]
     if not before or not after:
         return change(None, None, None, len(before), None, len(after))
     med_b = statistics.median(before)
@@ -152,7 +160,7 @@ def _volume(per_minute: dict[int, int], before_buckets: int, after_buckets: int)
     return change(med_b, mad_b, std_b, len(before), statistics.median(after), len(after), max(after))
 
 
-def _ops(ctx: AppContext, spans: str, w: Window, flt: str, params: dict[str, Any]) -> list[OpRow]:
+def _ops(ctx: AppContext, spans: str, w: Window, flt: str, params: dict[str, Any], ext: Extent) -> list[OpRow]:
     params = {**params, "a": w.start_us, "p": w.pivot_us, "b": w.end_us}
     base = (
         f"SELECT service, operation, trace_id, self_time_us AS x, duration_us AS d, status, start_us, "
@@ -192,7 +200,7 @@ FROM ({base}) t GROUP BY service, operation""",
             OpRow(
                 str(r["service"]), str(r["operation"]), c, _f(r["p95_b"]), _f(r["p95_a"]), _f(r["dur_b"]),
                 _f(r["dur_a"]), _errors(eb, kb, ea, ka, int(r["n_b"]), int(r["n_a"])), shift,
-                _volume(per.get((r["service"], r["operation"]), {}), before_buckets, after_buckets),
+                _volume(per.get((r["service"], r["operation"]), {}), before_buckets, after_buckets, ext, w.pivot_us),
                 [str(t) for t in (r["slowest"] or [])],
             )
         )
@@ -304,7 +312,9 @@ def trace_changes(
     spans = _spans_sql(tables)
     params: dict[str, Any] = {}
     flt = _filter(services, operations, params)
-    ops = _ops(ctx, spans, w, flt, params)
+    ext = extent(ctx, f"({spans}) s", "start_us")
+    note = window_note(", ".join(t.name for t in tables), ext, w)
+    ops = _ops(ctx, spans, w, flt, params, ext)
     edges = _edges(ctx, spans, w, services, operations)
 
     filters = []
@@ -321,7 +331,8 @@ def trace_changes(
         f"Trace changes in {', '.join(t.name for t in tables)} around the pivot {fmt_us(w.pivot_us)} UTC "
         f"({before_minutes:g} min before, {after_minutes:g} min after; the 10/10 default is RCAEval's window).",
         f"statistic: {STATISTIC}. Self time = span duration minus the time its child spans cover. "
-        "Volume z uses spans per whole minute. Error rate counts only spans with a status; NULL status is unknown.",
+        "Volume z uses spans per whole minute the data covers. Error rate counts only spans with a status; NULL status is unknown.",
+        *([note] if note else []),
         "",
     ]
     ranked = [o for o in ops if o.self_change.kind in ("z", "unchanged")]

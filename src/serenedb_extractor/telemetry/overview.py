@@ -12,9 +12,20 @@ from mcp.types import ToolAnnotations
 from serenedb_extractor import format as fmt
 from serenedb_extractor.context import AppContext
 from serenedb_extractor.db import quote_ident
-from serenedb_extractor.query.filters import role_sql, ts_compare
+from serenedb_extractor.query.filters import role_sql, ts_compare, ts_tz_sql
 from serenedb_extractor.setup.sniff import readable
-from serenedb_extractor.telemetry.common import SOURCES, TableSet, Window, fmt_us, parse_window, services_by_source, tables_with_prefix
+from serenedb_extractor.telemetry.common import (
+    SOURCES,
+    Extent,
+    TableSet,
+    Window,
+    extent,
+    fmt_us,
+    parse_window,
+    services_by_source,
+    tables_with_prefix,
+    window_note,
+)
 from serenedb_extractor.telemetry.log_changes import _dt
 from serenedb_extractor.tools.describe import known_columns
 
@@ -95,10 +106,16 @@ def _metric_names(ctx: AppContext, tables: TableSet, notes: list[str]) -> dict[s
     return out
 
 
-def _change(c: list[int] | None, has_source: bool) -> str:
+def _log_extent(ctx: AppContext, lt: Any) -> Extent:
+    return extent(ctx, lt.relation, f"epoch_us({ts_tz_sql(lt, known_columns(ctx.db, lt))})")
+
+
+def _change(c: list[int] | None, has_source: bool, comparable: bool = True) -> str:
     if c is None:
         return "none in either window" if has_source else "none (no data of this kind for this service)"
     before, after = c
+    if not comparable:
+        return f"{before:,} before, {after:,} after (not comparable: the data does not cover the window, see above)"
     if before == 0:
         return f"{before:,} before, {after:,} after (none before, so no percent)"
     return f"{before:,} before, {after:,} after ({100 * (after - before) / before:+.1f}%)"
@@ -119,6 +136,12 @@ def telemetry_overview(
     logs = _log_counts(ctx, tables, w, notes)
     spans = _span_counts(ctx, tables, w)
     metrics = _metric_names(ctx, tables, notes)
+    log_cover = [
+        n for lt in tables.logs if lt.roles.timestamp is not None
+        if (n := window_note(f"log table {lt.name}", _log_extent(ctx, lt), w))
+    ]
+    span_cover = [n for tt in tables.traces if (n := window_note(f"trace table {tt.name}", extent(ctx, tt.relation, "start_us"), w))]
+    notes += log_cover + span_cover
     kinds: list[tuple[str, list[str]]] = [
         ("logs", [t.name for t in tables.logs]),
         ("metrics", [t.name for t in tables.metrics]),
@@ -153,8 +176,8 @@ def telemetry_overview(
             f"{s}:",
             f"  coverage: {coverage}",
             f"  metrics: {', '.join(names) if names else 'none'}",
-            f"  log entries: {_change(logs.get(s), s in by_source['logs'])}",
-            f"  spans: {_change(spans.get(s), s in by_source['traces'])}",
+            f"  log entries: {_change(logs.get(s), s in by_source['logs'], not log_cover)}",
+            f"  spans: {_change(spans.get(s), s in by_source['traces'], not span_cover)}",
         ]
     lines += ["", "coverage 'no' means no data, not no change."]
     return "\n".join(lines)
