@@ -28,7 +28,7 @@ Each requirement of the challenge brief, in its own words, and where this reposi
 
 | Brief requirement | Where it is met |
 |---|---|
-| An agent answers at least one question for each of the three roles, with relevant evidence, an appropriate level of detail and a next step suited to that role | [docs/worked-investigation.md](worked-investigation.md) sections 1 to 3 (engineer, team lead, manager); role workflows in [src/serenedb_extractor/prompts.py](../src/serenedb_extractor/prompts.py), served as MCP prompts and as `/engineer`, `/team-lead`, `/manager` |
+| An agent answers at least one question for each of the three roles, with relevant evidence, an appropriate level of detail and a next step suited to that role | [docs/worked-investigation.md](worked-investigation.md) sections 1 to 3 (engineer, team lead, manager); live, unscripted sessions for the same three roles in [docs/live-session.md](live-session.md); role workflows in [src/serenedb_extractor/prompts.py](../src/serenedb_extractor/prompts.py), served as MCP prompts and as `/engineer`, `/team-lead`, `/manager` |
 | Uses both retrieval and aggregation on BGL and OpenStack; at least one answer uses full-text search | `search_logs` (text search with time and field filters) and `get_context` (nearby events) in the engineer answer; see [Tools](#tools) |
 | At least one aggregation over the whole base corpus, such as counts by dataset or mapped team; state the data scope and any filters | `count_logs` with no `log_tables` counts every log table, grouped by team, component or level, in the team-lead and manager answers. Every result starts with "How this was measured" (period, filters, exact or sampled) |
 | Practical recommendations supported by the findings: what to check or fix first and why | "Next check" (engineer), "Investigate first" (team lead) and the ranked risks with owner and action (manager) in [docs/worked-investigation.md](worked-investigation.md) |
@@ -38,10 +38,10 @@ Each requirement of the challenge brief, in its own words, and where this reposi
 | Runs from a clean checkout: connect to SereneDB, load the base data, start the agent workflow | [Quick start](../README.md#quick-start) and [The base corpus and the loader](#the-base-corpus-and-the-loader) |
 | A public repository with a README explaining the workflow, setup, how to run it and known limitations | The [README](../README.md); [Known limits](#known-limits) |
 | One worked investigation of a real issue, with questions, tool calls, executed queries, results, and each role's answer and action | [docs/worked-investigation.md](worked-investigation.md) and its transcript |
-| A presentation or demo of no more than 5 minutes, and slides | The talk script, slides and video live in `docs/presentation/` and `presentation/` |
-| Optional: the agent manages its own workspace (create an index for an investigation and remove it after) | `create_index` (with a `dry_run` size and time estimate) and `drop_index`; see [Indexes](#indexes) |
+| A presentation or demo of no more than 5 minutes, and slides | In preparation in pull request #31 (talk script, slides and video); not yet on `main` |
+| Optional: the agent manages its own workspace (create an index for an investigation and remove it after) | `create_index` (with a `dry_run` size and time estimate) and `drop_index`; see [Indexes](#indexes); measured build times and queries with and without the index in [docs/INDEX_TIMINGS.md](INDEX_TIMINGS.md) |
 | Optional: larger datasets, such as the remote OpenTelemetry Parquet data | [Large datasets: TextBench](#large-datasets-textbench-remote-parquet-1-billion-rows-per-file) |
-| Optional: phrase and fuzzy matching | `search_logs` with `fuzzy`, through the search index |
+| Optional: phrase and fuzzy matching | `search_logs` with `fuzzy`, through the search index (0.17 s on BGL, [docs/INDEX_TIMINGS.md](INDEX_TIMINGS.md)) |
 | Optional: row-level security per role | Not implemented. There is a reader/writer split of database roles ([Reader and writer roles](#reader-and-writer-roles)), not per-role row access |
 | Optional: correlate logs with traces or metrics | Not implemented. `get_context` can scope nearby events to one request or trace ID |
 
