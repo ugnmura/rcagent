@@ -441,7 +441,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
           import: csv_path (a file on this machine) or csv_text; columns are matched loosely: log table from log_table/dataset/table, value from component/service/pattern/value, team from team/owner, optional role and area/description. log_table names the log table when the file has no such column. mode "replace" (default) replaces the rules of the log tables the file covers, "merge" adds to and updates them, "replace_all" removes every other rule.
           set: rules=[{"log_table": "bgl", "component": "KERNEL", "team": "Kernel"}] adds or changes rules.
           remove: rules=[{"log_table": "bgl", "component": "KERNEL"}] or team="Kernel" (every rule of that team).
-          export: csv_path = where to write the rules (edit the file, then import it).
+          export: csv_path = the full path of the file to write (edit it, then import it); dry_run=True only says what it would write.
           reset: back to the packaged stand-in (fictional) rules.
           Values are matched case-insensitively; % matches any text (nova.compute.% covers every nova.compute module). dry_run=True shows the change without making it.
         Returns: the rules added, changed and removed, then per affected log table the entries per team and the component values still without a team."""

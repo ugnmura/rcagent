@@ -154,7 +154,7 @@ def edit_team_ownership(
         raise UserFacingError(f"role must be one of {', '.join(own.OWNER_ROLES)}.")
     current = ctx.store.ownership.rules()
     if action == "export":
-        return _export(current, csv_path, log_table)
+        return _export(current, csv_path, log_table, dry_run)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     notes: list[str] = []
     if action == "import":
@@ -186,6 +186,7 @@ def edit_team_ownership(
     else:  # reset
         source = own.STAND_IN
         change = own.plan_change(current, own.packaged_rules(), current)
+    notes += _role_notes(ctx, [*change.added, *(a for _, a in change.updated)])
     lines = []
     if change.empty:
         lines.append("Nothing to change: the ownership table already says this.")
@@ -211,6 +212,22 @@ def edit_team_ownership(
                 "set up with a matching name (or import again with log_table set to the name you use)."
             )
     return "\n".join(lines)
+
+
+def _role_notes(ctx: AppContext, rules: list[Rule]) -> list[str]:
+    """Rules on a role the log tables they name do not have can never match: say so, with the role they do have."""
+    out: list[str] = []
+    seen: set[tuple[str, str, str]] = set()
+    for lt in ctx.store.list_log_tables():
+        present = lt.roles.present()
+        for r in rules:
+            if not r.covers_table(lt.name) or r.role in present or (lt.name, r.role, r.log_table) in seen:
+                continue
+            seen.add((lt.name, r.role, r.log_table))
+            other = [ro for ro in own.OWNER_ROLES if ro in present]
+            fix = f"; it has a {other[0]} field, so give role='{other[0]}' (or a role column) when importing" if other else ""
+            out.append(f"log table {lt.name} has no {r.role} field, so its rules on {r.role} match nothing{fix}")
+    return out
 
 
 def _csv_input(csv_path: str | None, csv_text: str | None) -> tuple[str, str]:
@@ -274,17 +291,30 @@ def _affected_tables(ctx: AppContext, change: own.Change) -> list[LogTable]:
     return [lt for lt in ctx.store.list_log_tables() if any(r.covers_table(lt.name) for r in touched)]
 
 
-def _export(current: list[Rule], csv_path: str | None, log_table: str | None) -> str:
+def _export(current: list[Rule], csv_path: str | None, log_table: str | None, dry_run: bool = False) -> str:
     if not csv_path:
-        raise UserFacingError("Give csv_path: the file to write the rules to.")
-    rules = [r for r in current if not log_table or r.covers_table(log_table)]
+        raise UserFacingError("Give csv_path: the full path of the file to write the rules to.")
     path = Path(csv_path).expanduser()
+    if not path.is_absolute():
+        raise UserFacingError(
+            f"Give a full path for the file (e.g. /Users/me/ownership.csv), not '{csv_path}': a relative path would land "
+            "wherever this server happens to run."
+        )
+    rules = [r for r in current if not log_table or r.covers_table(log_table)]
     if path.is_dir():
         path = path / "ownership.csv"
     if not path.parent.is_dir():
         raise UserFacingError(f"The folder {path.parent} does not exist.")
+    replaced = path.exists()
+    if dry_run:
+        return (
+            f"Dry run: nothing was written. Would write {len(rules)} ownership rules to {path}"
+            + (" (replacing the file there)." if replaced else ".")
+        )
     path.write_text(own.to_csv(rules), encoding="utf-8")
     return (
-        f"Wrote {len(rules)} ownership rules to {path.resolve()} (columns: {', '.join(own.CSV_COLUMNS)}, source). "
+        f"Wrote {len(rules)} ownership rules to {path}"
+        + (" (it replaced the file that was there)" if replaced else "")
+        + f" (columns: {', '.join(own.CSV_COLUMNS)}, source). "
         "Edit it and import it again with edit_team_ownership(action='import', mode='replace')."
     )
