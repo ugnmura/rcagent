@@ -16,9 +16,31 @@ from serenedb_extractor.setup.paths import ResolvedSource, source_sql, sql_liter
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
 
 
+# Engine messages that mean the source itself could not be found, opened or decoded (as opposed to a query on
+# its data failing): only these get the "check the path / access" advice.
+_SOURCE_PROBLEM = re.compile(
+    r"no files? found|no such file|does not exist|could not open|cannot open|failed to open|io error|http|"
+    r"magic bytes|not a parquet|malformed json|invalid json|permission denied|access denied|forbidden|"
+    r"unauthori[sz]ed|\b40[134]\b|timed? ?out connecting|could not resolve",
+    re.IGNORECASE,
+)
+
+
+def _engine_detail(detail: str) -> str:
+    """The engine's message without the echoed SQL (LINE n: ... and the caret line)."""
+    text = re.split(r"\bLINE \d+:", detail, maxsplit=1)[0]
+    return re.sub(r"\s+", " ", text).strip().rstrip(".")[:300]
+
+
 class SourceUnreadable(UserFacingError):
     def __init__(self, source: str, detail: str, remote: bool) -> None:
-        detail = re.sub(r"\s+", " ", detail).strip()[:300]
+        detail = _engine_detail(detail)
+        if not _SOURCE_PROBLEM.search(detail):
+            super().__init__(
+                f"SereneDB could not finish reading {source}: {detail}. The source itself was found; the values "
+                "it holds did not fit this request (for example a field role pointing at the wrong kind of column)."
+            )
+            return
         hint = (
             " If the storage is private, SereneDB itself needs access to it (credentials configured "
             "on the SereneDB server); nothing is downloaded here."

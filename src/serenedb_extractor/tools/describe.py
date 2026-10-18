@@ -260,10 +260,15 @@ def _find_values(
     ctx: AppContext, lt: LogTable, find: dict[str, str], tr: TimeRange, confirmed_cost: str | None = None
 ) -> tuple[str, str | None, list[str]]:
     """(how it was measured, sample label, lines). Cost-checked first; an ask returns the refusal."""
-    field = find.get("role_or_column")
-    like = find.get("like")
-    if not field or like is None or str(like) == "":
-        raise UserFacingError("find_values needs both 'role_or_column' (for example service) and 'like' (a word to look for).")
+    # Two spellings: {"level": "err"} (as the tool description shows) or {"role_or_column": "level", "like": "err"}.
+    if "role_or_column" in find or "like" in find:
+        field, like = find.get("role_or_column"), find.get("like")
+    elif len(find) == 1:
+        field, like = next(iter(find.items()))
+    else:
+        raise UserFacingError('Look up one field at a time, e.g. find_values={"level": "err"}.')
+    if not field or like is None or str(like).strip() == "":
+        raise UserFacingError('find_values needs a field and a word to look for, e.g. find_values={"level": "err"}.')
     db = ctx.db
     cols = known_columns(db, lt)
     label, expr = _resolve_field(lt, field, cols)
