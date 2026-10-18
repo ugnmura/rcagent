@@ -9,16 +9,19 @@ from typing import Literal
 from serenedb_extractor.config import Settings
 from serenedb_extractor.errors import UserFacingError
 
-Kind = Literal["parquet", "json", "table", "raw_text"]
+Kind = Literal["parquet", "json", "csv", "table", "raw_text"]
 _REMOTE = re.compile(r"^(https?|s3|gs|gcs|az|abfss?|r2|hf)://", re.IGNORECASE)
 _PARQUET_EXT = (".parquet", ".pq")
 _JSON_EXT = (".json", ".jsonl", ".ndjson", ".json.gz", ".jsonl.gz", ".ndjson.gz")
+_CSV_EXT = (".csv", ".tsv", ".csv.gz", ".tsv.gz")
 _RAW_EXT = (".log", ".txt", ".out", ".err", ".log.gz", ".txt.gz")
 _FORMAT_HINTS: dict[str, Kind] = {
     "parquet": "parquet",
     "json": "json",
     "jsonl": "json",
     "ndjson": "json",
+    "csv": "csv",
+    "tsv": "csv",
     "table": "table",
     "raw": "raw_text",
     "raw_text": "raw_text",
@@ -111,6 +114,8 @@ def _kind_from_name(name: str) -> Kind | None:
         return "parquet"
     if low.endswith(_JSON_EXT):
         return "json"
+    if low.endswith(_CSV_EXT):
+        return "csv"
     if low.endswith(_RAW_EXT):
         return "raw_text"
     return None
@@ -125,7 +130,7 @@ def resolve_source(source: str, settings: Settings, format: str | None = None) -
     if format:
         hint = _FORMAT_HINTS.get(format.strip().lower())
         if hint is None:
-            raise UserFacingError(f"Unknown format '{format}'. Use parquet, json, table or raw_text.")
+            raise UserFacingError(f"Unknown format '{format}'. Use parquet, json, csv, table or raw_text.")
     remote = is_remote(src)
     looks_like_path = remote or "/" in src or src.startswith(".") or _kind_from_name(src) is not None
     kind = hint or _kind_from_name(src.split("?", 1)[0] if remote else src)

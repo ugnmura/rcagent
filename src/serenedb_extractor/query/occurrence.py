@@ -17,7 +17,7 @@ from serenedb_extractor.query.filters import role_sql
 def kind(lt: LogTable) -> str | None:
     if lt.mode == "copied":
         return "entry"
-    if lt.source_format in ("parquet", "json"):
+    if lt.source_format in ("parquet", "json", "csv"):
         return "file"
     return "pk" if lt.roles.order is not None else None
 

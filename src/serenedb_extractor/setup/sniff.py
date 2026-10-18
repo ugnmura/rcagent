@@ -26,6 +26,9 @@ _SOURCE_PROBLEM = re.compile(
 )
 
 
+_WRONG_FORMAT = re.compile(r"magic bytes|not a parquet|malformed json|invalid json|could not sniff|csv error", re.IGNORECASE)
+
+
 def _engine_detail(detail: str) -> str:
     """The engine's message without the echoed SQL (LINE n: ... and the caret line)."""
     text = re.split(r"\bLINE \d+:", detail, maxsplit=1)[0]
@@ -39,6 +42,12 @@ class SourceUnreadable(UserFacingError):
             super().__init__(
                 f"SereneDB could not finish reading {source}: {detail}. The source itself was found; the values "
                 "it holds did not fit this request (for example a field role pointing at the wrong kind of column)."
+            )
+            return
+        if _WRONG_FORMAT.search(detail):
+            super().__init__(
+                f"SereneDB could not read {source} in the format it was read as: {detail}. The file exists but holds "
+                "another format: check its name or give format_hint (parquet, json, csv or raw_text)."
             )
             return
         hint = (
@@ -83,7 +92,7 @@ def reader_sql(rs: ResolvedSource) -> str:
     """The FROM-clause reader for a source, with the position columns (spike section 5)."""
     if rs.kind == "table":
         return table_ref(rs.db_path)
-    fn = "read_parquet" if rs.kind == "parquet" else "read_json"
+    fn = {"parquet": "read_parquet", "csv": "read_csv"}.get(rs.kind, "read_json")
     return f"{fn}({source_sql(rs)}, filename=true, file_row_number=true)"
 
 
@@ -128,7 +137,10 @@ def sniff(db: Database, rs: ResolvedSource, source: str, for_setup: bool = False
             {"t": table, "s": schema},
         )
         if not found.rows or schema == "extractor":
-            raise UserFacingError(f"There is no table named '{rs.db_path}' that can be used as a log source.")
+            raise UserFacingError(
+                f"There is no database table named '{rs.db_path}' to use as a log source. If it is a log table set up "
+                "here, describe_logs shows it; for a file, give its path with the extension (.parquet, .json, .csv, .log)."
+            )
     columns = relation_columns(db, from_sql, source, rs.remote)
     with readable(source, rs.remote):
         sample = db.read(

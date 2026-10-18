@@ -375,7 +375,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
     async def inspect_source(source: str, format_hint: str | None = None, line_format: str | None = None) -> str:
         """Look at a log source before setting it up; changes nothing.
         Use when: the user points at a new file, URL or table and you need its columns, size and proposed field roles.
-        Inputs: source = a Parquet/JSON file or URL (several remote files as part_{000..009}.parquet), a raw .log file, or a table name; format_hint parquet|json|table|raw; line_format for raw logs (bgl, openstack, generic).
+        Inputs: source = a Parquet/JSON/CSV file or URL (several remote files as part_{000..009}.parquet), a raw .log file, or a table name; format_hint parquet|csv|json|table|raw; line_format for raw logs (bgl, openstack, generic).
         Returns: columns, sample entries, size and row count from metadata, proposed field roles with the reason for each, and index size estimates."""
         return await runner.run_tool(
             setup_tools.inspect_source, source=source, format_hint=format_hint, line_format=line_format
@@ -391,7 +391,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         build_filter_index: bool = False,
         build_search_index: bool = False,
     ) -> str:
-        """Register a log source as a log table so the other tools can query it. Parquet/JSON (local or remote URL) is read in place — nothing is downloaded; raw text logs are parsed and copied.
+        """Register a log source as a log table so the other tools can query it. Parquet/JSON/CSV (local or remote URL) is read in place — nothing is downloaded; raw text logs are parsed and copied.
         Use when: the user wants new logs analysed. Re-running on an existing name only corrects roles or the time zone.
         Inputs: name (lowercase); source as for inspect_source (several remote files: part_{000..009}.parquet); roles = {"timestamp": col, "message": col, "level": col, "component": col, "service": col, "host": col, "trace": col} to confirm or correct the proposal; timezone (IANA) for timestamps without a zone: default the line format's own zone where it has one (bgl: America/Los_Angeles), else UTC; build_filter_index / build_search_index only when the user asks.
         Returns: the field roles, entry count, files, size, how long setup took and index estimates. Teams come from the ownership table automatically when it covers the table."""
