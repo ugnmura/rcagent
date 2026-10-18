@@ -21,7 +21,7 @@ export const ASSETS = {
 	s1: {file: 's1-reveal.mp4', kind: 'facecam', placeholderSeconds: 40, target: '≤ 40 s'},
 	/** Presenter B's single take for the three roles, all in parallel. */
 	s2: {file: 's2-roles.mp4', kind: 'facecam', placeholderSeconds: 30, target: '≤ 30 s'},
-	s6: {file: 's6-benchmarks.mp4', kind: 'facecam', placeholderSeconds: 20, target: '≤ 22 s'},
+	s6: {file: 's6-benchmarks.mp4', kind: 'facecam', placeholderSeconds: 28, target: '≤ 30 s'},
 	s7: {file: 's7-close.mp4', kind: 'facecam', placeholderSeconds: 25, target: '≤ 25 s'},
 	/** Used only while s7-close.mp4 (the joint take) is missing: one close clip per presenter, back to back. */
 	s7a: {file: 's7-close-a.mp4', kind: 'facecam', placeholderSeconds: 8, target: '≤ 8 s'},

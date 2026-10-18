@@ -284,6 +284,8 @@ export const benchmarks = {
 	setup: {questions: 'sealed questions', runs: 'runs each', blind: 'graded blind'},
 	costTitle: 'Cost per answer',
 	andTop: 'with the top score:',
+	perAnswer: 'per answer',
+	rca: {ac1: 'right root cause, first guess', ac3: 'in the top three', logsOnly: 'logs only', withMetrics: 'with metric + trace tools'},
 	cheaper: 'cheaper per answer than',
 	cues: [
 		'How did we get here? Same sealed questions, graded blind, at every step.',
@@ -291,6 +293,7 @@ export const benchmarks = {
 		'Then more tools: eighteen. A better score, but every answer cost twice as much.',
 		'Then Drain3: it finds the log templates when a question comes in, and Claude gets eight core tools plus run_sql.',
 		'The best score, and the cheapest answer: three times cheaper.',
+		'And it is not only logs. On 116 held-out microservice incidents it names the right root cause first 96 percent of the time.',
 	],
 };
 

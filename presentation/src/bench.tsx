@@ -1,6 +1,6 @@
-// Scene 3 benchmarks, calm enough to talk over: two long shots with plain fades and no sound effects. First one
-// column per step (start small, more tools, add Drain3) with its pipeline and score; then the cost of each step and
-// the cost multiple as a caption. Numbers come only from public/assets/benchmarks.json.
+// Scene 3 benchmarks, calm enough to talk over: long shots with plain fades and no sound effects. First one column
+// per step (start small, more tools, add Drain3) with its pipeline and score; then the cost of each step and the cost
+// multiple as a caption; then the RCAEval root-cause result for the metric and trace tools. Numbers come only from public/assets/benchmarks.json.
 import React from 'react';
 import {AbsoluteFill, useCurrentFrame} from 'remotion';
 import type {Benchmarks, Design} from './benchmarks';
@@ -172,6 +172,7 @@ export const BenchStepsShot: React.FC<{frames: number; benchmarks: Benchmarks}> 
 		.join(' · ');
 	return (
 		<AbsoluteFill style={{fontFamily: font.sans}}>
+			{b.final ? null : <PlaceholderTag />}
 			<div style={{opacity: ramp(frame, 0, FADE)}}>
 				<Baseline />
 				<div style={{position: 'absolute', left: COL_LEFT - 20, width: 3 * COL_W + 2 * COL_GAP + 40, top: BASE - BAR_MAX, borderTop: `2px dashed ${color.line}`}} />
@@ -220,6 +221,7 @@ export const BenchCostShot: React.FC<{frames: number; benchmarks: Benchmarks}> =
 	const captionAt = Math.round(frames * 0.4);
 	return (
 		<AbsoluteFill style={{fontFamily: font.sans}}>
+			{b.final ? null : <PlaceholderTag />}
 			<div style={{position: 'absolute', top: 130, width: '100%', textAlign: 'center', fontSize: 34, fontWeight: 600, letterSpacing: '0.3em', color: color.muted, opacity: ramp(frame, 0, FADE)}}>
 				{benchContent.costTitle.toUpperCase()}
 			</div>
@@ -247,6 +249,56 @@ export const BenchCostShot: React.FC<{frames: number; benchmarks: Benchmarks}> =
 				<span style={{color: color.text, fontWeight: 800}}>{Number(times.toFixed(1))}×</span> {benchContent.cheaper} {priciest.short ?? priciest.name},{' '}
 				{benchContent.andTop} <span style={{color: color.accent, fontWeight: 800}}>{pct(d.score_pct ?? 0)}</span>
 			</Footer>
+		</AbsoluteFill>
+	);
+};
+
+// ------------------------------------------------------------------ shot 3: root cause on microservices (RCAEval)
+
+/** Two big numbers, then the logs-only comparison and the source; plain fades, spaced for the narration. */
+export const BenchRcaShot: React.FC<{frames: number; benchmarks: Benchmarks}> = ({frames, benchmarks: b}) => {
+	const frame = useCurrentFrame();
+	const r = b.rca;
+	if (!r) return null;
+	const second = Math.round(frames * 0.12);
+	const compare = Math.round(frames * 0.35);
+	const big = (value: number, label: string, gold: boolean, from: number) => (
+		<div style={{width: 640, textAlign: 'center', opacity: ramp(frame, from, from + FADE)}}>
+			<div style={{fontSize: 170, fontWeight: 800, lineHeight: 1, letterSpacing: -4, fontVariantNumeric: 'tabular-nums', color: gold ? color.accent : color.text}}>
+				{pct(value)}
+			</div>
+			<div style={{fontSize: 40, color: color.text, marginTop: 20}}>{label}</div>
+		</div>
+	);
+	return (
+		<AbsoluteFill style={{fontFamily: font.sans}}>
+			{r.final ? null : <PlaceholderTag />}
+			<div style={{position: 'absolute', top: 130, width: '100%', textAlign: 'center', fontSize: 34, fontWeight: 600, letterSpacing: '0.3em', color: color.muted, opacity: ramp(frame, 0, FADE)}}>
+				{r.title.toUpperCase()}
+			</div>
+			<div style={{position: 'absolute', top: 290, width: '100%', display: 'flex', justifyContent: 'center', gap: 80}}>
+				{big(r.ac1_pct, benchContent.rca.ac1, true, 6)}
+				{big(r.ac3_pct, benchContent.rca.ac3, false, second)}
+			</div>
+			<div
+				style={{
+					position: 'absolute',
+					top: 690,
+					width: '100%',
+					textAlign: 'center',
+					fontSize: 38,
+					color: color.muted,
+					fontVariantNumeric: 'tabular-nums',
+					opacity: ramp(frame, compare, compare + FADE),
+				}}
+			>
+				{benchContent.rca.logsOnly} <span style={{color: color.text, fontWeight: 800}}>{r.logs_only_pct}%</span> →{' '}
+				{benchContent.rca.withMetrics} <span style={{color: color.accent, fontWeight: 800}}>{r.with_metrics_pct}%</span>
+				{' · '}
+				<span style={{color: color.text}}>{usd(r.logs_only_usd)}</span> → <span style={{color: color.accent, fontWeight: 800}}>{usd(r.with_metrics_usd)}</span> {benchContent.perAnswer}
+				<span style={{fontSize: 28}}> ({r.compare_note})</span>
+			</div>
+			<Footer opacity={ramp(frame, 0, FADE)}>{r.source}</Footer>
 		</AbsoluteFill>
 	);
 };

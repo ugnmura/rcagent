@@ -2,7 +2,7 @@
 import React from 'react';
 import {AbsoluteFill, Audio, Freeze, Sequence, spring, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
 import {ASSETS, type AssetKey, type ResolvedAssets} from './assets';
-import {BenchCostShot, BenchStepsShot, PlaceholderTag} from './bench';
+import {BenchCostShot, BenchRcaShot, BenchStepsShot} from './bench';
 import {hasNumbers, type Benchmarks} from './benchmarks';
 import {DialogAudio} from './components';
 import {coldOpen, DRAMATIZATION_LABEL, reveal} from './content';
@@ -200,7 +200,7 @@ const ActScene: React.FC<SceneProps & {facecam: AssetKey; shots: ShotSpec[]}> = 
 	</AbsoluteFill>
 );
 
-/** With numbers: two calm shots to talk over, the three steps with their scores, then cost per step. Without: the TODO bars. */
+/** With numbers: calm shots to talk over, the three steps with their scores, cost per step, then the RCAEval result. Without: the TODO bars. */
 export const BenchmarksScene: React.FC<SceneProps & {benchmarks: Benchmarks | null}> = ({benchmarks: b, ...p}) =>
 	b !== null && hasNumbers(b) ? (
 		<AbsoluteFill>
@@ -210,9 +210,9 @@ export const BenchmarksScene: React.FC<SceneProps & {benchmarks: Benchmarks | nu
 				shots={[
 					{name: 'steps', weight: 3, render: (f) => <BenchStepsShot frames={f} benchmarks={b} />},
 					{name: 'cost', weight: 2, render: (f) => <BenchCostShot frames={f} benchmarks={b} />},
+					...(b.rca ? [{name: 'root cause', weight: 2, render: (f: number) => <BenchRcaShot frames={f} benchmarks={b} />}] : []),
 				]}
 			/>
-			{b.final ? null : <PlaceholderTag />}
 		</AbsoluteFill>
 	) : (
 		<ActScene {...p} facecam="s6" shots={[{name: 'bars', weight: 1, render: () => <BenchShot benchmarks={b} />}]} />

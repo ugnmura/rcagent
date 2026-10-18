@@ -16,6 +16,21 @@ export type Design = {
 	ours: boolean;
 };
 
+/** RCAEval root-cause result for the metric and trace tools (benchmarks.json `rca`). */
+export type Rca = {
+	final: boolean;
+	title: string;
+	source: string;
+	ac1_pct: number;
+	ac3_pct: number;
+	logs_only_pct: number;
+	with_metrics_pct: number;
+	logs_only_usd: number;
+	with_metrics_usd: number;
+	compare_note: string;
+	report: string;
+};
+
 export type Benchmarks = {
 	final: boolean;
 	footnote: string;
@@ -24,6 +39,7 @@ export type Benchmarks = {
 	questions?: number;
 	runs?: number;
 	designs: Design[];
+	rca?: Rca;
 };
 
 export const EMPTY_BENCHMARKS: Benchmarks = {
