@@ -431,6 +431,36 @@ def _choose(ctx: AppContext, lt: LogTable, templates: list[str] | None, top_n: i
     return sorted(shown, key=_tmpl_number), notes
 
 
+def _top_of_period(
+    ctx: AppContext, lt: LogTable, start: str, end: str, filters: dict[str, Any] | None, top_n: int | None, tz: str,
+    confirmed_cost: str | None,
+) -> tuple[list[Template], list[str]]:
+    """The largest templates of this period and these filters, from a survey of them (mapped to the broadest
+    template the catalog has for each, as rank_problems does); the catalog's largest when that survey is refused."""
+    from serenedb_extractor.catalog.store import covering
+    from serenedb_extractor.tools import survey as survey_tool
+
+    n = fmt.clamp_limit(top_n, DEFAULT_TOP_N, DEFAULT_TOP_N * ctx.settings.limit_cap)
+    got: list[tuple[Template, fmt.Measured]] = []
+    survey_tool.survey(ctx, lt.name, start=start, end=end, filters=filters, limit=1, timezone=tz,
+                       confirmed_cost=confirmed_cost, found=got)
+    if not got:
+        chosen, notes = _choose(ctx, lt, None, top_n)
+        return chosen, [*notes, "the period could not be surveyed, so these are the catalog's largest templates overall"]
+    catalog = ctx.store.templates(lt.name)
+    every: dict[str, Template] = {}
+    for t, _ in got:  # largest first
+        wide = covering(t, catalog)
+        every.setdefault(wide.template_id, wide)
+    picked = dict(list(every.items())[:n])
+    note = (
+        f"showing {len(picked)} of {len(every)} templates: the largest of this period and filters (from a survey of them)"
+        if len(every) > len(picked)
+        else "the templates of this period and filters (from a survey of them)"
+    )
+    return sorted(picked.values(), key=_tmpl_number), [note]
+
+
 def trend(
     ctx: AppContext,
     log_table: str,
@@ -465,7 +495,19 @@ def trend(
         )
     cur_buckets = _buckets(cur.start, cur.end, zone, unit)
     prev_buckets = _buckets(prev_start, cur.start, zone, unit)
-    chosen, notes = _choose(ctx, lt, templates, top_n)
+    if templates:
+        chosen, notes = _choose(ctx, lt, templates, top_n)
+    else:
+        chosen, notes = _top_of_period(ctx, lt, start, end, filters, top_n, timezone, confirmed_cost)
+    from serenedb_extractor.catalog.store import covering
+
+    for t in chosen:  # overlapping templates: an entry counts once, under the lowest ID
+        wide = covering(t, [o for o in chosen if o is not t])
+        if wide is not t and _tmpl_number(wide) < _tmpl_number(t):
+            notes.append(
+                f"{t.template_id} is a narrower form of {wide.template_id}, so its entries are counted under "
+                f"{wide.template_id}; ask for {t.template_id} alone to count it on its own"
+            )
     f = Filters.from_dict(filters)
     db = ctx.db
     with readable(f"the source of log table '{lt.name}'"):

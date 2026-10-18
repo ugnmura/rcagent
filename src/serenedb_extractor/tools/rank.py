@@ -64,7 +64,7 @@ SEVERITY = {
     **dict.fromkeys(("ERROR", "ERR", "SEVERE", "FAILURE", "FAIL"), 2),
     **dict.fromkeys(("WARNING", "WARN"), 1),
 }
-MIN_LEVELS = {"warning": 1, "error": 2, "fatal": 3}
+MIN_LEVELS = {"warning": 1, "error": 2, "fatal": 3, "critical": 3}
 SCORING = (
     "score = 2 x severity + change + persistence + spread + share (0-18). severity: fatal/critical 3, "
     "error/severe/failure 2, warning 1 (the level most of its entries have). change against the preceding "
@@ -144,6 +144,8 @@ def rank_problems(
         if not tables:
             raise UserFacingError("There are no log tables yet; set one up first.")
     shown = fmt.clamp_limit(limit, DEFAULT_LIMIT, DEFAULT_LIMIT * ctx.settings.limit_cap)
+    if candidates is not None and candidates < 1:
+        raise UserFacingError(f"candidates is how many templates to consider per log table: 1 or more (default {DEFAULT_CANDIDATES}).")
     n_cand = fmt.clamp_limit(candidates, DEFAULT_CANDIDATES, DEFAULT_CANDIDATES * 4)
     runs: list[TableRun] = []
     for lt in tables:
@@ -173,7 +175,7 @@ def _rank_one(
     prev = TimeRange(prev_start, cur.start, tz)
     tr_all = TimeRange(prev_start, cur.end, tz)
     run.period = f"{cur.describe()} against {prev.describe()}"
-    run.unit = "day" if cur.end - cur.start >= timedelta(days=3) else "hour"
+    run.unit = "day" if cur.end - cur.start >= timedelta(days=2) else "hour"  # trend's default is days, too
     spot_role = next((r for r in ("host", "service", "component") if getattr(lt.roles, r) is not None), None)
     run.spot = spot_role or "entry"
     found = ctx.store.ownership.for_table(lt.name, lt.roles.present())
@@ -199,7 +201,7 @@ def _rank_one(
                 rng = data_range(db, lt, cols)
             except ScanTooExpensive:
                 rng = None
-            where = f"; the data covers {cur.fmt(rng.first)} to {cur.fmt(rng.last)} {tz}" if rng else ""
+            where = f"; the data covers {cur.fmt(rng.first)} to {cur.fmt(rng.last)} {tz.rstrip('.')}" if rng else ""
             run.note = f"no entries at all in this period{where}"
             return run
         if not severe:
@@ -345,7 +347,7 @@ def _score(p: Problem, run: TableRun, whole_now: set[Any]) -> None:
     level = max(p.levels, key=lambda v: (p.levels[v], SEVERITY.get(v.upper(), 0)))
     severity = SEVERITY.get(level.upper(), 0)
     if not run.comparable:
-        change_pts, p.change = 1, "not comparable (the data does not cover both periods)"
+        change_pts, p.change = 1, "not comparable (a gap in the data in one of the periods; see above)"
     elif p.before == 0:
         change_pts, p.change = 3, f"new: none in the preceding period ({p.now:,} now)"
     else:
@@ -408,7 +410,7 @@ def _render(runs: list[TableRun], f: Filters, floor: int, limit: int) -> str:
         if r.asked:
             out.append(f"Log table {r.lt.name}: TOO EXPENSIVE to rank. {r.asked}")
         elif r.note:
-            out.append(f"Log table {r.lt.name}: {r.note}.")
+            out.append(f"Log table {r.lt.name}: {r.note.rstrip('.')}.")
         elif r.limited:
             out.append(f"Log table {r.lt.name}: limited comparison: {'; '.join(r.limited)}. No change is given there.")
     if not ranked:
@@ -424,7 +426,8 @@ def _render(runs: list[TableRun], f: Filters, floor: int, limit: int) -> str:
         out += [
             "",
             f"{i}. score {p.score}/18  [{p.lt.name} {p.template.template_id}] {fmt.shorten(fmt.template_text(p.template.template), 160)}",
-            f"    {p.now:,} entries this period (exact; {levels}), {100 * p.now / r.severe_total:.1f}% of the entries ranked in {p.lt.name}",
+            f"    {p.now:,} {'entry' if p.now == 1 else 'entries'} this period (exact; {levels}), "
+            f"{100 * p.now / r.severe_total:.1f}% of the entries ranked in {p.lt.name}",
             f"    change: {p.change}",
             f"    present in {len(p.buckets)} of {r.whole} whole {r.unit}s" + (" with data" if r.limited else "") + "; "
             + (

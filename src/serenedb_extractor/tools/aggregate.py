@@ -106,7 +106,10 @@ def _count_one(
             else f"SELECT count(*) AS n FROM ({inner})"
         )
         if keep is not None and plan.exact and key_names:
-            return _top_groups(db, lt, plan, labels, key_names, inner, params, timeout, what, keep, note, tz)
+            top = _top_groups(db, lt, plan, labels, key_names, inner, params, timeout, what, keep, note, tz)
+            if top.total is not None and top.total.value == 0 and (f.items() or tr.bounded) and not text:
+                top.empty_why = diagnose_empty(db, lt, tr, f, cols)
+            return top
         rows = db.read(sql, params, timeout_s=timeout, what=what, how_to_narrow=NARROW).rows
         per_key: dict[tuple[str, ...], list[tuple[int, int]]] = {}
         all_blocks: dict[int, int] = {}
@@ -282,7 +285,7 @@ def _render(
             lines.append(f"  note: {t.note}")
         for n in t.plan.notes if t.plan is not None else ():
             lines.append(f"  note: {n}")
-        if t.groups:
+        if t.groups and t.total.value:
             cut = _largest(t.groups, limit)
             n_all = t.n_groups if t.n_groups is not None else len(t.groups)
             if len(cut) < n_all:

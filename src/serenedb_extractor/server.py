@@ -274,7 +274,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
             confirmed_cost=confirmed_cost,
         )
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))
     async def trend(
         log_table: str,
         start: str | None = None,
@@ -289,7 +289,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
     ) -> str:
         """Is a problem rising, falling, new or persistent? Compares templates over a period with the preceding period of equal length.
         Use when: a team lead or manager asks what recurs, what got worse, or what to prioritise; run after survey.
-        Inputs: start and end (required); templates = T<n> IDs (default: the catalog's largest top_n); bucket hour|day; exact=True insists on counting every entry (by default it counts every entry when that fits the time budget, else estimates from a sample, said so).
+        Inputs: start and end (required); templates = T<n> IDs (default: the largest top_n of this period and filters, found by a survey of them, which saves them to the catalog like survey does); bucket hour|day; exact=True insists on counting every entry (by default it counts every entry when that fits the time budget, else estimates from a sample, said so).
         Returns: per template the count per bucket, change against the preceding period, on how many buckets it was present (persistence), and the components and teams affected. Marks the comparison limited when the data does not cover the earlier period — then nothing may be called new."""
         return await runner.run_tool(
             trend_tool.trend,
