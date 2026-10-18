@@ -121,14 +121,14 @@ export const reveal = {
 			{id: 'T83', text: 'program interrupt: <*> <*>'},
 		],
 		title: 'Templating',
-		poweredBy: 'Drain3 + SereneDB regex',
+		poweredBy: ['Drain3', 'SereneDB regex'],
 		// Loghub-2.0 (github.com/logpai/loghub-2.0), BGL row: 4,631,261 annotated logs, 320 templates
 		headline: '4.6 million lines → 320 templates',
 		note: 'Blue Gene/L log from Loghub',
 		source: 'Source: Loghub-2.0, BGL: 4,631,261 annotated lines, 320 templates',
 	},
-	/** Caption under the How-it-works diagram (README on main, "How it works"). */
-	flowCaption: 'Claude never sees the raw logs.',
+	/** The card after the 4.7 million view. */
+	introducing: {kicker: 'Introducing', name: 'RCAgent'},
 	cues: [
 		'Saturday, 11 June 2005, Lawrence Livermore National Laboratory.',
 		'Blue Gene/L, then the fastest supercomputer on Earth.',
@@ -138,6 +138,7 @@ export const reveal = {
 		// 4.7 million: WI intro (4,747,963 BGL entries, 2005-06-03 to 2006-01-04)
 		'That machine wrote 4.7 million log lines in seven months.',
 		'No human reads that. No AI prompt holds it either.',
+		'So we built RCAgent.',
 		'We call it templating: Drain3 and SereneDB regex fold the lines into templates.',
 		// Loghub-2.0, BGL: 4,631,261 annotated lines, 320 templates
 		"On Loghub's Blue Gene/L log, 4.6 million lines come down to 320 templates.",
@@ -151,10 +152,12 @@ export const reveal = {
 	headlineFromCue: 2,
 	/** Index of the cue from which the 4.7 million shot shows. */
 	factFromCue: 4,
-	/** Index of the cue from which the templates shot shows ("Drain3 folds them…"). */
-	templatesFromCue: 6,
+	/** Index of the cue from which the "Introducing RCAgent" card shows ("So we built RCAgent."). */
+	introFromCue: 6,
+	/** Index of the cue from which the templates shot shows ("We call it templating…"). */
+	templatesFromCue: 7,
 	/** Index of the cue from which the How-it-works diagram shows ("So we flipped it."). */
-	flowFromCue: 8,
+	flowFromCue: 9,
 };
 
 // ---------------------------------------------------------------- 2 engineer (slide 2)

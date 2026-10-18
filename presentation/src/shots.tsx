@@ -159,6 +159,22 @@ export const FactShot: React.FC<{done?: boolean}> = ({done}) => {
 	);
 };
 
+/** "Introducing RCAgent": the product's name, right after the scale of the problem. */
+export const IntroducingShot: React.FC<{done?: boolean}> = ({done}) => {
+	const frame = useCurrentFrame();
+	const {fps} = useVideoConfig();
+	const k = done ? 1 : ramp(frame, 2, 14);
+	const n = done ? 1 : spring({frame: frame - 10, fps, config: {damping: 200}, durationInFrames: 22});
+	return (
+		<AbsoluteFill style={{justifyContent: 'center', alignItems: 'center', fontFamily: font.sans}}>
+			<div style={{fontSize: 32, letterSpacing: '0.3em', textTransform: 'uppercase', color: color.muted, fontWeight: 600, opacity: k}}>{reveal.introducing.kicker}</div>
+			<div style={{fontSize: 140, fontWeight: 800, letterSpacing: -3, lineHeight: 1, color: color.accent, marginTop: 20, opacity: n, transform: `scale(${0.94 + 0.06 * n})`}}>
+				{reveal.introducing.name}
+			</div>
+		</AbsoluteFill>
+	);
+};
+
 /** Templating: SereneDB regex masks the variable values, Drain3 merges the rest into a handful of templates; shown as one step. */
 export const TemplatesShot: React.FC<{done?: boolean}> = ({done}) => {
 	const frame = useCurrentFrame();
@@ -175,7 +191,14 @@ export const TemplatesShot: React.FC<{done?: boolean}> = ({done}) => {
 		<AbsoluteFill style={{fontFamily: font.sans}}>
 			<div style={{position: 'absolute', left: LX, top: 110, opacity: done ? 1 : ramp(frame, 0, 12)}}>
 				<div style={{fontSize: 56, fontWeight: 800, color: color.text}}>{title}</div>
-				<div style={{fontSize: 30, fontWeight: 600, color: color.accent, marginTop: 6}}>{poweredBy}</div>
+				<div style={{display: 'flex', alignItems: 'center', gap: 14, marginTop: 16, fontSize: 26, color: color.muted}}>
+					powered by
+					{poweredBy.map((p) => (
+						<span key={p} style={{padding: '6px 16px', borderRadius: 999, border: `2px solid ${color.line}`, color: color.text, fontWeight: 600}}>
+							{p}
+						</span>
+					))}
+				</div>
 			</div>
 			{raw.map((r, i) => {
 				const y0 = top + i * 62;
@@ -346,9 +369,6 @@ export const FlowDiagramShot: React.FC<{done?: boolean}> = ({done}) => {
 					</text>
 				</g>
 			</svg>
-			<div style={{position: 'absolute', bottom: 150, width: '100%', textAlign: 'center', fontFamily: font.sans, fontSize: 40, fontWeight: 600, color: color.text, opacity: done ? 1 : ramp(frame, checkAt + 20, checkAt + 34)}}>
-				{reveal.flowCaption}
-			</div>
 		</AbsoluteFill>
 	);
 };

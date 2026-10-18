@@ -8,7 +8,7 @@ import {DialogAudio} from './components';
 import {coldOpen, reveal} from './content';
 import {BarSubtitles, BlackFades, FilmFacecam, Grain, Letterbox, LETTERBOX, NameTag, PushIn, ramp, Vignette} from './film';
 import {BenchShot, EndCard, IntroShot, StarShot} from './shots2';
-import {CounterShot, FactShot, FlowDiagramShot, LogStorm, TemplatesShot, TitleCaption} from './shots';
+import {CounterShot, FactShot, FlowDiagramShot, LogStorm, TemplatesShot, TitleCaption, IntroducingShot} from './shots';
 import {color, font} from './theme';
 import {CLOSE_PARTS, cueFrames, DIALOG_LEAD_SECONDS, END_CARD_SECONDS, FPS, secondsToFrames} from './timeline';
 
@@ -120,6 +120,7 @@ export const RevealScene: React.FC<SceneProps> = ({assets, frames}) => {
 	const timing = cueFrames(reveal.cues, frames);
 	const counterFrom = timing[reveal.headlineFromCue][0];
 	const factFrom = timing[reveal.factFromCue][0];
+	const introFrom = timing[reveal.introFromCue][0];
 	const templatesFrom = timing[reveal.templatesFromCue][0];
 	const flowFrom = timing[reveal.flowFromCue][0];
 	const corner = spring({frame: frame - counterFrom, fps, config: {damping: 200}, durationInFrames: 22});
@@ -130,8 +131,11 @@ export const RevealScene: React.FC<SceneProps> = ({assets, frames}) => {
 			<Shot from={counterFrom} to={factFrom} name="counter">
 				<CounterShot />
 			</Shot>
-			<Shot from={factFrom} to={templatesFrom} name="4.7 million">
+			<Shot from={factFrom} to={introFrom} name="4.7 million">
 				<FactShot />
+			</Shot>
+			<Shot from={introFrom} to={templatesFrom} name="Introducing RCAgent">
+				<IntroducingShot />
 			</Shot>
 			<Shot from={templatesFrom} to={flowFrom} name="templates (Drain3)">
 				<TemplatesShot />

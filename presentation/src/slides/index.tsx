@@ -3,7 +3,7 @@ import {AbsoluteFill} from 'remotion';
 import type {Benchmarks} from '../benchmarks';
 import {SlideFrame, type Mode} from '../components';
 import {DONE_TIMES, SplitBoard} from '../split';
-import {FactShot, FlowDiagramShot, TemplatesShot, TitleCaption} from '../shots';
+import {FactShot, FlowDiagramShot, IntroducingShot, TemplatesShot, TitleCaption} from '../shots';
 import {BenchShot, CitationShot, LogoPair, SnapShot} from '../shots2';
 import {close, coldOpen, demo, evidence, features, intro, PROJECT_NAME, reveal} from '../content';
 import {color, font} from '../theme';
@@ -63,6 +63,13 @@ export const SlideCounter: React.FC<{mode: Mode}> = () => (
 export const SlideFact: React.FC<{mode: Mode}> = () => (
 	<AbsoluteFill style={{backgroundColor: '#030405'}}>
 		<FactShot done />
+		<Brand />
+	</AbsoluteFill>
+);
+
+export const SlideIntroducing: React.FC<{mode: Mode}> = () => (
+	<AbsoluteFill style={{backgroundColor: '#030405'}}>
+		<IntroducingShot done />
 		<Brand />
 	</AbsoluteFill>
 );
@@ -173,6 +180,6 @@ export const Slide7: React.FC<{mode: Mode}> = ({mode}) => (
 	</SlideFrame>
 );
 
-export const SLIDES = [SlideTitle, SlideCall, SlideCounter, SlideFact, SlideTemplating, SlideHowItWorks, SlideSplit, SlideDemo, Slide5, Slide6, SlideFeatures, Slide7] as const;
+export const SLIDES = [SlideTitle, SlideCall, SlideCounter, SlideFact, SlideIntroducing, SlideTemplating, SlideHowItWorks, SlideSplit, SlideDemo, Slide5, Slide6, SlideFeatures, Slide7] as const;
 
 export const Blank: React.FC = () => <AbsoluteFill style={{backgroundColor: color.bg}} />;
