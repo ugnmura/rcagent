@@ -58,7 +58,7 @@ its inputs and what it returns. The server instructions add a "which tool for wh
 | `get_context` | nearby events before and after one entry | `occurrence` (from search/locate), `scope` (same trace / host / everything), `window_minutes`, `before`/`after` | the entries in time order, the occurrence marked → |
 | `survey` | which kinds of messages (templates) occur, with counts | `filters`, `start`/`end`, `exclude`, `limit` | templates ranked by count with share, components, teams and an example; exact or a stated sample; `NEW TO CATALOG` marks a template seen for the first time (not a problem that started now) |
 | `locate_occurrences` | exact counts of chosen templates by where and when | `templates` (T-ids), `group_by` (team, host, `time:1h` …) | per template the total and per-group counts with example occurrence IDs |
-| `trend` | rising, falling, new or persistent: a period against the one before | `start`, `end`, `templates` (default: the period's own largest, found by a survey and saved to the catalog), `bucket` hour\|day, `exact` (default: every entry counted when that fits the time budget, else a stated sample) | per template the counts per bucket, change, presence, components and teams; refuses to call anything new across gaps |
+| `trend` | rising, falling, new or persistent: a period against the one before | `start`, `end`, `templates` (default: the period's own largest, found by a survey and saved to the catalog), `bucket` minute\|hour\|day, `exact` (default: every entry counted when that fits the time budget, else a stated sample) | per template the counts per bucket, change, presence, components and teams; refuses to call anything new across gaps |
 | `extract_params` | the values inside a template (nodes, status codes, latencies) | `template`, `by` | top values per parameter; min / p50 / p95 / max for numbers |
 | `rank_problems` | **what to look at first**: the warning-and-worse problems ranked by a stated, measured score | `start`, `end`, `log_tables`, `min_level` warning\|error\|fatal\|critical, `filters`, `limit` | per problem its score (0-18) and the points behind it: exact entries and levels, change against the preceding period, days (or hours) present, distinct hosts, components and owning team |
 | `show_evidence` | the queries and results behind any earlier answer | `ids` (Q-handles) | the tool call, every query with its time and row count, the result |
@@ -251,7 +251,7 @@ component the file misses shows up at once instead of silently counting as "Unas
 | `SERENEDB_READER_URL` | connection URL used for every query; should be a SELECT-only role | **required** |
 | `SERENEDB_WRITER_URL` | connection for setup, index builds and catalog writes; a role that owns only the `extractor` schema | the reader URL (single-role mode, with a one-time warning) |
 | `LOGS_HOST_DIR` / `LOGS_CONTAINER_DIR` | the mounted logs folder on this machine and where SereneDB sees it (e.g. `~/logs` → `/logs`) | unset; set both or neither |
-| `SERENEDB_ALLOW_SQL` | `1` lets `run_sql` work in single-role mode | off |
+| `SERENEDB_ALLOW_SQL` | `1` lets `run_sql` work in single-role mode (`.mcp.json` and `up.sh` leave it off) | off |
 | `SERENEDB_SOURCE_DIRS` | comma-separated folders on SereneDB's disk that may be read in place (see [Safety](#safety)) | unset: any folder that is not private |
 
 Built-in limits (not configurable in this prototype):

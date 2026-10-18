@@ -56,6 +56,18 @@ You need Docker, [uv](https://docs.astral.sh/uv/) and Claude Code.
 
 ```sh
 git clone https://github.com/ugnmura/serenedb-extractor && cd serenedb-extractor
+./scripts/up.sh            # or ./scripts/up.sh --sample: the first 50,000 lines of each log, in seconds
+```
+
+`scripts/up.sh` starts SereneDB in Docker (or reuses the container `serenedb`), loads the base corpus, checks
+that both log tables answer and prints the next step. Running it again changes nothing. Claude Code picks the
+server up from [`.mcp.json`](.mcp.json) when you start `claude` in this folder (approve it once), with `run_sql`
+off. `./scripts/up.sh --help` lists the settings. A `--sample` load covers only the first two days of each log, so
+the example questions below need the full corpus; switch with `./scripts/up.sh --replace`.
+
+The same steps by hand:
+
+```sh
 uv sync
 
 # 1. start SereneDB (drop --platform on an x86-64 host)
@@ -69,7 +81,7 @@ export SERENEDB_READER_URL=postgresql://postgres@localhost:7890/postgres
 export LOGS_HOST_DIR=~/logs LOGS_CONTAINER_DIR=/logs
 uv run python scripts/load_base_corpus.py
 
-# 3. connect Claude Code
+# 3. connect Claude Code (in this folder .mcp.json already does it; from anywhere else:)
 claude mcp add serenedb-extractor \
   -e SERENEDB_READER_URL=$SERENEDB_READER_URL -e SERENEDB_ALLOW_SQL=1 \
   -e LOGS_HOST_DIR=$HOME/logs -e LOGS_CONTAINER_DIR=/logs \
@@ -118,8 +130,12 @@ Claude picks these from their descriptions. Every result says how it was measure
 | `trend` | what is rising, falling or new compared with the period before |
 | `rank_problems` | what to look at first, ranked by a stated, measured score |
 | `show_evidence` | the exact SQL and result behind any cited number |
+| `telemetry_overview` | with metric or trace tables: which signals each service has, before and after a point in time |
+| `metric_changes`, `trace_changes`, `log_changes` | what moved across that point, per service, by one fixed statistic |
 
-There are 18 tools in total, including setup, indexes and team ownership. Each one's inputs and outputs are listed in
+Besides log tables there are metric and trace tables (`setup_metric_table`, `setup_trace_table`) for finding the
+root-cause service from logs, metrics and traces together ([ADR-0004](docs/adr/0004-metric-and-trace-tables.md)).
+There are 18 log tools in total, including setup, indexes and team ownership, plus the telemetry tools. Each one's inputs and outputs are listed in
 [docs/reference.md](docs/reference.md#tools).
 
 ## Why the numbers can be trusted

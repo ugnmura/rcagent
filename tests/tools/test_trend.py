@@ -193,3 +193,57 @@ async def test_no_truncation_when_the_data_starts_late(mcp, trend_lt):
     # The preceding period of 03-01..03-08 lies before the data: no comparison, nothing called new.
     out = await call(mcp, "trend", log_table="tr", templates=[trend_lt["daily"]], start="2026-03-01", end="2026-03-31", exact=True)
     assert "limited comparison" in out and "compared over" not in out
+
+
+async def test_minute_buckets_on_a_telemetry_log_table(mcp, db_url):
+    from tests.telemetry import fixtures as fx
+
+    ids = await _setup(mcp, db_url, "shop_logs", fx.logs_sql(), {"oom": "OutOfMemoryError"})
+    out = await call(
+        mcp, "trend", log_table="shop_logs", templates=[ids["oom"]], start="2026-03-01T10:10:00Z",
+        end="2026-03-01T10:20:00Z", bucket="minute", exact=True,
+    )
+    assert "split into minutes: this period has 10" in out and "Minutes are real minutes" in out
+    assert "this period by minute: 12 12 12 12 12 12 12 12 12 12" in out
+
+
+async def test_peak_of_a_burst_is_one_bucket_with_all_entries(mcp, trend_lt):  # #29
+    out = await call(mcp, "trend", log_table="tr", templates=[trend_lt["once"]], exact=True, **P)
+    assert "    peak: 2026-03-20 with 600 entries (100% of this period)" in out
+
+
+async def test_peak_of_an_even_spread_has_a_low_share(mcp, trend_lt):  # #29
+    out = await call(mcp, "trend", log_table="tr", templates=[trend_lt["daily"]], exact=True, **P)
+    # 1,000 a day on each of 14 days: the first such day, with 1/14 of the period
+    assert "    peak: 2026-03-15 with 1,000 entries (7% of this period)" in out
+
+
+async def test_peak_by_hour_is_labelled_in_the_shown_zone(mcp, trend_lt):  # #29
+    # heartbeat slots 03:20..04:03 UTC: 800 entries in hour 03, 200 in hour 04
+    out = await call(
+        mcp, "trend", log_table="tr", templates=[trend_lt["daily"]], start="2026-03-15", end="2026-03-16",
+        bucket="hour", exact=True,
+    )
+    assert "    peak: 2026-03-15 03:00 UTC with 800 entries (80% of this period)" in out
+    paris = await call(
+        mcp, "trend", log_table="tr", templates=[trend_lt["daily"]], start="2026-03-15", end="2026-03-16",
+        bucket="hour", exact=True, timezone="Europe/Paris",
+    )
+    assert "    peak: 2026-03-15 04:00 UTC+01:00 with 800 entries" in paris
+
+
+async def test_peak_of_a_sampled_run_is_estimated(mcp, trend_lt, sampled):  # #29
+    out = await call(mcp, "trend", log_table="tr", templates=[trend_lt["rise"]], **P)
+    assert re.search(r"\n    peak \(estimated\): 2026-03-\d\d with ≈[\d,]+ entries \(≈\d+% of this period\)", out)
+    assert "\n    peak: " not in out
+
+
+async def test_peak_by_minute(mcp, db_url):  # #29
+    from tests.telemetry import fixtures as fx
+
+    ids = await _setup(mcp, db_url, "shop_logs", fx.logs_sql(), {"oom": "OutOfMemoryError"})
+    out = await call(
+        mcp, "trend", log_table="shop_logs", templates=[ids["oom"]], start="2026-03-01T10:10:00Z",
+        end="2026-03-01T10:20:00Z", bucket="minute", exact=True,
+    )
+    assert "    peak: 2026-03-01 10:10 UTC with 12 entries (10% of this period)" in out

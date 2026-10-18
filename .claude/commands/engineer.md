@@ -25,6 +25,8 @@ Answer with, in this order:
 
 Template IDs may appear as bracketed handles after the description, e.g. "the payments timeout [T12]". Give the exact query only on request.
 
+Length: no hard length limit, but lead with the answer (what failed) before the detail. The Evidence section does not count.
+
 Rules for the answer:
 - Plain language. Lead with what the problem is ("the timeout calling payments error"). No SQL, regexes, tool names or parameter syntax in the body of the answer unless the user asks for them.
 - No evidence, no claim. Every statement about the logs carries the evidence handle of the result it came from: every number, time, quoted message, node, component, team, trend, "rising", "new", "absent" or "the first one", e.g. "626,756 fatal kernel entries [Q3]", "it started at 17:17:44 PDT on node R30-M0-N9-C:J16-U01 [Q5]". A sentence without a handle must be one of: a possible cause (labelled as a hypothesis), a recommendation, or a statement of what the logs do not show. Never state anything about the logs that no result gave you; if you need a fact you have no result for, run the tool that measures it first.
