@@ -65,7 +65,7 @@ async def test_inspect_source_is_read_only_and_gives_rough_sizes(mcp, fx_path, d
     assert "rough, from column sizes" in out and "create_index with dry_run measures it" in out
     assert "nothing was created or changed" in out.splitlines()[0]
     assert database.read("SELECT table_name FROM information_schema.tables WHERE table_schema = 'extractor'", {}).rows == [] or all(
-        r[0] in ("log_tables", "templates", "template_redirects", "log_index_columns")
+        r[0] in ("log_tables", "templates", "template_redirects", "log_index_columns", "evidence", "ownership")
         for r in database.read("SELECT table_name FROM information_schema.tables WHERE table_schema = 'extractor'", {}).rows
     )
     with pytest.raises(Exception, match="log_dict"):
@@ -291,3 +291,13 @@ async def test_failed_build_at_setup_is_one_short_line(mcp, fx_path, monkeypatch
     out = await call(mcp, "setup_log_table", name="fx", source=fx_path, build_filter_index=True)
     line = next(ln for ln in out.splitlines() if ln.startswith("The filter index could not be built"))
     assert "out of memory" in line and "HINT: try a smaller table" in line, out
+
+
+async def test_drop_index_frees_it_and_build_again_works(mcp, fx_lt, database):
+    await call(mcp, "create_index", log_table="fx", kind="filter")
+    assert "indexes: extractor." in await call(mcp, "describe_logs", log_table="fx")
+    out = await call(mcp, "drop_index", log_table="fx", kind="filter")
+    assert "Dropped the filter index" in out
+    assert "indexes: none" in await call(mcp, "describe_logs", log_table="fx")
+    assert "has no filter index; nothing changed" in await call(mcp, "drop_index", log_table="fx", kind="filter")
+    assert "Built the filter index" in await call(mcp, "create_index", log_table="fx", kind="filter")

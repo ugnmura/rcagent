@@ -59,6 +59,48 @@ def sql_literal(text: str) -> str:
     return pct("'" + text.replace("'", "''") + "'")
 
 
+_RANGE = re.compile(r"\{(\d+)\.\.(\d+)\}")
+_CHOICE = re.compile(r"\{([^{}]*,[^{}]*)\}")
+MAX_FILES = 1000
+
+
+def expand_files(source: str) -> list[str]:
+    """The files a source names: `{000..009}` (a zero-padded number range) and `{a,b}` (alternatives)
+    expand to several; anything else is one file. Lets a remote source span several objects, which
+    can't be listed with a wildcard over HTTP."""
+    out = [source]
+    for _ in range(4):  # at most a few brace groups
+        nxt: list[str] = []
+        changed = False
+        for item in out:
+            if m := _RANGE.search(item):
+                lo, hi = m.group(1), m.group(2)
+                width = len(lo) if lo.startswith("0") or len(lo) == len(hi) else 0
+                a, b = int(lo), int(hi)
+                step = 1 if b >= a else -1
+                nxt += [item[: m.start()] + str(i).zfill(width) + item[m.end() :] for i in range(a, b + step, step)]
+                changed = True
+            elif m := _CHOICE.search(item):
+                nxt += [item[: m.start()] + c.strip() + item[m.end() :] for c in m.group(1).split(",")]
+                changed = True
+            else:
+                nxt.append(item)
+        out = nxt
+        if len(out) > MAX_FILES:
+            raise UserFacingError(f"{source} names {len(out):,} files; at most {MAX_FILES:,} can be read together.")
+        if not changed:
+            break
+    return out
+
+
+def source_sql(rs: "ResolvedSource") -> str:
+    """The file argument for read_parquet/read_json/parquet_metadata: one path literal, or a list of them."""
+    files = expand_files(rs.db_path)
+    if len(files) == 1:
+        return sql_literal(files[0])
+    return "[" + ", ".join(sql_literal(f) for f in files) + "]"
+
+
 def is_remote(source: str) -> bool:
     return bool(_REMOTE.match(source.strip()))
 

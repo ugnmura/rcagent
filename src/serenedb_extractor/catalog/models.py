@@ -1,4 +1,4 @@
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from datetime import datetime
 from typing import Literal
 
@@ -24,13 +24,15 @@ class FieldRoles:
     component: str | None = None
     trace: str | None = None
     order: str | None = None
+    # Derived, never stored: the owning team, from the ownership rules over component or service.
+    team: str | None = field(default=None, metadata={"derived": True})
 
     def present(self) -> dict[str, str]:
         """The roles that have an expression, by role name."""
         return {k: v for k, v in vars(self).items() if v is not None}
 
 
-ROLE_FIELDS = tuple(f.name for f in fields(FieldRoles))
+ROLE_FIELDS = tuple(f.name for f in fields(FieldRoles) if not f.metadata.get("derived"))
 
 
 @dataclass(frozen=True)

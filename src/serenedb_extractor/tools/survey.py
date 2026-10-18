@@ -18,6 +18,7 @@ from typing import Any, Literal
 from serenedb_extractor import format as fmt
 from serenedb_extractor.catalog.models import CandidateTemplate, LogTable, Template, UpsertResult
 from serenedb_extractor.context import AppContext
+from serenedb_extractor.ownership import Rule, team_of
 from serenedb_extractor.db import Rows
 from serenedb_extractor.query import cost, sampling
 from serenedb_extractor.query.filters import (
@@ -156,7 +157,7 @@ def _breakdown_line(role: str, counts: dict[str, int], hits: int, exact: bool) -
     if not counts:
         return None
     top = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:TOP_BREAKDOWN]
-    label = {"service": "services", "component": "components"}[role]
+    label = {"service": "services", "component": "components", "teams": "teams"}[role]
     return f"    {label}: " + ", ".join(f"{name} {_share(n, hits, exact)}" for name, n in top)
 
 
@@ -218,9 +219,23 @@ def _columns(lt: LogTable, tr: TimeRange, f: Filters, cols: dict[str, str], excl
     return scan, count
 
 
-def _decide(stats: ScopeStats, columns: list[str], n_target: int, confirmed_cost: str | None, max_s: float) -> cost.Decision:
-    """The cost check for the survey scan. R46: a block sample takes at least MIN_BLOCKS row groups
-    whenever that still fits, so its margins can be estimated; otherwise the usual ladder."""
+def _decide(
+    stats: ScopeStats,
+    columns: list[str],
+    n_target: int,
+    confirmed_cost: str | None,
+    max_s: float,
+    prefer_full: bool = True,
+) -> cost.Decision:
+    """The cost check for the survey scan. Reading every entry in scope comes first whenever it fits the
+    budget: the counts are then exact, or a uniform sample of the matching entries — far tighter than a
+    block sample on logs whose messages come in bursts (BGL). Otherwise R46: a block sample takes at least
+    MIN_BLOCKS row groups whenever that still fits, so its margins can be estimated; else the usual ladder.
+    `prefer_full` is off when the caller asked for a sample of a given size."""
+    if prefer_full:
+        full = cost.decide(stats, columns, True, n_target, confirmed_cost, max_s=max_s)
+        if full.status == "run" and full.plan.exact:
+            return full
     usual = cost.decide(stats, columns, False, n_target, confirmed_cost, max_s=max_s)
     g = len(stats.groups) if stats.can_sample else 0
     if g < 2 or usual.plan.confirmed:
@@ -268,7 +283,9 @@ def survey(
         match_sql += pct(SURVEY_SQL_SUFFIX)
         scan_cols, count_cols = _columns(lt, tr, f, cols, bool(hidden))
         stats = collect(db, lt, tr)
-        decision = _decide(stats, scan_cols + count_cols, n_target, confirmed_cost, s.max_timeout_s)
+        decision = _decide(
+            stats, scan_cols + count_cols, n_target, confirmed_cost, s.max_timeout_s, prefer_full=sample_size is None
+        )
         if decision.status == "ask":
             head = fmt.how_measured(cost.ASKED_HOW, period, scope_text, tz=timezone)
             return "\n".join([head, *exclusion_notes, decision.message])
@@ -452,6 +469,15 @@ def _measure_template(m: MergedTemplate, run: _Run) -> fmt.Measured:
     return sampling.block_estimate(list(zip(run.looked_at, hits, strict=True)), run.looked_fraction)
 
 
+def _team_counts(by_value: dict[str, int], rules: list[Rule]) -> dict[str, int]:
+    """A component (or service) breakdown folded into owning teams."""
+    out: dict[str, int] = {}
+    for value, n in by_value.items():
+        team = team_of(None if value == NONE_LABEL else value, rules)
+        out[team] = out.get(team, 0) + n
+    return out
+
+
 def _render(
     ctx: AppContext,
     lt: LogTable,
@@ -465,6 +491,7 @@ def _render(
 ) -> str:
     merged = merge_groups(run.groups)
     exact = run.method == "every"
+    owners = ctx.store.ownership.for_table(lt.name, lt.roles.present())
     measures = {m.template: _measure_template(m, run) for m in merged}
     candidates = [_candidate(m, measures[m.template]) for m in merged]
     result = ctx.store.upsert_survey_templates(lt.name, candidates, datetime.now(UTC))
@@ -496,6 +523,10 @@ def _render(
         out.append(f"    {fmt.render(measured)}, {_share(m.count, run.sampled, exact)} of matching entries")
         for role in ("service", "component"):
             line = _breakdown_line(role, m.breakdown.get(role, {}), m.count, exact)
+            if line:
+                out.append(line)
+        if owners is not None:
+            line = _breakdown_line("teams", _team_counts(m.breakdown.get(owners[0], {}), owners[1]), m.count, exact)
             if line:
                 out.append(line)
         out.append(f"    example: {fmt.shorten(fmt.template_text(m.example))}")

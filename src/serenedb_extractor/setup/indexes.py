@@ -286,6 +286,17 @@ def build_measured(ctx: AppContext, lt: LogTable, kind: str) -> BuiltIndex:
     return BuiltIndex(qualified, int(size or 0), seconds)
 
 
+def drop(ctx: AppContext, lt: LogTable, kind: str) -> str | None:
+    """Drop the log table's index of this kind and forget it; its name, or None when it had none."""
+    k = check_kind(kind)
+    have = lt.filter_index_name if k == "filter" else lt.search_index_name
+    if not have:
+        return None
+    ctx.db.write(f"DROP INDEX IF EXISTS {have}", {}, what=f"dropping the {k} index of log table {lt.name}")
+    ctx.store.set_index(lt.name, k, None)
+    return have
+
+
 def build(ctx: AppContext, lt: LogTable, kind: str) -> str:
     """Build the index; returns its (qualified) name."""
     return build_measured(ctx, lt, kind).name
@@ -328,7 +339,12 @@ _OFFER_FOOTER = (
 
 
 def inspect_lines(
-    ctx: AppContext, source: str, parquet_path: str | None, roles: FieldRoles, total_rows: int | None
+    ctx: AppContext,
+    source: str,
+    parquet_path: str | None,
+    roles: FieldRoles,
+    total_rows: int | None,
+    is_sql: bool = False,
 ) -> list[str]:
     """The index offer of inspect_source, which only reads: an estimate from an earlier trial build when this
     session has one, else a rough size from the Parquet column sizes. Never builds or creates anything."""
@@ -343,7 +359,7 @@ def inspect_lines(
             out.append(f"{kind} index: {est.describe()}")
             continue
         try:
-            size = _rough_size(ctx, parquet_path, roles, kind) if parquet_path else None
+            size = _rough_size(ctx, parquet_path, roles, kind, is_sql) if parquet_path else None
         except (psycopg.Error, UserFacingError):
             size = None
         out.append(
@@ -355,13 +371,16 @@ def inspect_lines(
     return out
 
 
-def _rough_size(ctx: AppContext, parquet_path: str, roles: FieldRoles, kind: IndexKind) -> float | None:
-    """Compressed bytes of the Parquet columns the index would cover: a stand-in for the index's size."""
+def _rough_size(
+    ctx: AppContext, parquet_path: str, roles: FieldRoles, kind: IndexKind, is_sql: bool = False
+) -> float | None:
+    """Compressed bytes of the Parquet columns the index would cover: a stand-in for the index's size.
+    `parquet_path` is a path, or (is_sql) already the SQL file argument (a literal or a list of them)."""
     names = [c for c, _ in spec(roles, kind)]
     params = {f"c{i}": n for i, n in enumerate(names)}
     marks = ", ".join(f"%({k})s" for k in params)
     total = ctx.db.read(
-        f"SELECT sum(total_compressed_size)::bigint FROM parquet_metadata({sql_literal(parquet_path)}) "
+        f"SELECT sum(total_compressed_size)::bigint FROM parquet_metadata({parquet_path if is_sql else sql_literal(parquet_path)}) "
         f"WHERE split_part(path_in_schema, ', ', 1) IN ({marks})",
         params,
     ).scalar()

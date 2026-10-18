@@ -30,7 +30,7 @@ from serenedb_extractor.timezones import is_utc
 
 SAMPLE_ROWS = 10_000
 TOP_N = 8
-_TOP_ROLES = ("level", "service", "component")
+_TOP_ROLES = ("level", "service", "component", "team")
 
 
 def context_scopes(roles: FieldRoles) -> list[str]:
@@ -42,11 +42,16 @@ def known_columns(db: Database, lt: LogTable) -> dict[str, str]:
     return dict(relation_columns(db, lt.relation, lt.source))
 
 
-def _top_values(db: Database, lt: LogTable, role: str, where: str, params: dict[str, object]) -> str:
+def _top_values(
+    db: Database, lt: LogTable, role: str, where: str, params: dict[str, object], exact: bool = False
+) -> str:
+    """The role's most common values: over every entry in scope when `exact` (the caller checked the cost),
+    else over the first SAMPLE_ROWS entries."""
     expr = role_sql(lt, role)
+    limit = "" if exact else f" LIMIT {SAMPLE_ROWS}"
     rows = db.read(
         f"SELECT v, c, count(*) OVER () AS n FROM (SELECT e::varchar AS v, count(*) AS c FROM "
-        f"(SELECT {expr} AS e FROM {lt.relation} WHERE {where} LIMIT {SAMPLE_ROWS}) GROUP BY 1) "
+        f"(SELECT {expr} AS e FROM {lt.relation} WHERE {where}{limit}) GROUP BY 1) "
         f"ORDER BY c DESC, v LIMIT {TOP_N}",
         params,
     ).rows
@@ -55,7 +60,8 @@ def _top_values(db: Database, lt: LogTable, role: str, where: str, params: dict[
         return "no values in the sample"
     distinct = rows[0][2]
     shown = ", ".join(f"{v} ({c:,})" for v, c in vals)
-    more = f", … ({distinct} distinct in the sample)" if distinct > len(rows) else ""
+    where_seen = "" if exact else " in the sample"
+    more = f", … ({distinct} distinct{where_seen})" if distinct > len(rows) else ""
     return shown + more
 
 
@@ -138,6 +144,7 @@ def _describe_one(ctx: AppContext, lt: LogTable, tr: TimeRange, top: _TopSources
     out = [f"log table {lt.name}", f"  source: {lt.source} ({lt.source_format})", f"  mode: {mode}"]
     out.append("  roles:")
     out += role_lines(lt.roles, "    ")
+    out.append("    " + _team_line(ctx, lt))
     out.append(f"  entries: {lt.row_count:,}" if lt.row_count is not None else "  entries: not counted")
     out.append("  " + _zone_line(lt))
     out.append("  " + _time_range_line(db, lt, cols, tr))
@@ -174,20 +181,31 @@ def _describe_one(ctx: AppContext, lt: LogTable, tr: TimeRange, top: _TopSources
     lines: list[str] = []
     used: set[str] = set()
     sampled = False
+    counted = False
+    present = [r for r in _TOP_ROLES if getattr(lt.roles, r) is not None]
+    full_cols = [c for r in present for c in role_columns(getattr(lt.roles, r))] + (ts_cols if tr.bounded else [])
+    full = bool(present) and _affordable(db, lt, tr, full_cols) is None
     for role in _TOP_ROLES:
         if getattr(lt.roles, role) is None:
-            lines.append(f"    {role}: absent")
+            if role != "team":
+                lines.append(f"    {role}: absent")
             continue
         via = _top_values_indexed(ctx, lt, role, tr, cols)
         if via is not None:
             used.add(via[1])
             lines.append(f"    {role}: {via[0]}" + ("" if via[0] == "no values" else "  [exact, from the index]"))
+        elif full:
+            counted = True
+            lines.append(f"    {role}: {_top_values(db, lt, role, where, params, exact=True)}  [exact]")
         else:
             sampled = True
             lines.append(f"    {role}: {_top_values(db, lt, role, where, params)}")
     top.sampled = top.sampled or sampled
     top.indexes |= used
     period = f" in {tr.describe()}" if tr.bounded else ""
+    if counted and not sampled and not used:
+        out.append(f"  top values (exact, counted over every entry{period}):")
+        return out + [ln.replace("  [exact]", "") for ln in lines]
     if sampled:
         label = "sampled — rare values may be missing"
         scope = f"the first {SAMPLE_ROWS:,} entries" + period
@@ -198,9 +216,20 @@ def _describe_one(ctx: AppContext, lt: LogTable, tr: TimeRange, top: _TopSources
     return out + lines
 
 
+def _team_line(ctx: AppContext, lt: LogTable) -> str:
+    found = ctx.store.ownership.for_table(lt.name, lt.roles.present())
+    if found is None:
+        return "team: absent (no ownership rule covers this log table)"
+    role, rules = found
+    teams = sorted({r.team for r in rules})
+    return f"team: from the ownership table on {role} ({len(rules)} rules; teams: {', '.join(teams)})"
+
+
 def _resolve_field(lt: LogTable, name: str, cols: dict[str, str]) -> tuple[str, str]:
     """(label, SQL expression) for a role name or a real column."""
     key = name.strip()
+    if key.lower() == "team" and lt.roles.team is not None:
+        return "team", role_sql(lt, "team")
     if key.lower() in ROLE_FIELDS and key.lower() not in ("order",):
         return key.lower(), role_sql(lt, key.lower())
     match = resolve_column(key, cols)
