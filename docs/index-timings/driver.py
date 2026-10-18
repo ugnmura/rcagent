@@ -30,8 +30,8 @@ async def main(calls_path: str, out_path: str) -> None:
                            "seconds": round(dt, 3), "ok": not res.isError, "result": text}
                     out.write(json.dumps(rec) + "\n"); out.flush()
                     print(f'{c["label"]} run {run}: {dt:.2f} s ok={not res.isError} | {text[:160]!r}', flush=True)
-                    m = re.search(r"confirmed_cost[\"'=: ]+[\"']?([A-Za-z0-9_:.\-]+)", text)
-                    if "TOO EXPENSIVE" in text and m and c.get("confirm"):
+                    m = re.search(r"confirmed_cost=([0-9.]+[A-Za-z]+)", text)  # the guard's "run it anyway" option
+                    if m and c.get("confirm") and "confirmed_cost" not in args:
                         args2 = dict(args, confirmed_cost=m.group(1))
                         t = time.perf_counter()
                         res = await s.call_tool(c["tool"], args2)
