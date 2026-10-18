@@ -19,7 +19,7 @@ the searching and counting. Claude explains the results.
 
 ## Optional features
 
-Besides the required workflow, the server covers these optional parts of the brief, plus one addition of our own:
+Beyond the required workflow:
 
 | feature | what it does | measured |
 |---|---|---|
@@ -31,13 +31,19 @@ Besides the required workflow, the server covers these optional parts of the bri
 
 <img src="docs/img/bench-quality.svg" alt="Answer quality on 30 sealed held-out questions: this server scores 96.9% on a blind rubric (18 fixed tools 92.9%, 7 fixed tools 93.5%), 98% on exact values (94%, 96%), costs $0.117 per answer ($0.459, $0.259) and uses 5.9 tool calls per answer (9.2, 6.6)." width="100%">
 
-The team built three MCP server designs over the same data and kept the best. The chart compares them
-([how they differ](docs/EVALUATION.md#the-three-designs-compared)). A separate model wrote the questions without
-seeing this repository, and a blind grader scored the answers. These finals ran at commit `6cad141`. The current
-version, rerun on the screening set with Sonnet 5.5, scored 94.4% on the rubric and 99% on exact values.
+The chart compares three MCP server designs the team built over the same data
+([how they differ](docs/EVALUATION.md#the-three-designs-compared)). Questions written blind, answers graded blind.
+
+With this server, by model (both at commit `6cad141`):
+
+| model | questions | blind rubric | exact values | USD per answer |
+|---|---|---|---|---|
+| Opus 5.5 | 30 sealed held-out, 5 trials each | **96.9%** | **98%** | 0.117 |
+| Sonnet 5.5 | 30 screening, 3 trials each | 93.3% | 96% | **0.036** |
+
+The two models answered different question sets, so this is not a head-to-head.
 
 <img src="docs/img/bench-textbench.svg" alt="TextBench, 1 billion rows read in place on S3: search of the whole file with the index 4.18 s, search of one minute without an index 2.88 s, survey of message types 7.8 s. The index was built once in 69.9 s." width="100%">
-
 
 ## How it works
 
@@ -45,19 +51,8 @@ version, rerun on the screening set with Sonnet 5.5, scored 94.4% on the rubric 
   <img src="docs/img/flow.svg" alt="You ask Claude a question. Claude calls a serenedb-extractor tool, and the tool runs SQL in SereneDB. Counts come back with an evidence ID (Q46), Claude answers citing it, and every query is saved so you can check any number." width="100%">
 </p>
 
-Claude only sees query results, never the raw logs. Every query is saved under an ID like `Q46`. The answer cites
-it, and `show_evidence` shows the exact SQL behind any number.
+Claude sees query results, never raw logs. Each query is saved as `Q<n>`, and `show_evidence` shows its SQL.
 
-
-### SereneDB features we use
-
-- **Files read in place:** views over `read_parquet`, `read_json` and `read_csv`, local or over HTTPS and S3
-- **Parquet statistics:** `parquet_metadata` to skip row groups outside the time window and to predict a query's cost
-- **Inverted index:** `CREATE INDEX … USING inverted(…)`, searched with `@@`, `ts_phrase` and `ts_levenshtein`
-- **Query plans:** `EXPLAIN` before each query, so an expensive one is narrowed or sampled instead of run blind
-- **Sampling:** `USING SAMPLE reservoir(…) REPEATABLE` for estimates that state their margin
-- **Aggregation:** exact `count(*)` by group and time bucket, `quantile_cont` for latency percentiles
-- **Roles:** a read-only reader and a writer that owns only the `extractor` schema, enforced by SereneDB when both are set
 
 ## Quick start
 
@@ -95,19 +90,14 @@ Then run `claude` in this folder and ask:
 
 - **Apple Silicon:** use `serenedb/serenedb:26.09.2` (native arm64) and leave out `--platform`. The pinned image
   is slow and may crash under emulation.
-- **Why a local SereneDB and our own loader:** the organisers' guidance says there is no pre-built loader, schema,
-  ownership table or shared instance, so the quick start runs all of it locally.
+- **Local SereneDB and our own loader:** the organisers supplied no loader, schema, ownership table or instance.
 - Passwords, reader and writer roles, other options: [docs/reference.md](docs/reference.md).
-
 
 ## Worked investigation: one corpus, three roles
 
-The same agent answers one question per role over the base corpus: BGL (4,747,963 entries) and OpenStack
-(207,636 entries). Each role gets different evidence and a different kind of action. All 25 tool calls took
-0.02 s to 1.97 s each (median 0.25 s) with no index. `[step n]` points to the
-[transcript](docs/worked-investigation-transcript.md), which holds every tool call, its result and the SQL that
-ran. The full write-up is [docs/worked-investigation.md](docs/worked-investigation.md). BGL times are US Pacific,
-the zone the log was written in.
+One question per role over BGL (4,747,963 entries) and OpenStack (207,636). 25 tool calls, median 0.25 s, no
+index. `[step n]` points to the [transcript](docs/worked-investigation-transcript.md) with every call, result and
+query. Full write-up: [docs/worked-investigation.md](docs/worked-investigation.md). BGL times are US Pacific.
 
 ### Engineer: "What failed on BGL, and what happened just before it?"
 
@@ -155,12 +145,11 @@ labels mark as `KERNDTLB` [steps 24, 25].
 
 ### A second engineer finding: two 503s at 06:25 (OpenStack)
 
-OpenStack's only 2 CRITICAL entries are failed token checks after Keystone answered `503`: at **06:25:02 on 16 May**
-and **06:25:03 on 17 May**, the same minute a day apart. After the one on 17 May, polling of `servers/detail` fell
-from about 2,830 to 12 requests an hour, and no VM finished starting from 07:00 to the end of the log. The
-anomaly labels don't mark either one. **Hypothesis:** Ubuntu's daily cron job at 06:25 reloads Apache, which hosts
-Keystone, and the client gives up instead of retrying. **Next check:** Keystone's Apache log and `/etc/crontab` on
-the controller. Eight tool calls, all in [docs/keystone-503-transcript.md](docs/keystone-503-transcript.md).
+OpenStack's only 2 CRITICAL entries are failed token checks after Keystone returned `503`, at 06:25 on 16 and on
+17 May. After the second, API polling fell from about 2,830 to 12 requests an hour and no VM finished starting
+again. The anomaly labels mark neither. **Hypothesis:** the daily cron job at 06:25 reloads Apache, which hosts
+Keystone. **Next check:** Keystone's Apache log and `/etc/crontab`.
+[Transcript](docs/keystone-503-transcript.md).
 
 ## Tools
 
@@ -177,20 +166,13 @@ Claude picks these from their descriptions. Every result says how it was measure
 | `rank_problems` | what to look at first, ranked by a stated, measured score |
 | `show_evidence` | the exact SQL and result behind any cited number |
 
-There are 18 tools in total, including setup, indexes and team ownership. Each one's inputs and outputs are listed in
-[docs/reference.md](docs/reference.md#tools).
-
+18 tools in total, including setup, indexes and team ownership. Inputs and outputs: [docs/reference.md](docs/reference.md#tools).
 
 ## Evidence
 
-- **Counted in the database.** Counts cover every entry in scope, not a handful of examples. An estimate is
-  labelled with its margin.
+- **Counted in the database.** Counts cover every entry in scope. An estimate states its margin.
 - **Every number is cited.** `[Q46]` next to a number means "run `show_evidence(['Q46'])` to see the query".
-- **Facts and guesses are kept apart.** Causes are labelled as hypotheses, and each answer says what the logs do
-  not show.
-- **Checked against ground truth.** A full-text count of "data TLB error interrupt" over all of BGL gives 152,734,
-  exactly the number of lines BGL's own labels mark as that alert.
-
+- **Facts and guesses kept apart.** Causes are labelled hypotheses. Each answer says what the logs do not show.
 
 ## Limitations
 
