@@ -1,6 +1,6 @@
 """Issue #37: edit_team_ownership must not overwrite or leak arbitrary files. Export writes only .csv/.tsv and
 replaces a file only with overwrite=True; import reads only .csv/.tsv/.txt files; a parse error never quotes the
-file. Symlinks, devices and private places are covered by test_security_round3.py
+file. Symlinks, devices and private places are covered by test_source_and_path_security.py
 (test_export_refuses_devices_links_hidden_and_system_places, test_import_reads_only_csv_like_regular_files)."""
 
 from pathlib import Path

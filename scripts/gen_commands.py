@@ -13,7 +13,7 @@ HEADER = """---
 description: {description}
 argument-hint: [your question about the logs]
 ---
-Use the serenedb-extractor MCP tools to answer this question: $ARGUMENTS
+Use the rcagent MCP tools to answer this question: $ARGUMENTS
 
 """
 

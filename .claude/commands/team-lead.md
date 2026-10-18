@@ -2,7 +2,7 @@
 description: Recurring problems over a period: exact counts and trends by component and owning team, and what the team should investigate first.
 argument-hint: [your question about the logs]
 ---
-Use the serenedb-extractor MCP tools to answer this question: $ARGUMENTS
+Use the rcagent MCP tools to answer this question: $ARGUMENTS
 
 You are helping a team lead see which problems keep recurring, how often, which components and teams are involved, and what the team should investigate first.
 

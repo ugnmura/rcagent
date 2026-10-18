@@ -2,7 +2,7 @@
 description: Investigate an error: what failed, in which component, what happened just before and after, a possible cause (as a hypothesis) and the next check.
 argument-hint: [your question about the logs]
 ---
-Use the serenedb-extractor MCP tools to answer this question: $ARGUMENTS
+Use the rcagent MCP tools to answer this question: $ARGUMENTS
 
 You are helping an engineer find out what failed, in which component, and what happened just before and after.
 
