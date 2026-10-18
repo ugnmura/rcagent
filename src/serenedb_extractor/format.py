@@ -34,20 +34,27 @@ def how_measured(
 
 def clamp_limit(requested: int | None, default: int, cap: int) -> int:
     """A count of things to show: the default when not given; 1 or more when given (anything above `cap` is cut
-    to `cap`, and the result's "showing N of M" line says so)."""
+    to `cap`; limit_and_note gives the note that says so)."""
+    return limit_and_note(requested, default, cap)[0]
+
+
+def limit_and_note(requested: int | None, default: int, cap: int) -> tuple[int, str | None]:
+    """clamp_limit plus, when the request was above the cap, a note to add to the "showing N of M" line."""
     if requested is None:
-        return default
+        return default, None
     if requested < 1:
         from serenedb_extractor.errors import UserFacingError
 
         raise UserFacingError(f"A limit is how many to show: give 1 or more (got {requested}), or leave it out for {default}.")
-    return min(requested, cap)
+    if requested > cap:
+        return cap, f"at most {cap:,} per call; {requested:,} were asked for"
+    return requested, None
 
 
 def cut(items: list[T], limit: int, noun: str) -> tuple[list[T], str | None]:
     if len(items) <= limit:
         return items, None
-    return items[:limit], f"showing {limit} of {len(items)} {noun}"
+    return items[:limit], f"showing {limit:,} of {len(items):,} {noun}"
 
 
 def shorten(text: str, max_chars: int = 500) -> str:

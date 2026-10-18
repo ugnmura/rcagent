@@ -219,7 +219,7 @@ def count_logs(
         tables = ctx.store.list_log_tables()
         if not tables:
             raise UserFacingError("There are no log tables yet; set one up first.")
-    shown_limit = fmt.clamp_limit(limit, DEFAULT_GROUPS, DEFAULT_GROUPS * ctx.settings.limit_cap)
+    shown_limit, cap_note = fmt.limit_and_note(limit, DEFAULT_GROUPS, DEFAULT_GROUPS * ctx.settings.limit_cap)
     # One table: exactly the groups shown. Several: more of each, so the combined lines see the values they share.
     fetch = shown_limit if len(tables) == 1 else shown_limit * 10
     # Each log table is read and shown in its own zone unless one is given.
@@ -236,10 +236,11 @@ def count_logs(
             results.append(TableCount(lt, None, None, [], [], note=f"not counted: {exc}"))
     tr = ranges[tables[0].name]
     if one_zone:
-        return _render(results, tr, f, text, tr.tz, group_by, shown_limit, None)
+        return _render(results, tr, f, text, tr.tz, group_by, shown_limit, None, cap_note)
     period = f"{start or 'the beginning'} to {end or 'the end'} in each log table's own time zone" if tr.bounded else None
     return _render(
-        results, tr, f, text, "each log table's own time zone (see describe_logs)", group_by, shown_limit, period
+        results, tr, f, text, "each log table's own time zone (see describe_logs)", group_by, shown_limit, period,
+        cap_note,
     )
 
 
@@ -252,6 +253,7 @@ def _render(
     group_by: list[str],
     limit: int,
     period: str | None,
+    cap_note: str | None = None,
 ) -> str:
     lines = [_how(results, tr, f, text, tz, period)]
     many = len(results) > 1
@@ -289,7 +291,8 @@ def _render(
             cut = _largest(t.groups, limit)
             n_all = t.n_groups if t.n_groups is not None else len(t.groups)
             if len(cut) < n_all:
-                lines.append(f"  showing the {len(cut):,} largest of {n_all:,} groups (raise limit to see more)")
+                more = cap_note or "raise limit to see more"
+                lines.append(f"  showing the {len(cut):,} largest of {n_all:,} groups ({more})")
             for key, m in cut:
                 lines.append(f"  {_key_text(t.labels, key)}: {_num(m)}{_share(m, t.total)}")
         for why in t.empty_why or []:

@@ -302,7 +302,7 @@ def locate_occurrences(
     tr = parse_time_range(start, end, timezone)
     f = Filters.from_dict(filters)
     tpls, notes = _resolve_templates(ctx, lt.name, templates)
-    shown_limit = fmt.clamp_limit(limit, DEFAULT_GROUPS, DEFAULT_GROUPS * ctx.settings.limit_cap)
+    shown_limit, cap_note = fmt.limit_and_note(limit, DEFAULT_GROUPS, DEFAULT_GROUPS * ctx.settings.limit_cap)
     per_group = int(examples_per_group)
     db = ctx.db
     with readable(f"the source of log table '{lt.name}'"):
@@ -360,7 +360,7 @@ def locate_occurrences(
         empty_why = (
             diagnose_empty(db, lt, tr, f, sc.cols) if plan.exact and not counts and (f.items() or tr.bounded) else []
         )
-    return _render_locate(sc, plan, groups, shown, cut_groups, totals, examples, notes, shown_limit, empty_why)
+    return _render_locate(sc, plan, groups, shown, cut_groups, totals, examples, notes, cap_note, empty_why)
 
 
 def _measure(
@@ -464,9 +464,10 @@ def _render_locate(
     totals: dict[int, fmt.Measured],
     examples: dict[tuple[int, tuple[str, ...]], list[str]],
     notes: list[str],
-    shown_limit: int,
+    cap_note: str | None,
     empty_why: list[str],
 ) -> str:
+    cap = f" ({cap_note})" if cap_note else ""
     multi = len(sc.templates) > 1
     out = [
         _how(
@@ -498,7 +499,7 @@ def _render_locate(
             if ex:
                 out.append(f"    {'    ' if groups else ''}examples: {', '.join(ex)}")
         if len(shown[ti]) > len(items):
-            out.append(f"    showing the {len(items):,} largest of {len(shown[ti]):,} groups")
+            out.append(f"    showing the {len(items):,} largest of {len(shown[ti]):,} groups{cap}")
     if not any(cut_groups.values()):
         out += empty_why
     return "\n".join(out)
@@ -531,7 +532,7 @@ def extract_params(
     t = tpls[0]
     if not t.params:
         raise UserFacingError(f"{t.template_id} ({t.template}) has no parameters to extract.")
-    shown_limit = fmt.clamp_limit(limit, DEFAULT_VALUES, DEFAULT_VALUES * ctx.settings.limit_cap)
+    shown_limit, cap_note = fmt.limit_and_note(limit, DEFAULT_VALUES, DEFAULT_VALUES * ctx.settings.limit_cap)
     db = ctx.db
     with readable(f"the source of log table '{lt.name}'"):
         sc = _scope(ctx, lt, tr, f, timezone, tpls)
@@ -551,10 +552,11 @@ def extract_params(
         plan = decision.plan
         if (missing := untimestamped_note(db, lt, tr)) is not None:
             notes.append(missing)
-        run = _ParamRun(sc, plan, t, by_expr, shown_limit, ctx)
+        by_time = bool(by_items) and by_items[0][0].startswith("time:")
+        run = _ParamRun(sc, plan, t, by_expr, shown_limit, ctx, by_time)
         run.by_values = fmt.clamp_limit(limit, BY_VALUES, BY_VALUES * ctx.settings.limit_cap)
         result = run.go()
-    return _render_params(sc, plan, t, by_items[0][0] if by_items else None, result, shown_limit, notes)
+    return _render_params(sc, plan, t, by_items[0][0] if by_items else None, result, cap_note, notes)
 
 
 Stats = tuple[int, float, float, float, float]
@@ -574,9 +576,13 @@ class ParamResult:
 
 
 class _ParamRun:
-    def __init__(self, sc: Scope, plan: cost.Plan, t: Template, by_expr: str | None, limit: int, ctx: AppContext) -> None:
+    def __init__(
+        self, sc: Scope, plan: cost.Plan, t: Template, by_expr: str | None, limit: int, ctx: AppContext,
+        by_time: bool = False,
+    ) -> None:
         self.sc, self.plan, self.t, self.by_expr, self.limit = sc, plan, t, by_expr, limit
         self.by_values = BY_VALUES  # values shown per group of `by`
+        self.by_time = by_time
         self.db = ctx.db
         self.timeout = cost.run_timeout(plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
         self.what = f"extracting parameters of {t.template_id} in log table {sc.lt.name}"
@@ -643,6 +649,8 @@ class _ParamRun:
             f"SELECT b, count(*) AS c, count(*) OVER () AS g FROM ({self.matched}) GROUP BY b ORDER BY c DESC, b LIMIT {_int(BY_GROUPS)}"
         )
         res.by_total = [(str(r[0]), int(r[1])) for r in rows]
+        if self.by_time:  # the largest BY_GROUPS buckets, listed in time order like the other tools
+            res.by_total.sort(key=lambda bc: (bc[0] == NONE_LABEL, bc[0]))
         res.by_distinct = int(rows[0][2]) if rows else 0
         if not rows:
             return
@@ -673,8 +681,9 @@ def _stats_line(s: tuple[int, float, float, float, float]) -> str:
 
 
 def _render_params(
-    sc: Scope, plan: cost.Plan, t: Template, by: str | None, r: ParamResult, limit: int, notes: list[str]
+    sc: Scope, plan: cost.Plan, t: Template, by: str | None, r: ParamResult, cap_note: str | None, notes: list[str]
 ) -> str:
+    cap = f" ({cap_note})" if cap_note else ""
     sampled = "" if plan.exact else " (counts are from the sample)"
     out = [
         _how(
@@ -700,10 +709,11 @@ def _render_params(
             out.append(f"    {_stats_line(r.stats[p.name])}")
         out.append("    top values: " + ", ".join(f"{v} ({c:,})" for v, c in r.top[p.name]))
         if r.distinct[p.name] > len(r.top[p.name]):
-            out.append(f"    showing {len(r.top[p.name])} of {r.distinct[p.name]:,} values")
+            out.append(f"    showing {len(r.top[p.name]):,} of {r.distinct[p.name]:,} values{cap}")
     if by:
         out.append("")
-        out.append(f"  by {by}:")
+        by_time = by.startswith("time:")
+        out.append(f"  by {by}" + (" (in time order):" if by_time else " (largest first):"))
         for b, n in r.by_total:
             out.append(f"    {b}: {n:,} entries")
             for p in t.params:
@@ -715,5 +725,8 @@ def _render_params(
                 if parts:
                     out.append(f"        {p.name}: " + "; ".join(parts))
         if r.by_distinct > len(r.by_total):
-            out.append(f"    showing {len(r.by_total)} of {r.by_distinct:,} {by} values")
+            out.append(
+                f"    showing {len(r.by_total):,} of {r.by_distinct:,} {by} values"
+                + (" (the largest ones, listed in time order)" if by_time else "")
+            )
     return "\n".join(out)

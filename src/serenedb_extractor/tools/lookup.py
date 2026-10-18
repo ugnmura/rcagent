@@ -139,13 +139,15 @@ def search_logs(
             raise UserFacingError("Fuzzy search needs the text to look for (text=...).")
     if order not in ORDERS:
         raise UserFacingError(f"order must be 'newest' or 'oldest', not '{order}'.")
-    shown_limit = fmt.clamp_limit(limit, DEFAULT_LIMIT, DEFAULT_LIMIT * ctx.settings.limit_cap)
+    shown_limit, cap_note = fmt.limit_and_note(limit, DEFAULT_LIMIT, DEFAULT_LIMIT * ctx.settings.limit_cap)
     db = ctx.db
     with readable(f"the source of log table '{lt.name}'"):
         cols = known_columns(db, lt)
         ix = _index_path(ctx, lt, f, text, fuzzy, cols)
         if ix is not None and ix.fuzzy:
-            return _search_via_index(ctx, lt, tr, f, text, ix, order, shown_limit, timezone, confirmed_cost, cols)
+            return _search_via_index(
+                ctx, lt, tr, f, text, ix, order, shown_limit, timezone, confirmed_cost, cols, cap_note
+            )
         time_sql, time_params = time_clause(lt, tr, cols)
         match_sql, params = build_where(lt, TimeRange(), f, cols)  # the filters alone
         params.update(time_params)
@@ -165,7 +167,9 @@ def search_logs(
                     "searched directly (exact substring match)"
                 )
             else:
-                return _search_via_index(ctx, lt, tr, f, text, ix, order, shown_limit, timezone, confirmed_cost, cols)
+                return _search_via_index(
+                ctx, lt, tr, f, text, ix, order, shown_limit, timezone, confirmed_cost, cols, cap_note
+            )
         if decision.status == "ask":
             return _ask(lt, tr, f, text, timezone, decision.message)
         plan = decision.plan
@@ -195,7 +199,10 @@ def search_logs(
             if templates:  # template tags once the catalog has templates
                 tags = [tag_text(t) for t in tag_entries(templates, [str(r["occ_msg"] or "") for r in rows])]
         empty_why = diagnose_empty(db, lt, tr, f, cols) if plan.exact and total == 0 else []
-    return _render(lt, tr, f, text, timezone, plan, measured, rows, tags, total, order, empty_why, notes=extra_notes)
+    return _render(
+        lt, tr, f, text, timezone, plan, measured, rows, tags, total, order, empty_why, notes=extra_notes,
+        cap_note=cap_note,
+    )
 
 
 @dataclass(frozen=True)
@@ -274,6 +281,7 @@ def _search_via_index(
     tz: str,
     confirmed_cost: str | None,
     cols: dict[str, str],
+    cap_note: str | None = None,
 ) -> str:
     """Count and list the matches from the index relation (spike sections 9, 10), then look up the matches'
     occurrence IDs in the source: the index relation can't give the Parquet helper columns."""
@@ -333,6 +341,7 @@ def _search_via_index(
     out = _render(
         lt, tr, f, text, tz, plan, fmt.Measured(float(total), True), rows, tags, total, order, empty_why,
         via=(ix.name, f"{how} {fmt.shorten(str(text), 200)!r}"), notes=[n for n in (missing, lookup_note) if n],
+        cap_note=cap_note,
     )
     return out
 
@@ -434,7 +443,9 @@ def _render(
     empty_why: list[str],
     via: tuple[str, str] | None = None,
     notes: list[str] | None = None,
+    cap_note: str | None = None,
 ) -> str:
+    cap = f"; {cap_note}" if cap_note and total > len(rows) else ""
     if via:
         kind = f"exact search through the search index {via[0]}: every entry whose message {via[1]} was found" + (
             " (run as you confirmed)" if plan.confirmed else ""
@@ -467,13 +478,13 @@ def _render(
     if plan.exact:
         out.append(f"{total:,} matching {'entry' if total == 1 else 'entries'} (exact)")
         if total > len(rows):
-            out.append(f"showing {len(rows)} of {total:,} entries ({order} first)")
+            out.append(f"showing {len(rows):,} of {total:,} entries ({order} first{cap})")
     else:
         out.append(f"matching entries: {fmt.render(measured)}")
         if rows:
             out.append(
-                f"showing {len(rows)} of {total:,} matching entries found in the sample ({order} first among them; "
-                "matching entries outside the sample are not listed)"
+                f"showing {len(rows):,} of {total:,} matching entries found in the sample ({order} first among them; "
+                f"matching entries outside the sample are not listed{cap})"
             )
     if not rows and not plan.exact:
         out.append("No matching entries in the sample; matching entries may still exist outside it.")
