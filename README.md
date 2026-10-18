@@ -12,7 +12,7 @@
 
 An MCP server that lets Claude investigate millions of log lines for three people: an **engineer** chasing an
 error, a **team lead** looking for recurring problems, and a **manager** deciding what comes first. SereneDB does
-the searching and counting. Claude explains the results. Built for *Making Sense of Logs* (SereneDB track).
+the searching and counting. Claude explains the results.
 
 **Demo video:** _link to come_ · **Worked investigation:** [below](#worked-investigation-one-corpus-three-roles) ·
 **Requirements checklist:** [docs/reference.md](docs/reference.md#requirements-checklist)
