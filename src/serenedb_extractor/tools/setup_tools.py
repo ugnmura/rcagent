@@ -144,7 +144,7 @@ def _rerun(ctx: AppContext, lt: LogTable, source: str, roles: dict[str, Any] | N
     if timezone is not None and timezone != lt.timezone:
         ctx.store.set_timezone(lt.name, timezone)
         changes.append(f"updated time zone: {timezone}")
-    header = fmt.how_measured("log table settings updated; no data was read")
+    header = fmt.how_measured("log table settings updated; no data was read", tz=timezone or lt.timezone)
     if not changes:
         return header + f"\nLog table '{lt.name}' is already set up and nothing changed. Pass roles={{...}} or timezone to correct them."
     out = [header, f"Log table '{lt.name}': {'; '.join(changes)}. Nothing else changed.", "field roles now:"]
@@ -204,7 +204,8 @@ def setup_log_table(
     lines = [
         fmt.how_measured(
             "log table registered; only the source's metadata and 5 sample entries were read"
-            + (index_lines_how(read_data) if read_data else "")
+            + (index_lines_how(read_data) if read_data else ""),
+            tz=lt.timezone,
         ),
         f"Set up log table '{name}': {_where_read(rs)}."
         + f" View {relation} reads the source directly.",
@@ -274,7 +275,7 @@ def _inspect_raw(ctx: AppContext, rs: ResolvedSource, source: str, line_format: 
     entries = list(parse_entries(head, name, zone))[:5]
     lines = [
         fmt.how_measured(
-            "read only the first lines of the file; nothing was created or changed", sample="the first lines"
+            "read only the first lines of the file; nothing was created or changed", sample="the first lines", tz=zone
         ),
         f"source: {source} (raw_text)",
         f"how it will be used: {_why_copy(rs)}",
@@ -381,7 +382,7 @@ def _copied_summary(
 ) -> str:
     index_lines, read_data = _index_section(ctx, lt, *build)
     lines = [
-        fmt.how_measured(how + (index_lines_how(read_data) if read_data else "")),
+        fmt.how_measured(how + (index_lines_how(read_data) if read_data else ""), tz=lt.timezone),
         f"Set up log table '{lt.name}': {_why_copy(rs)}",
         f"The copy is {lt.relation} ({lt.row_count:,} entries); the original file was not changed.",
         *_size_lines(rs),
@@ -524,7 +525,7 @@ def create_index(ctx: AppContext, log_table: str, kind: str, dry_run: bool = Fal
     }[kind]
     return "\n".join(
         [
-            fmt.how_measured(f"the {kind} index was built over every entry of the log table"),
+            fmt.how_measured(f"the {kind} index was built over every entry of the log table", tz=lt.timezone),
             _built_line(kind, built),
             note,
         ]
@@ -535,7 +536,7 @@ def drop_index(ctx: AppContext, log_table: str, kind: str) -> str:
     kind = indexes.check_kind(kind)
     lt = ctx.store.get_log_table(log_table)
     dropped = indexes.drop(ctx, lt, kind)
-    head = fmt.how_measured("index removed; no log entries were read")
+    head = fmt.how_measured("index removed; no log entries were read", tz=lt.timezone)
     if dropped is None:
         return head + f"\nLog table '{lt.name}' has no {kind} index; nothing changed."
     return (
