@@ -29,10 +29,9 @@ confirmed_cost without the user's OK, and never narrow the user's scope silently
 times carry their UTC offset. Say which zone each time is in and, when it is not UTC, give UTC too \
 (09:30:00-07:00 is 16:30:00 UTC). Times the user gives in another zone (e.g. UTC) go in with timezone set to it.
 - Say the period and the filters you used.
-- End with an "Evidence" section for checking: one line per [Q] handle you cited (every one of them) — what it \
-measured, over which log table, period and filters — followed by the main query it ran, copied from the result's \
-evidence footer (show_evidence gives the full queries and results). This section is the only place queries \
-appear unasked. When asked how you know something, answer with show_evidence for its handle.
+- Do not list the queries unasked: no "Evidence" section, no SQL. The [Q] handles in the text are the \
+evidence. End with one short line offering them, e.g. "Ask to see the query behind any [Q] number." When the \
+user asks how you know something or to see the queries, answer with show_evidence for those handles.
 """
 
 SERVER_INSTRUCTIONS = f"""\
