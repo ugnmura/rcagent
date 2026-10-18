@@ -1,18 +1,53 @@
+<div align="center">
+
 # serenedb-extractor
 
-**Ask your logs a question in plain words. Get an answer that fits your role, with every number linked to the
-query that produced it.**
+<h3>Ask your logs in plain words. Every number in the answer links to the SQL that produced it.</h3>
 
-Built for *Making Sense of Logs* (National AI Hackathon 2026, SereneDB track).
+[![MCP server](https://img.shields.io/badge/MCP-server-2a78d6?style=for-the-badge)](https://modelcontextprotocol.io)
+[![Built on SereneDB](https://img.shields.io/badge/built%20on-SereneDB-9865e8?style=for-the-badge)](https://serenedb.com)
+[![National AI Hackathon 2026](https://img.shields.io/badge/National%20AI%20Hackathon-2026-fbe5f5?style=for-the-badge)](#)
+
+</div>
+
+An MCP server that lets Claude investigate millions of log lines for three people: an **engineer** chasing an
+error, a **team lead** looking for recurring problems, and a **manager** deciding what comes first. SereneDB does
+the searching and counting; Claude explains the results. Built for *Making Sense of Logs* (SereneDB track).
+
+**Demo video:** _link to come_ · **Worked investigation:** [docs/worked-investigation.md](docs/worked-investigation.md)
+
+## Benchmarks
+
+### 96.9% on 30 sealed held-out questions, at $0.117 per answer
+
+<img src="docs/img/bench-quality.svg" alt="Answer quality on 30 sealed held-out questions: this server scores 96.9% on a blind rubric (v1 92.9%, v2 93.5%), 98% on exact values (94%, 96%), costs $0.117 per answer ($0.459, $0.259) and uses 5.9 tool calls per answer (9.2, 6.6)." width="100%">
+
+A separate model wrote the questions without seeing this repository; a blind grader scored the answers. These
+finals ran at commit `6cad141`. The current version, rerun on the screening set with Sonnet 5.5, scored 94.4% on
+the rubric and 99% on exact values. Method, confidence intervals and weak spots: [docs/EVALUATION.md](docs/EVALUATION.md).
+
+### 1 billion rows on S3, queried in place
+
+<img src="docs/img/bench-textbench.svg" alt="TextBench, 1 billion rows read in place on S3: search of the whole file with the index 4.18 s, exact search of a 60-second window without an index 2.88 s, survey 7.8 s; registering the S3 file 1.97 s, building the search index 69.9 s." width="100%">
+
+One TextBench file (`part_000.parquet`) straight from the public bucket, nothing downloaded, at commit `6cad141`
+on one shared HPC node. The search index over a billion rows needs more than 64 GB of RAM. Raw per-call logs:
+[docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md).
+
+### The base corpus: 25 tool calls, median 0.25 s
+
+In the worked investigation over BGL and OpenStack (4,955,599 entries, no index), every one of the 25 tool calls
+took between 0.02 s and 1.97 s, 0.25 s at the median, including exact counts over the whole corpus. Each timing is
+in the [transcript](docs/worked-investigation-transcript.md); the machine it ran on was not recorded.
+
+## How it works
 
 <p align="center">
   <img src="docs/img/flow.svg" alt="You ask Claude a question; Claude calls a serenedb-extractor tool; the tool runs SQL in SereneDB. Counts come back with an evidence ID (Q46), Claude answers citing it, and every query is saved so you can check any number." width="100%">
 </p>
 
-SereneDB does the searching and counting. Claude only sees the results, never the raw logs. Every query is saved
-under an ID like `Q46`; the answer cites it, and `show_evidence` shows the exact SQL behind any number.
-
-**Demo video:** _link to come_ · **Worked investigation:** [docs/worked-investigation.md](docs/worked-investigation.md)
+Claude only sees query results, never the raw logs. Every query is saved under an ID like `Q46`; the answer cites
+it, and `show_evidence` shows the exact SQL behind any number.
 
 ## Quick start
 
@@ -48,7 +83,11 @@ Then run `claude` in this folder and ask:
 /manager What should we prioritise from these logs?
 ```
 
-Another SereneDB instance, passwords, or the supplied team-ownership table: see [docs/reference.md](docs/reference.md).
+- **Apple Silicon:** use `serenedb/serenedb:26.09.2` (native arm64) and leave out `--platform`; the pinned image
+  is slow and may crash under emulation.
+- **Why a local SereneDB and our own loader:** the organisers' guidance says there is no pre-built loader, schema,
+  ownership table or shared instance, so the quick start runs all of it locally.
+- Passwords, reader and writer roles, other options: [docs/reference.md](docs/reference.md).
 
 ## Three roles, three kinds of answer
 
@@ -95,9 +134,9 @@ There are 18 tools in total, including setup, indexes and team ownership. Each o
 ## Limitations
 
 - Counts are log entries, not incidents.
-- The shipped team-ownership table is a fictional stand-in until the real one is imported.
+- The team-ownership table is fictional: the organisers supplied none.
 - Log tables are snapshots; they are not refreshed.
-- Timings were measured under emulation (arm64 Mac); real S3 timings for the large TextBench data were not measured.
+- The benchmarks above ran at commit `6cad141`; later changes were only rerun on the smaller screening set.
 
 Full list: [docs/reference.md](docs/reference.md#known-limits).
 
@@ -105,6 +144,8 @@ Full list: [docs/reference.md](docs/reference.md#known-limits).
 
 - [docs/worked-investigation.md](docs/worked-investigation.md): one question per role, every number cited
   ([full transcript](docs/worked-investigation-transcript.md))
-- [docs/reference.md](docs/reference.md): all tools, configuration, security, large datasets, tests
+- [docs/EVALUATION.md](docs/EVALUATION.md) and [docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md): how the benchmarks
+  were run
+- [docs/reference.md](docs/reference.md): the requirements checklist, all tools, configuration, security, tests
 
 Data: Loghub (Zhu et al., ISSRE 2023; BGL: Oliner & Stearley, DSN 2007), research use only.
