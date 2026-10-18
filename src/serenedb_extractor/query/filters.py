@@ -16,6 +16,8 @@ from serenedb_extractor.timezones import get_zone, is_utc, offset_text  # noqa: 
 from serenedb_extractor.setup.roles import is_temporal, resolve_column, role_column
 
 FILTER_ROLES = ("level", "service", "host", "component", "trace", "team")
+# More wanted values than this in one filter is not a filter any more; it would only make a huge query.
+MAX_FILTER_VALUES = 1_000
 _FMT = "%Y-%m-%d %H:%M:%S"
 
 
@@ -120,7 +122,7 @@ class Filters:
     component: str | list[str] | None = None
     trace: str | list[str] | None = None
     team: str | list[str] | None = None
-    columns: dict[str, str] = field(default_factory=dict)
+    columns: dict[str, str | list[str]] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any] | None) -> "Filters":
@@ -141,14 +143,37 @@ class Filters:
                 )
             if isinstance(value, list) and not [v for v in value if v is not None]:
                 raise UserFacingError(f"The filter on '{key}' is an empty list: give at least one value.")
-        roles = {r: d.pop(r) for r in FILTER_ROLES if d.get(r) is not None}
-        return cls(**roles, columns={k: str(v) for k, v in d.items()})
+            if isinstance(value, list) and len(value) > MAX_FILTER_VALUES:
+                raise UserFacingError(
+                    f"The filter on '{key}' lists {len(value):,} values; at most {MAX_FILTER_VALUES:,} fit in one filter. "
+                    "Split the values over several calls, or group by that field with count_logs instead."
+                )
+        wanted = {k: _wanted(v) for k, v in d.items()}
+        roles = {r: wanted.pop(r) for r in FILTER_ROLES if r in wanted}
+        return cls(**roles, columns=wanted)
 
     def items(self) -> list[tuple[str, str | list[str]]]:
         """(role or column, wanted value(s)) for every filter that is set."""
         out: list[tuple[str, str | list[str]]] = [(r, v) for r in FILTER_ROLES if (v := getattr(self, r)) is not None]
         out += list(self.columns.items())
         return out
+
+
+def _text(value: Any) -> str:
+    """A wanted value as the text it is compared with: every field is compared as text, so a number
+    is its plain digits (503, not 503.0) and a true/false is lower case, as SereneDB writes them."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def _wanted(value: Any) -> str | list[str]:
+    """One wanted value as text, or a list of them (missing entries in a list dropped)."""
+    if isinstance(value, (list, tuple)):
+        return [_text(v) for v in value if v is not None]
+    return _text(value)
 
 
 def role_expr(lt: LogTable, role: str) -> str:
@@ -268,7 +293,7 @@ def _shown(wanted: str | list[str]) -> str:
     def q(w: str) -> str:
         return "'" + str(w).replace("'", "''") + "'"
 
-    return "in (" + ", ".join(q(w) for w in wanted) + ")" if isinstance(wanted, list) else f"={q(wanted)}"
+    return " in (" + ", ".join(q(w) for w in wanted) + ")" if isinstance(wanted, list) else f"={q(wanted)}"
 
 
 class DataRange(NamedTuple):

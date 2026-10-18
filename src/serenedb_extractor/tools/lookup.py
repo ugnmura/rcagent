@@ -30,7 +30,7 @@ from serenedb_extractor.query import indexcover
 from serenedb_extractor.setup.paths import pct, sql_literal
 from serenedb_extractor.setup.roles import HELPER_COLUMNS, is_temporal, resolve_column, role_column
 from serenedb_extractor.setup.sniff import readable
-from serenedb_extractor.tools.describe import known_columns, like_pattern
+from serenedb_extractor.tools.describe import check_text, known_columns, like_pattern
 
 DEFAULT_LIMIT = 50
 ORDERS = ("newest", "oldest")
@@ -132,6 +132,8 @@ def search_logs(
     tr = parse_time_range(start, end, timezone)
     f = Filters.from_dict(filters)
     text = text if text else None
+    if text is not None:
+        check_text(text)
     if fuzzy:
         if lt.search_index_name is None:
             raise UserFacingError(FUZZY_NEEDS_INDEX)
@@ -144,6 +146,9 @@ def search_logs(
     with readable(f"the source of log table '{lt.name}'"):
         cols = known_columns(db, lt)
         ix = _index_path(ctx, lt, f, text, fuzzy, cols)
+        if fuzzy and (ix is None or not ix.fuzzy):
+            # The index went away after the call started (e.g. dropped meanwhile): an exact scan is not what was asked.
+            raise UserFacingError(FUZZY_NEEDS_INDEX)
         if ix is not None and ix.fuzzy:
             return _search_via_index(
                 ctx, lt, tr, f, text, ix, order, shown_limit, timezone, confirmed_cost, cols, cap_note
@@ -227,6 +232,8 @@ def _index_path(
     name = lt.search_index_name
     covered = ctx.store.index_columns(lt.name).get("search")
     if not text or name is None or covered is None:
+        if fuzzy:
+            raise UserFacingError(FUZZY_NEEDS_INDEX)
         return None
     db = ctx.db
     words = db.read("SELECT ts_lexize(%(d)s, %(t)s)", {"d": indexes.LOG_DICT, "t": text}).scalar() or []

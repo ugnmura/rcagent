@@ -18,12 +18,14 @@ from serenedb_extractor.errors import UserFacingError
 # SQL tokenizer sees it (so quoted names, schema qualifiers and different cases all count), must be
 # one of these (lower case) or a bare SQL keyword that takes a parenthesis (SYNTAX_WORDS). Anything
 # else is refused by name: functions that read files, sessions or settings, and every table function
-# (read_*, glob, range, generate_series, current_setting, pg_*, ...) are simply not on the list.
+# (read_*, glob, range, generate_series, current_setting, pg_*, ...) are simply not on the list. So are
+# functions that build a huge value from a tiny input (repeat, lpad, rpad, and printf/format with a
+# field width): one such call can run far past the timeout, which only stops a query between rows.
 ALLOWED_FUNCTIONS = frozenset(
     """
     lower upper length char_length character_length octet_length substr substring left right trim ltrim rtrim btrim
-    lpad rpad replace concat concat_ws position strpos contains starts_with ends_with prefix suffix reverse repeat
-    split_part string_split initcap ascii chr md5 hash format printf translate overlay
+    replace concat concat_ws position strpos contains starts_with ends_with prefix suffix reverse
+    split_part string_split initcap ascii chr md5 hash translate overlay
     regexp_full_match regexp_matches regexp_extract regexp_extract_all regexp_replace regexp_split_to_array
     regexp_like regexp_match
     date_trunc date_part date_diff date_add date_sub datediff datepart extract epoch epoch_ms age now
