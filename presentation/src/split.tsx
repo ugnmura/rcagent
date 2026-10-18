@@ -1,434 +1,318 @@
-// Scene 2: the three roles as one split, in one take by presenter B. A short sped-up proof clip of the real
-// session, then the answers lift into three columns (question, tool calls, answer, next step) that build at the
-// same time, a spotlight following B's sentence for each role, and all three lit at the end with the evidence
-// beat (the engineer's [Q46] chip and 152,734 = 152,734). Texts: `split` in content.ts.
+// Scene 2: the three roles as one split, in one take by presenter B. B opens full screen for his first sentence, then
+// the webcam shrinks to the corner as three flat cards (icon, role, a short question) come in side by side; each role then takes centre stage in turn and lands up to three short facts while the other
+// two wait, small and dimmed, at the sides; at the end all three come back lit with a one-line answer, and
+// 152,734 = 152,734 lands under them. Texts: `split` in content.ts.
 // `SplitBoard` with DONE_TIMES draws the final state for the slides PDF.
 import React from 'react';
-import {AbsoluteFill, Audio, Freeze, OffthreadVideo, Sequence, spring, staticFile, useCurrentFrame, useVideoConfig, interpolate} from 'remotion';
-import {ASSETS, type ResolvedAssets} from './assets';
-import {engineer, evidence, manager, split, teamLead} from './content';
-import {BlackFades, ease, easeOut, FilmFacecam, Grain, NameTag, ramp, SoftPlaceholder, Vignette} from './film';
+import {AbsoluteFill, Audio, interpolate, interpolateColors, Sequence, spring, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
+import {type ResolvedAssets} from './assets';
+import {split, type SplitFact, type SplitRole} from './content';
+import {BlackFades, easeOut, FilmFacecam, Grain, NameTag, ramp, Vignette} from './film';
 import {DaysRing} from './shots2';
 import {color, font} from './theme';
-import {cueFrames, FPS, PROOF_RATE} from './timeline';
+import {cueFrames} from './timeline';
 
-const INK = '#030405';
-const COL_W = 560;
-const COL_GAP = 40;
-const COL_LEFT = (1920 - 3 * COL_W - 2 * COL_GAP) / 2;
-const COL_TOP = 196;
-const COL_H = 632;
-const PAD = 28;
-const colX = (i: number) => COL_LEFT + i * (COL_W + COL_GAP);
-const LIFT_FRAMES = 36;
+const INK = '#0b0f14';
+/** Flat card surfaces, as in the reveal's flow and template cards: neutral panel; the card in focus gets the thin gold
+ * frame on a warm dark fill (no glow, no gradient). */
+const CARD_BG = color.panel;
+const CARD_BG_LIT = '#2a2215';
+/** Calm springs: little or no overshoot. */
+const MOVE = {damping: 26, stiffness: 90, mass: 1};
+const LAND = {damping: 22, stiffness: 120, mass: 0.8};
 const NAME_TAG_FRAMES = 90;
-/** Column i starts building this many frames after the previous one (the columns build together, slightly staggered). */
-const STAGGER = 6;
-/** Frames between two tool calls in a column's ticker; each call "runs" for TOOL_RUN frames, then gets its tick. */
-const TOOL_STEP = 13;
-const TOOL_RUN = 10;
-/** Build offsets within a column, from its start. */
-const AT_TOOLS = 14;
-const AT_ANSWER = AT_TOOLS + 3 * TOOL_STEP + 6;
-const AT_NEXT = AT_ANSWER + 16;
-/** Brightness of a column outside the spotlight (still readable, slightly dimmer). */
-const DIM = 0.55;
-
-const num = (s: string) => Number(s.replace(/[^0-9.]/g, ''));
-const fmtInt = (n: number) => Math.round(n).toLocaleString('en-US');
+/** Row: three cards side by side. Focus: one big card centre stage, the other two small and dimmed at the sides. */
+const ROW_W = 520;
+const ROW_GAP = 50;
+const ROW_TOP = 214;
+/** Card height with icon, role and question; with the one-line answer below (the lit row). */
+const ASK_H = 290;
+const LIT_H = 390;
+const FOCUS = {cx: 960, top: 196, w: 860, h: 540};
+const SIDE = {cx: [250, 1670], cy: 440, s: 0.6, dim: 0.42};
+/** Rows inside a card, from its top. */
+const Y = {icon: 34, role: 122, line: 192, question: 212, answer: 298, fact: 300, factStep: 78};
+const ENTER_STAGGER = 7;
+const COUNT_FRAMES = 24;
+/** The equals sign fades in this many frames after the evidence line arrives (once both sides have counted up). */
+const EQ_DELAY = 28;
 
 /** Scene-relative frames of each beat. */
 export type SplitTimes = {
 	liftoff: number;
-	/** Build start of each column. */
-	build: [number, number, number];
-	/** Spotlight start for each column (it ends where the next one starts, the last at `allLit`). */
+	/** Each role takes centre stage (until the next one does, the last until `allLit`). */
 	spot: [number, number, number];
 	allLit: number;
-	/** The [Q46] chip pulses and 152,734 = 152,734 lands. */
+	/** 152,734 = 152,734 arrives under the cards. */
 	evidence: number;
 };
 
-/** Everything already built and all three columns lit, no transient effect running: the slides PDF page. */
-export const DONE_TIMES: SplitTimes = {
-	liftoff: -1000,
-	build: [-1000, -1000, -1000],
-	spot: [-1000, -1000, -1000],
-	allLit: -1000,
-	evidence: -1000,
+/** Everything landed, all three cards back in the row and lit, no transient effect running: the slides PDF page. */
+export const DONE_TIMES: SplitTimes = {liftoff: -1000, spot: [-1000, -1000, -1000], allLit: -1000, evidence: -1000};
+
+/** Frames at which each role's facts land: spread over its time at centre stage, roughly following B's sentence. */
+const factTimes = (T: SplitTimes) =>
+	T.spot.map((s, k) => {
+		const end = k < 2 ? T.spot[k + 1] : T.allLit;
+		const gap = Math.max(16, Math.min(64, Math.round((end - s) * 0.27)));
+		return [0, 1, 2].map((j) => s + 16 + j * gap);
+	});
+const answerAt = (T: SplitTimes, i: number) => T.allLit + 14 + i * 6;
+
+// ---------------------------------------------------------------- layout
+
+type Pose = {cx: number; cy: number; w: number; h: number; s: number; dim: number; focus: number};
+
+const rowPose = (i: number, h: number): Pose => ({cx: 960 + (i - 1) * (ROW_W + ROW_GAP), cy: ROW_TOP + h / 2, w: ROW_W, h, s: 1, dim: 1, focus: 0});
+
+/** Card i while role k has centre stage; the other two keep their order, one on each side. */
+const focusPose = (i: number, k: number): Pose => {
+	if (i === k) return {cx: FOCUS.cx, cy: FOCUS.top + FOCUS.h / 2, w: FOCUS.w, h: FOCUS.h, s: 1, dim: 1, focus: 1};
+	const side = [0, 1, 2].filter((j) => j !== k).indexOf(i);
+	return {cx: SIDE.cx[side], cy: SIDE.cy, w: ROW_W, h: ASK_H, s: SIDE.s, dim: SIDE.dim, focus: 0};
 };
+
+const mix = (a: Pose, b: Pose, p: number): Pose => {
+	const l = (x: number, y: number) => x + (y - x) * p;
+	return {cx: l(a.cx, b.cx), cy: l(a.cy, b.cy), w: l(a.w, b.w), h: l(a.h, b.h), s: l(a.s, b.s), dim: l(a.dim, b.dim), focus: l(a.focus, b.focus)};
+};
+
+/** Card i at `frame`: the row, then each centre-stage move, then the lit row, each eased in by a calm spring. */
+const poseAt = (i: number, frame: number, fps: number, T: SplitTimes): Pose => {
+	const moves: [number, Pose][] = [
+		[T.spot[0], focusPose(i, 0)],
+		[T.spot[1], focusPose(i, 1)],
+		[T.spot[2], focusPose(i, 2)],
+		[T.allLit, rowPose(i, LIT_H)],
+	];
+	return moves.reduce(
+		(pose, [at, target]) => mix(pose, target, spring({frame: frame - at, fps, config: MOVE})),
+		rowPose(i, ASK_H),
+	);
+};
+
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
 // ---------------------------------------------------------------- pieces
 
-/** A row element that lands with a small overshoot when its beat arrives. */
-const Land: React.FC<{at: number; style?: React.CSSProperties; children: React.ReactNode}> = ({at, style, children}) => {
-	const frame = useCurrentFrame();
-	const {fps} = useVideoConfig();
-	const s = spring({frame: frame - at, fps, config: {damping: 12, stiffness: 180, mass: 0.6}});
-	return (
-		<div style={{position: 'absolute', left: PAD, right: PAD, opacity: Math.min(1, s * 1.5), transform: `translateY(${(1 - s) * 22}px)`, ...style}}>
-			{children}
-		</div>
-	);
+/** `token` ("17.8%", "+91%", "152,734") at `p` of its value, keeping its prefix, suffix, decimals and commas. */
+const countUp = (token: string, p: number) => {
+	const m = token.match(/^(\D*)([\d,]*\.?\d+)(.*)$/);
+	if (!m) return token;
+	const digits = m[2].replace(/,/g, '');
+	const dec = (digits.split('.')[1] ?? '').length;
+	return m[1] + (Number(digits) * p).toLocaleString('en-US', {minimumFractionDigits: dec, maximumFractionDigits: dec}) + m[3];
 };
 
-const Label: React.FC<{children: React.ReactNode}> = ({children}) => (
-	<div style={{fontSize: 18, letterSpacing: '0.2em', textTransform: 'uppercase', color: color.muted, fontWeight: 600}}>{children}</div>
-);
-
-/** The query handle on the engineer's answer; `pulse` (0–1) swells it for the evidence beat. */
-const QueryChip: React.FC<{pulse: number}> = ({pulse}) => (
-	<span
-		style={{
-			display: 'inline-block',
-			fontFamily: font.mono,
-			fontSize: 20,
-			fontWeight: 700,
-			color: pulse > 0.01 ? INK : color.accent,
-			background: `rgba(245,165,36,${pulse})`,
-			border: `2px solid ${color.accent}`,
-			borderRadius: 999,
-			padding: '2px 12px',
-			whiteSpace: 'nowrap',
-			transform: `scale(${1 + 0.28 * pulse})`,
-			boxShadow: pulse > 0.01 ? `0 0 ${40 * pulse}px rgba(245,165,36,${0.8 * pulse})` : undefined,
-		}}
-	>
-		[{evidence.handle}]
-	</span>
-);
-
-/** One tool call in a column's ticker: a pulsing dot while it runs, then a tick. */
-const ToolRow: React.FC<{name: string; at: number; top: number}> = ({name, at, top}) => {
-	const frame = useCurrentFrame();
-	const done = frame >= at + TOOL_RUN;
-	const blink = 0.4 + 0.6 * Math.abs(Math.sin((frame - at) / 2.2));
-	return (
-		<Land at={at} style={{top, display: 'flex', alignItems: 'center', gap: 14, fontFamily: font.mono, fontSize: 24}}>
-			<span style={{width: 22, textAlign: 'center', fontWeight: 800, color: done ? color.accent : color.muted, opacity: done ? 1 : blink}}>
-				{done ? '✓' : '●'}
-			</span>
-			<span style={{color: done ? color.text : color.muted}}>{name}</span>
-		</Land>
-	);
-};
-
-const Column: React.FC<{i: number; role: string; question: string; tools: readonly string[]; start: number; level: number; glow: number; children: React.ReactNode}> = ({
-	i,
-	role,
-	question,
-	tools,
-	start,
-	level,
-	glow,
-	children,
-}) => (
-	<div
-		style={{
-			position: 'absolute',
-			left: colX(i),
-			top: COL_TOP,
-			width: COL_W,
-			height: COL_H,
-			boxSizing: 'border-box',
-			borderRadius: 20,
-			background: 'linear-gradient(180deg, #121821 0%, #0c1016 100%)',
-			border: `2px solid ${glow > 0.01 ? `rgba(245,165,36,${0.25 + 0.6 * glow})` : color.line}`,
-			boxShadow: `0 30px 80px rgba(0,0,0,0.55)${glow > 0.01 ? `, 0 0 ${80 * glow}px rgba(245,165,36,${0.24 * glow})` : ''}`,
-			opacity: level,
-			filter: `saturate(${0.4 + 0.6 * level})`,
-			fontFamily: font.sans,
-			overflow: 'hidden',
-		}}
-	>
-		<div style={{position: 'absolute', left: PAD, top: 22, fontSize: 40, fontWeight: 800, color: color.text}}>{role}</div>
-		<div style={{position: 'absolute', left: 0, right: 0, top: 0, height: 4, background: color.accent, opacity: glow, transform: `scaleX(${glow})`}} />
-		<Land at={start} style={{top: 82, fontSize: 28, fontWeight: 600, fontStyle: 'italic', color: color.text, lineHeight: 1.2}}>
-			{question}
-		</Land>
-		<Land at={start + AT_TOOLS - 4} style={{top: 172}}>
-			<Label>{split.labels.tools}</Label>
-		</Land>
-		{tools.map((name, k) => (
-			<ToolRow key={name} name={name} at={start + AT_TOOLS + k * TOOL_STEP} top={202 + k * 36} />
-		))}
-		<Land at={start + AT_ANSWER - 4} style={{top: 328}}>
-			<Label>{split.labels.answer}</Label>
-		</Land>
-		{children}
-		<Land at={start + AT_NEXT - 4} style={{top: 488}}>
-			<Label>{split.labels.next}</Label>
-		</Land>
-	</div>
-);
-
-/** The headline of an answer: lands with overshoot and swells briefly when its column takes the spotlight. */
-const Headline: React.FC<{at: number; focus: number; children: React.ReactNode; style?: React.CSSProperties}> = ({at, focus, children, style}) => {
-	const frame = useCurrentFrame();
-	const swell = frame >= focus ? Math.sin(Math.PI * Math.min(1, (frame - focus) / 18)) : 0;
-	return (
-		<Land at={at} style={{top: 354, fontSize: 30, fontWeight: 800, color: color.text, ...style}}>
-			<div style={{transform: `scale(${1 + 0.05 * swell})`, transformOrigin: 'left center'}}>{children}</div>
-		</Land>
-	);
-};
-
-const Next: React.FC<{at: number; children: React.ReactNode}> = ({at, children}) => (
-	<Land at={at} style={{top: 514, fontSize: 28, fontWeight: 800, color: color.accent, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>
-		→ {children}
-	</Land>
-);
-
-const EngineerAnswer: React.FC<{start: number; focus: number; evidenceAt: number}> = ({start, focus, evidenceAt}) => {
-	const frame = useCurrentFrame();
-	const e = split.engineer;
-	// Two quick pulses of the chip as the evidence beat starts.
-	const p = frame >= evidenceAt ? Math.abs(Math.sin(Math.PI * 2 * Math.min(1, (frame - evidenceAt) / 36))) : 0;
-	const a = start + AT_ANSWER;
+/** A fact's text with its `count` part counting up in the accent colour (the only gold text in the scene). */
+const Counted: React.FC<{fact: SplitFact; p: number}> = ({fact, p}) => {
+	const i = fact.count ? fact.text.indexOf(fact.count) : -1;
+	if (!fact.count || i < 0) return <>{fact.text}</>;
 	return (
 		<>
-			<Headline at={a} focus={focus} style={{fontSize: 28}}>
-				<div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12}}>
-					<span>{e.answer}</span>
-					<QueryChip pulse={p} />
-				</div>
-			</Headline>
-			<Land at={a + 5} style={{top: 396, fontFamily: font.mono, fontSize: 24, color: color.muted}}>
-				{e.detail}
-			</Land>
-			<Land at={a + 9} style={{top: 432, fontSize: 24, color: color.accent}}>
-				{e.before}
-			</Land>
-			<Next at={start + AT_NEXT}>{e.next}</Next>
+			{fact.text.slice(0, i)}
+			<span style={{color: color.accent, fontWeight: 800, fontVariantNumeric: 'tabular-nums'}}>{countUp(fact.count, p)}</span>
+			{fact.text.slice(i + fact.count.length)}
 		</>
 	);
 };
 
-const TeamLeadAnswer: React.FC<{start: number; focus: number}> = ({start, focus}) => {
-	const frame = useCurrentFrame();
-	const {days, of, trendLabel} = teamLead.persistent;
-	const a = start + AT_ANSWER;
-	const lit = interpolate(frame, [a + 4, a + 40], [0, days], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: ease});
+/** Stroke paths on a 48×48 grid: a magnifier (engineer), a loop (team lead), ranked bars (manager). */
+const ICONS: Record<SplitRole['icon'], string[]> = {
+	probe: ['M 20 8 a 12 12 0 1 1 -0.01 0', 'M 29 29 L 41 41'],
+	loop: ['M 38 24 A 14 14 0 1 1 33.9 14.1', 'M 25.9 13.4 L 33.9 14.1 L 33.2 6.1'],
+	bars: ['M 8 12 H 40', 'M 8 24 H 31', 'M 8 36 H 21'],
+};
+
+/** The role's icon, drawn stroke by stroke as `draw` goes 0→1. */
+const Icon: React.FC<{name: SplitRole['icon']; draw: number}> = ({name, draw}) => {
+	const paths = ICONS[name];
 	return (
-		<>
-			<Headline at={a} focus={focus}>
-				{split.teamLead.answer}
-			</Headline>
-			<Land at={a + 5} style={{top: 398, display: 'flex', alignItems: 'center', gap: 16}}>
-				<DaysRing lit={lit} r={24} stroke={8} />
-				<div style={{fontSize: 24, color: color.text, fontVariantNumeric: 'tabular-nums'}}>
-					<span style={{fontWeight: 800}}>{Math.round(lit)}</span> of {of} days
-					<span style={{color: color.muted}}> · {trendLabel}</span>
-				</div>
-			</Land>
-			<Next at={start + AT_NEXT}>{split.teamLead.next}</Next>
-		</>
+		<svg width={76} height={76} viewBox="0 0 48 48">
+			{paths.map((d, j) => {
+				const p = clamp01(draw * paths.length - j);
+				return (
+					<path
+						key={j}
+						d={d}
+						pathLength={1}
+						strokeDasharray={1}
+						strokeDashoffset={1 - p}
+						fill="none"
+						stroke={color.accent}
+						strokeWidth={3}
+						strokeLinecap="round"
+						strokeLinejoin="round"
+						opacity={p > 0 ? 1 : 0}
+					/>
+				);
+			})}
+		</svg>
 	);
 };
 
-const ManagerAnswer: React.FC<{start: number; focus: number}> = ({start, focus}) => {
+/** One fact on the centre-stage card: slides up softly, its number counts up (and the days ring fills). */
+const Fact: React.FC<{fact: SplitFact; at: number; top: number; vis: number}> = ({fact, at, top, vis}) => {
 	const frame = useCurrentFrame();
 	const {fps} = useVideoConfig();
-	const a = start + AT_ANSWER;
-	const m = split.manager;
-	return (
-		<>
-			<Headline at={a} focus={focus}>
-				{m.answer}
-			</Headline>
-			<Land at={a + 4} style={{top: 398, display: 'flex', alignItems: 'center', gap: 10}}>
-				{manager.cards.map((c, i) => {
-					const s = spring({frame: frame - a - 6 - i * 4, fps, config: {damping: 9, stiffness: 220, mass: 0.5}});
-					return (
-						<div
-							key={c.label}
-							style={{
-								width: 40,
-								height: 40,
-								borderRadius: 10,
-								display: 'flex',
-								alignItems: 'center',
-								justifyContent: 'center',
-								fontSize: 24,
-								fontWeight: 800,
-								color: i === 0 ? INK : color.text,
-								background: i === 0 ? color.accent : '#1d242e',
-								border: `2px solid ${i === 0 ? color.accent : color.line}`,
-								opacity: Math.min(1, s * 1.5),
-								transform: `scale(${s})`,
-							}}
-						>
-							{i + 1}
-						</div>
-					);
-				})}
-				<div style={{fontSize: 24, color: color.muted, marginLeft: 6}}>{m.detail}</div>
-			</Land>
-			<Next at={start + AT_NEXT}>{m.next}</Next>
-			<Land at={start + AT_NEXT + 12} style={{top: 572, fontSize: 24, color: color.muted, fontStyle: 'italic'}}>
-				{m.limit}
-			</Land>
-		</>
-	);
-};
-
-/** "152,734 = 152,734" under the columns: both sides count up, then the equals sign pops. */
-const EvidenceLine: React.FC<{at: number}> = ({at}) => {
-	const frame = useCurrentFrame();
-	const {fps} = useVideoConfig();
-	const inS = spring({frame: frame - at, fps, config: {damping: 13, stiffness: 160, mass: 0.6}});
-	const count = ramp(frame, at + 4, at + 34, easeOut);
-	const eq = spring({frame: frame - at - 34, fps, config: {damping: 8, stiffness: 240, mass: 0.5}});
-	const ev = split.evidence;
-	const big: React.CSSProperties = {fontSize: 44, fontWeight: 800, color: color.text, fontVariantNumeric: 'tabular-nums', minWidth: 170, textAlign: 'center'};
+	const s = spring({frame: frame - at, fps, config: LAND});
+	const p = ramp(frame, at + 2, at + 2 + COUNT_FRAMES, easeOut);
+	const tone: React.CSSProperties =
+		fact.tone === 'accent'
+			? {color: color.text, fontWeight: 700}
+			: fact.tone === 'muted'
+				? {color: color.muted, fontStyle: 'italic'}
+				: {color: color.text};
 	return (
 		<div
 			style={{
 				position: 'absolute',
 				left: 0,
 				right: 0,
-				top: COL_TOP + COL_H + 26,
+				top,
+				height: 60,
 				display: 'flex',
-				justifyContent: 'center',
 				alignItems: 'center',
-				gap: 22,
-				fontFamily: font.sans,
-				opacity: Math.min(1, inS * 1.5),
-				transform: `translateY(${(1 - inS) * 26}px)`,
+				justifyContent: 'center',
+				gap: 18,
+				fontSize: 38,
+				fontWeight: 600,
+				whiteSpace: 'nowrap',
+				opacity: Math.min(1, s * 1.3) * vis,
+				transform: `translateY(${(1 - s) * 16}px)`,
+				...tone,
 			}}
 		>
-			<span style={{fontFamily: font.mono, fontSize: 24, fontWeight: 700, color: color.accent}}>[{evidence.handle}]</span>
-			<span style={big}>{fmtInt(num(ev.left) * count)}</span>
-			<span style={{...big, color: color.accent, minWidth: 0, display: 'inline-block', transform: `scale(${eq})`}}>=</span>
-			<span style={big}>{fmtInt(num(ev.right) * count)}</span>
-			<span style={{fontSize: 24, color: color.muted, marginLeft: 8}}>{ev.caption}</span>
+			{fact.ring ? <DaysRing lit={Number(fact.count ?? 0) * p} r={20} stroke={7} /> : null}
+			<span>
+				<Counted fact={fact} p={p} />
+			</span>
 		</div>
 	);
 };
 
-/** The header, the three columns and the evidence line. Columns fly in from the terminal at the lift-off. */
-export const SplitBoard: React.FC<{times: SplitTimes}> = ({times: T}) => {
+const Card: React.FC<{i: number; role: SplitRole; pose: Pose; T: SplitTimes; facts: number[]}> = ({i, role, pose, T, facts}) => {
 	const frame = useCurrentFrame();
 	const {fps} = useVideoConfig();
-	const answer = ramp(frame, T.allLit, T.allLit + 18);
-	const head = spring({frame: frame - T.liftoff, fps, config: {damping: 200}, durationInFrames: 24});
-	const all = ramp(frame, T.allLit, T.allLit + 14);
-	const sweep = ramp(frame, T.allLit, T.allLit + 34, ease);
-	const ends = [T.spot[1], T.spot[2], T.allLit];
-	const glows = T.spot.map((s, i) => {
-		const own = ramp(frame, s, s + 10) * (1 - ramp(frame, ends[i], ends[i] + 10));
-		return Math.max(own, 0.6 * all, Math.sin(Math.PI * sweep) * 0.9);
-	});
-	const levels = glows.map((g) => DIM + (1 - DIM) * Math.min(1, Math.max(g, all)));
-	const fly = (i: number) => {
-		const s = spring({frame: frame - T.liftoff - i * STAGGER, fps, config: {damping: 14, stiffness: 120, mass: 0.8}});
-		const dx = 960 - (colX(i) + COL_W / 2);
-		const dy = 540 - (COL_TOP + COL_H / 2);
-		return {transform: `translate(${dx * (1 - s)}px, ${dy * (1 - s)}px) scale(${0.55 + 0.45 * s})`, opacity: Math.min(1, s * 1.6)};
-	};
-	const roles = [split.engineer, split.teamLead, split.manager];
-	const answers = [
-		<EngineerAnswer key="e" start={T.build[0]} focus={T.spot[0]} evidenceAt={T.evidence} />,
-		<TeamLeadAnswer key="t" start={T.build[1]} focus={T.spot[1]} />,
-		<ManagerAnswer key="m" start={T.build[2]} focus={T.spot[2]} />,
-	];
+	const at = T.liftoff + i * ENTER_STAGGER;
+	const enter = spring({frame: frame - at, fps, config: LAND});
+	const draw = ramp(frame, at + 4, at + 30, easeOut);
+	const line = ramp(frame, at + 12, at + 34, easeOut);
+	const ask = ramp(frame, at + 16, at + 32, easeOut);
+	const focus = clamp01(pose.focus);
+	const vis = clamp01((focus - 0.4) / 0.4);
+	const ans = spring({frame: frame - answerAt(T, i), fps, config: LAND});
+	const ansP = ramp(frame, answerAt(T, i) + 2, answerAt(T, i) + 2 + COUNT_FRAMES, easeOut);
+	const row: React.CSSProperties = {position: 'absolute', left: 0, right: 0, textAlign: 'center'};
 	return (
-		<AbsoluteFill style={{fontFamily: font.sans, background: 'radial-gradient(ellipse at 50% 40%, #10161e 0%, #030405 75%)'}}>
-			<div style={{position: 'absolute', left: 0, right: 0, top: 54, textAlign: 'center', opacity: head, transform: `translateY(${(1 - head) * -20}px)`}}>
-				<div style={{position: 'relative', height: 64, fontSize: 56, fontWeight: 800, color: color.text, letterSpacing: -1}}>
-					<div style={{position: 'absolute', left: 0, right: 0, opacity: 1 - answer}}>{split.header.ask}</div>
-					<div style={{position: 'absolute', left: 0, right: 0, opacity: answer, transform: `scale(${1 + 0.05 * Math.sin(Math.PI * answer)})`}}>
-						{split.header.answer.split('Three answers.')[0]}
-						<span style={{color: color.accent}}>Three answers.</span>
-					</div>
-				</div>
-				<div style={{fontSize: 24, color: color.muted, marginTop: 12}}>{split.header.scope}</div>
+		<div
+			style={{
+				position: 'absolute',
+				left: pose.cx - pose.w / 2,
+				top: pose.cy - pose.h / 2,
+				width: pose.w,
+				height: pose.h,
+				boxSizing: 'border-box',
+				borderRadius: 24,
+				background: interpolateColors(focus, [0, 1], [CARD_BG, CARD_BG_LIT]),
+				border: `2px solid ${interpolateColors(focus, [0, 1], [color.line, color.accent])}`,
+				boxShadow: `0 ${8 + 12 * focus}px ${24 + 24 * focus}px rgba(0,0,0,${0.3 + 0.15 * focus})`,
+				opacity: Math.min(1, enter * 1.4) * clamp01(pose.dim),
+				transform: `translateY(${(1 - enter) * 40}px) scale(${pose.s})`,
+				overflow: 'hidden',
+			}}
+		>
+			<div style={{...row, top: Y.icon, display: 'flex', justifyContent: 'center'}}>
+				<Icon name={role.icon} draw={draw} />
 			</div>
-			{roles.map((r, i) => (
-				<AbsoluteFill key={r.role} style={{...fly(i), transformOrigin: `${colX(i) + COL_W / 2}px ${COL_TOP + COL_H / 2}px`}}>
-					<Column i={i} role={r.role} question={r.question} tools={r.tools} start={T.build[i]} level={levels[i]} glow={glows[i]}>
-						{answers[i]}
-					</Column>
-				</AbsoluteFill>
-			))}
-			{sweep > 0 && sweep < 1 ? (
+			<div style={{...row, top: Y.role, fontSize: 46, fontWeight: 800, color: color.text, letterSpacing: -0.5}}>{role.role}</div>
+			<div style={{...row, top: Y.line, display: 'flex', justifyContent: 'center'}}>
 				<div
 					style={{
-						position: 'absolute',
-						top: COL_TOP - 40,
-						height: COL_H + 80,
-						left: -400 + 2400 * sweep,
-						width: 260,
-						background: 'linear-gradient(90deg, rgba(255,215,106,0) 0%, rgba(255,215,106,0.12) 50%, rgba(255,215,106,0) 100%)',
-						transform: 'skewX(-18deg)',
-						pointerEvents: 'none',
+						width: (120 + 160 * focus) * line,
+						height: 1,
+						background: color.line,
 					}}
 				/>
-			) : null}
-			<EvidenceLine at={T.evidence + 10} />
-		</AbsoluteFill>
+			</div>
+			<div style={{...row, top: Y.question, fontSize: 36, fontWeight: 600, color: color.muted, opacity: ask, transform: `translateY(${(1 - ask) * 14}px)`}}>
+				{role.question}
+			</div>
+			{role.facts.map((f, j) => (
+				<Fact key={f.text} fact={f} at={facts[j]} top={Y.fact + j * Y.factStep} vis={vis} />
+			))}
+			<div
+				style={{
+					...row,
+					top: Y.answer,
+					fontSize: 40,
+					fontWeight: 800,
+					color: color.text,
+					opacity: Math.min(1, ans * 1.3) * (1 - focus),
+					transform: `translateY(${(1 - ans) * 14}px)`,
+				}}
+			>
+				<Counted fact={role.answer} p={ansP} />
+			</div>
+		</div>
 	);
 };
 
-// ---------------------------------------------------------------- proof clip
-
-/**
- * roles.mp4 in a terminal frame, sped up to fit the slot before the lift-off (at least PROOF_RATE); it holds its
- * last frame if it runs out. One Freeze wrapper (switched by `active`) so the video never remounts.
- */
-const ProofClip: React.FC<{assets: ResolvedAssets; liftoff: number}> = ({assets, liftoff}) => {
+/** "152,734 = 152,734" under the cards: both sides count up, the equals sign fades in, then the caption. */
+const EvidenceLine: React.FC<{at: number}> = ({at}) => {
 	const frame = useCurrentFrame();
 	const {fps} = useVideoConfig();
-	const inS = spring({frame, fps, config: {damping: 200}, durationInFrames: 20});
-	const out = ramp(frame, liftoff, liftoff + 22, ease);
-	const a = assets.rolesRec;
-	const recFrames = Math.ceil(a.seconds * FPS);
-	const rate = Math.max(PROOF_RATE, recFrames / Math.max(1, liftoff));
-	const hold = Math.max(0, Math.floor((recFrames - 2) / rate));
+	const inS = spring({frame: frame - at, fps, config: LAND});
+	const count = ramp(frame, at + 2, at + EQ_DELAY, easeOut);
+	const eq = ramp(frame, at + EQ_DELAY, at + EQ_DELAY + 10, easeOut);
+	const cap = ramp(frame, at + EQ_DELAY + 4, at + EQ_DELAY + 22, easeOut);
+	const ev = split.evidence;
+	const big: React.CSSProperties = {fontSize: 72, fontWeight: 800, color: color.text, fontVariantNumeric: 'tabular-nums', letterSpacing: -1};
 	return (
-		<AbsoluteFill style={{opacity: 1 - out, transform: `scale(${(0.92 + 0.08 * inS) * (1 - 0.12 * out)})`, filter: `blur(${8 * out}px)`}}>
-			<div
-				style={{
-					position: 'absolute',
-					left: 300,
-					top: 150,
-					width: 1320,
-					height: 760,
-					borderRadius: 20,
-					overflow: 'hidden',
-					background: '#000',
-					boxShadow: '0 40px 140px rgba(0,0,0,0.85), 0 0 0 3px #2a313a',
-					display: 'flex',
-					flexDirection: 'column',
-				}}
-			>
-				<div style={{height: 40, background: '#161b22', display: 'flex', alignItems: 'center', gap: 10, padding: '0 16px'}}>
-					{['#ff5f57', '#febc2e', '#28c840'].map((c) => (
-						<div key={c} style={{width: 14, height: 14, borderRadius: 7, background: c}} />
-					))}
-					<div style={{flex: 1, textAlign: 'center', fontFamily: font.mono, fontSize: 16, color: color.muted}}>claude · serenedb-extractor</div>
-					<div style={{fontFamily: font.sans, fontSize: 16, fontWeight: 800, color: color.accent}}>{Math.round(rate * 10) / 10}×</div>
-				</div>
-				<div style={{flex: 1, position: 'relative'}}>
-					{a.present ? (
-						<Freeze frame={hold} active={frame >= hold}>
-							<OffthreadVideo
-								src={staticFile(`assets/${ASSETS.rolesRec.file}`)}
-								muted
-								playbackRate={rate}
-								style={{width: '100%', height: '100%', objectFit: 'contain'}}
-							/>
-						</Freeze>
-					) : (
-						<SoftPlaceholder
-							assetKey="rolesRec"
-							note={split.proofNote}
-							detail={[engineer.prompt, teamLead.prompt, manager.prompt].join('\n')}
-							style={{position: 'absolute', inset: 0, fontSize: 26}}
-						/>
-					)}
+		<div
+			style={{
+				position: 'absolute',
+				left: 0,
+				right: 0,
+				top: ROW_TOP + LIT_H + 44,
+				textAlign: 'center',
+				opacity: Math.min(1, inS * 1.3),
+				transform: `translateY(${(1 - inS) * 16}px)`,
+			}}
+		>
+			<div style={{display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 30}}>
+				<span style={{...big, minWidth: 280, textAlign: 'right', color: color.accent}}>{countUp(ev.left, count)}</span>
+				<span style={{...big, color: color.muted, fontWeight: 600, opacity: eq}}>=</span>
+				<span style={{...big, minWidth: 280, textAlign: 'left', color: color.accent}}>{countUp(ev.right, count)}</span>
+			</div>
+			<div style={{fontSize: 28, color: color.muted, marginTop: 6, opacity: cap, transform: `translateY(${(1 - cap) * 10}px)`}}>{ev.caption}</div>
+		</div>
+	);
+};
+
+/** The header, the three cards and the evidence line. */
+export const SplitBoard: React.FC<{times: SplitTimes}> = ({times: T}) => {
+	const frame = useCurrentFrame();
+	const {fps} = useVideoConfig();
+	const head = spring({frame: frame - T.liftoff, fps, config: {damping: 200}, durationInFrames: 24});
+	const answer = ramp(frame, T.allLit, T.allLit + 18);
+	const poses = [0, 1, 2].map((i) => poseAt(i, frame, fps, T));
+	const facts = factTimes(T);
+	return (
+		<AbsoluteFill style={{fontFamily: font.sans, background: INK}}>
+			<div style={{position: 'absolute', left: 0, right: 0, top: 58, textAlign: 'center', opacity: head, transform: `translateY(${(1 - head) * -20}px)`}}>
+				<div style={{position: 'relative', height: 64, fontSize: 52, fontWeight: 600, color: color.text, letterSpacing: -0.5}}>
+					<div style={{position: 'absolute', left: 0, right: 0, opacity: 1 - answer}}>{split.header.ask}</div>
+					<div style={{position: 'absolute', left: 0, right: 0, opacity: answer}}>{split.header.answer}</div>
 				</div>
 			</div>
+			{/* The centre-stage card is drawn last so it passes over the others while they swap places. */}
+			{[0, 1, 2]
+				.sort((a, b) => poses[a].focus - poses[b].focus)
+				.map((i) => (
+					<Card key={i} i={i} role={split.roles[i]} pose={poses[i]} T={T} facts={facts[i]} />
+				))}
+			<EvidenceLine at={T.evidence} />
 		</AbsoluteFill>
 	);
 };
@@ -442,46 +326,49 @@ const Sfx: React.FC<{name: string; from: number; volume: number}> = ({name, from
 		</Sequence>
 	) : null;
 
-/** Beat frames for a scene of `frames` frames (the s2 take), from the cue timing of B's take. */
+/** Beat frames for a scene of `frames` frames (the s2 take), from the cue timing of B's take. B opens full screen for his
+ * first sentence (cue `at.liftoff`); the cards come in as it ends, while the webcam shrinks to the corner, and the
+ * engineer takes centre stage just after the next cue starts so the row is seen for a moment first. */
 export const splitTimes = (frames: number): SplitTimes => {
-	const c = cueFrames(split.cues, frames).map(([a]) => a);
-	const at = split.at;
-	const liftoff = c[at.liftoff];
-	const start = liftoff + 10;
-	return {
-		liftoff,
-		build: [start, start + STAGGER, start + 2 * STAGGER],
-		spot: [c[at.engineer], c[at.teamLead], c[at.manager]],
+const cues = cueFrames(split.cues, frames);
+const c = cues.map(([a]) => a);
+const at = split.at;
+const intro = cues[at.liftoff];
+return {
+liftoff: Math.max(intro[0] + 30, intro[1] - 24),
+spot: [c[at.engineer] + 14, c[at.teamLead], c[at.manager]],
 		allLit: c[at.allLit],
-		evidence: c[at.allLit] + 12,
+		evidence: c[at.allLit] + 30,
 	};
 };
 
 export const SplitScene: React.FC<{assets: ResolvedAssets; frames: number}> = ({assets, frames}) => {
 	const frame = useCurrentFrame();
+	const {fps} = useVideoConfig();
 	const T = splitTimes(frames);
+	// Full-screen webcam for B's first sentence, then a smooth shrink into the corner as the cards come in.
+	const corner = spring({frame: frame - (T.liftoff - 6), fps, config: {damping: 200}, durationInFrames: 24});
+	const tagFrames = Math.max(30, Math.min(NAME_TAG_FRAMES, T.liftoff - 6 - 12));
 	const drift = interpolate(frame, [T.liftoff, frames], [1, 1.02], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
-	const lands = T.build.map((b) => b + AT_ANSWER);
 	return (
 		<AbsoluteFill style={{backgroundColor: INK}}>
-			<Sequence durationInFrames={T.liftoff + LIFT_FRAMES} name="proof clip">
-				<ProofClip assets={assets} liftoff={T.liftoff} />
-			</Sequence>
 			{frame >= T.liftoff ? (
 				<AbsoluteFill style={{transform: `scale(${drift})`}}>
 					<SplitBoard times={T} />
 				</AbsoluteFill>
 			) : null}
-			<FilmFacecam assetKey="s2" assets={assets} corner={1} />
-			<Sequence from={12} durationInFrames={NAME_TAG_FRAMES} name="name tag s2">
-				<NameTag assetKey="s2" frames={NAME_TAG_FRAMES} small />
+			<FilmFacecam assetKey="s2" assets={assets} corner={corner} />
+			<Sequence from={12} durationInFrames={tagFrames} name="name tag s2">
+			<NameTag assetKey="s2" frames={tagFrames} />
 			</Sequence>
 			<Sfx name="whoosh" from={T.liftoff - 4} volume={0.3} />
-			{lands.map((f, i) => (
-				<Sfx key={i} name="click" from={f} volume={0.15} />
-			))}
+			{factTimes(T)
+				.flat()
+				.map((f, j) => (
+					<Sfx key={`c${j}`} name="click" from={f} volume={0.15} />
+				))}
 			<Sfx name="chime" from={T.allLit} volume={0.3} />
-			<Sfx name="click" from={T.evidence + 10 + 34} volume={0.15} />
+			<Sfx name="click" from={T.evidence + EQ_DELAY} volume={0.15} />
 			<Vignette />
 			<Grain />
 			<BlackFades frames={frames} fadeIn={12} fadeOut={18} />

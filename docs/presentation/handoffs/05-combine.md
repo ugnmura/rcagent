@@ -21,8 +21,8 @@ with every number checked.
    The evidence handle is a live value too: the script and slide 3 say `[Q46]`, but each session numbers its
    own queries. Use the handle the engineer recording shows (in `content.ts` `handle`, the script and the doc).
 4. **Drop in the assets** and run `npm run check`. The split is one take now (`s2-roles.mp4`, B, about 30 s):
-   check that the proof clip fits `roles.mp4` into 3–4 s and that the parallel columns, "all lit" and the
-   evidence beat land on B's words; tune in `presentation/src/timeline.ts`. `npm run check` warns when a
+   check that the parallel columns, "all lit" and the evidence beat land on B's words, and that `demo.mp4`
+   fits the `s-demo.mp4` take; tune in `presentation/src/timeline.ts`. `npm run check` warns when a
    recording is cut. The talk should come to about 2:20.
 5. **Render** `npm run render` and `npm run slides`.
 

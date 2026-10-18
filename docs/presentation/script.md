@@ -1,8 +1,8 @@
 # Demo script: Making Sense of Logs (about 2:20, limit 5 minutes)
 
 Spoken text plus 20 seconds of dialog audio comes to about 2:20 at a calm pace (140 words per minute).
-Screen cues are in *italics*. The one recording is a pre-run Claude Code session with this MCP server, played
-sped up as a short proof clip. Log numbers come from
+Screen cues are in *italics*. The one recording is a pre-run Claude Code session with this MCP server, shown
+muted in the live demo while B narrates. Log numbers come from
 [worked-investigation.md](../worked-investigation.md); benchmark numbers from serenedb-bench REPORT.md (night run 2).
 
 ---
@@ -36,11 +36,11 @@ label: "Dramatization: real log data, AI-generated voices".*
 stitched), export MP3, embed on slide 1 with auto-play. Fallback if audio fails: the presenter reads the three
 questions aloud.*
 
-## 1:00 – 1:30 · Three roles, one split (slide 2 + the proof clip)
+## 1:00 – 1:30 · Three roles, one split (slide 2)
 
 One scene, one presenter (B, take `s2-roles.mp4`, about 30 s; design:
-`docs/superpowers/specs/2026-10-19-three-way-split-design.md`). *A 3–4 s sped-up proof clip of `roles.mp4`;
-then three columns, Engineer / Team lead / Manager, build at the same time: question → the role's tool calls →
+`docs/superpowers/specs/2026-10-19-three-way-split-design.md`). *The three
+columns, Engineer / Team lead / Manager, fly in right away on B's first sentence and build at the same time: question → the role's tool calls →
 a one-line answer and its next step. At the end all three are lit, with a quick evidence beat: `[Q46]` →
 152,734 = 152,734.*
 
@@ -92,7 +92,7 @@ the same order. Numbers in the video come from `benchmarks.json`; say the final 
 
 ## Recording checklist
 
-- Record `roles.mp4`: the three role prompts in turn on the loaded base corpus (handoff 2).
+- Record `demo.mp4`: a real session on the loaded base corpus, e.g. the three role prompts (handoff 2).
 - Check that the live numbers match worked-investigation.md before recording. If a number differs,
   use the live number in the script.
-- Raw length is free: the video speeds it up to fit a 3–4 s proof clip.
+- Cut and speed it up yourself to fit the `s-demo.mp4` take (≈ 15–25 s); the last frame holds if shorter.

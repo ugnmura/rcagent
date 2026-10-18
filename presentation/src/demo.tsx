@@ -65,7 +65,8 @@ export const DemoScene: React.FC<{assets: ResolvedAssets; frames: number}> = ({a
 	const frame = useCurrentFrame();
 	const {fps} = useVideoConfig();
 	const s = spring({frame, fps, config: {damping: 200}, durationInFrames: 24});
-	const scale = interpolate(s, [0, 1], [0.9, 1]) * interpolate(frame, [0, Math.max(1, frames)], [1, 1.04], {extrapolateRight: 'clamp'});
+	// The screen settles once and then stays still: no push-in, so the recording reads like a real screen.
+	const scale = interpolate(s, [0, 1], [0.9, 1]);
 	return (
 		<AbsoluteFill style={{background: `radial-gradient(ellipse 80% 75% at 50% 45%, #1a2130 0%, #0b0f16 55%, ${INK} 100%)`}}>
 			<AbsoluteFill style={{justifyContent: 'center', alignItems: 'center'}}>

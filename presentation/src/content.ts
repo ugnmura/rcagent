@@ -313,40 +313,51 @@ export const close = {
 };
 
 // ---------------------------------------------------------------- 2 three roles, one split (s2, presenter B, one take)
-// Replaces the separate engineer, team lead, manager and evidence scenes. The three roles run in parallel as a
-// preview: one column each (question, the tool calls, a one-line answer, a next step). Numbers come from the role
-// blocks above (each sourced there). Tool names: docs/worked-investigation-transcript.md (engineer steps 2-5, team
-// lead steps 9-16, manager steps 20-23). `at` names the cue on which each beat lands.
+// Replaces the separate engineer, team lead, manager and evidence scenes. Three minimal cards (icon, role, a short
+// question); each role takes centre stage in turn with at most three short facts, then all three come back lit with a
+// one-line answer and the evidence equation. Numbers come from the role blocks above (each sourced there). In a fact,
+// `count` names the part that counts up and `ring` adds the days ring. `at` names the cue on which each beat lands.
+export type SplitFact = {text: string; count?: string; ring?: boolean; tone?: 'accent' | 'muted'};
+export type SplitRole = {role: string; icon: 'probe' | 'loop' | 'bars'; question: string; answer: SplitFact; facts: SplitFact[]};
+const persist = teamLead.persistent; // WI §2 [step 21]: 22 of 31 days, not falling
 export const split = {
-	header: {ask: 'One log. Three questions.', answer: 'One log. Three answers.', scope: 'BGL + OpenStack · every entry, no sampling'},
-	labels: {tools: 'Tool calls', answer: 'Answer', next: 'Next step'},
-	proofNote: 'one session · /engineer, /team-lead, /manager · sped up',
-	engineer: {
-		role: 'Engineer',
-		question: 'What failed, and what came just before?',
-		tools: ['count_logs', 'search_logs', 'get_context'],
-		answer: 'One node, data TLB errors',
-		detail: engineer.node, // WI §1 [step 2]
-		before: `after an ${engineer.beforeLine.text}`, // WI §1 [step 5]
-		next: 'Processor diagnostics',
-	},
-	teamLead: {
-		role: 'Team lead',
-		question: 'What keeps coming back?',
-		tools: ['count_logs', 'survey', 'trend'],
-		answer: `"${teamLead.persistent.message}"`, // WI §2 [step 21]
-		next: teamLead.first.team,
-	},
-	manager: {
-		role: 'Manager',
-		question: 'What do we act on first?',
-		tools: ['survey', 'trend', 'rank_problems'],
-		answer: 'Five ranked risks',
-		detail: 'each with an owner',
-		next: manager.cards[0].label, // WI §3 item 1
-		limit: manager.limit,
-	},
-	/** The evidence beat under the columns: the engineer's [Q46] count against BGL's own labels. */
+	header: {ask: 'Three people ask about the same logs', answer: 'Each of them gets a different answer'},
+	roles: [
+		{
+			role: 'Engineer',
+			icon: 'probe',
+			question: 'What failed?',
+			answer: {text: `One node · ${engineer.share.pct}`, count: engineer.share.pct}, // WI §1 [step 2]
+			facts: [
+				{text: `One node · ${engineer.share.pct} of fatal entries`, count: engineer.share.pct}, // WI §1 [step 2]
+				{text: 'L2 cache error just before'}, // WI §1 [step 5]
+				{text: 'Next: processor diagnostics', tone: 'accent'},
+			],
+		},
+		{
+			role: 'Team lead',
+			icon: 'loop',
+			question: 'What keeps coming back?',
+			answer: {text: `${persist.days} of ${persist.of} days`, count: String(persist.days)},
+			facts: [
+				{text: `"${persist.message}"`},
+				{text: `${persist.days} of ${persist.of} days · ${persist.trendLabel}`, count: String(persist.days), ring: true},
+				{text: `${teamLead.first.label}: ${teamLead.first.team}`, tone: 'accent'},
+			],
+		},
+		{
+			role: 'Manager',
+			icon: 'bars',
+			question: 'What should we fix first?',
+			answer: {text: `#1 job launches +${manager.cards[0].counter}%`, count: `+${manager.cards[0].counter}%`}, // WI §3 item 1
+			facts: [
+				{text: `${manager.cards.length} ranked risks, each with an owner`, count: String(manager.cards.length)}, // WI §3
+				{text: `#1 job launches +${manager.cards[0].counter}%`, count: `+${manager.cards[0].counter}%`}, // WI §3 item 1
+				{text: 'No made-up downtime or cost figures', tone: 'muted'},
+			],
+		},
+	] as SplitRole[],
+	/** The evidence beat under the cards: the engineer's full-text count against BGL's own labels. */
 	evidence: {left: evidence.left.value, right: evidence.right.value, caption: evidence.snapCaption}, // WI [steps 23, 24]
 	cues: [
 		'Same agent, same logs, three people asking at once.',
@@ -355,8 +366,8 @@ export const split = {
 		'The manager gets the priority: five ranked risks, each with an owner, and no invented cost.',
 		"And every number is a query: 152,734 counted, 152,734 in BGL's own labels.",
 	],
-	/** Cue indices: proof clip until `liftoff`; the spotlight follows engineer, team lead, manager; then all lit. */
-	at: {liftoff: 1, engineer: 1, teamLead: 2, manager: 3, allLit: 4},
+	/** Cue indices: the cards come in on `liftoff`; engineer, team lead, manager take centre stage in turn; then all lit. */
+	at: {liftoff: 0, engineer: 1, teamLead: 2, manager: 3, allLit: 4},
 };
 
 // ---------------------------------------------------------------- 8 star gag (after the close)

@@ -24,7 +24,6 @@ Drop files into `public/assets/` under the exact names of the asset contract
 | `dialog.mp3` | cold-open audio | scene 1a |
 | `s1-reveal.mp4`, `s2-roles.mp4`, `s6-benchmarks.mp4`, `s7-close.mp4` | facecam + narration audio (no s3–s5) | reveal, split, benchmarks, close |
 | `s7-close-a.mp4`, `s7-close-b.mp4`, `s7-close-c.mp4` | one close clip per presenter (≤ 8 s each), used only while the joint take `s7-close.mp4` is missing; played back to back with hard cuts | scene 7 (their sum) |
-| `roles.mp4` | one screen recording (muted), the three role prompts | nothing; sped up to fit the split's 3–4 s proof clip |
 | `demo.mp4` | live demo: one screen recording (muted) of a real Claude Code session with the serenedb-extractor MCP server, already cut and sped up | nothing; last frame holds if shorter than the take |
 | `s-demo.mp4` | facecam + narration audio by B over the live demo | scene 2b (≈ 15–25 s) |
 | `benchmarks.json` | benchmark scene and slide 4 numbers; designs in story order, `step`/`pipeline`/`added` draw each step, `questions` and `runs` fill the subtitle, `short` names a design in running text; `final: false` shows a pink PLACEHOLDER tag | – |
@@ -73,7 +72,7 @@ scenes in `src/scenes.tsx`. The slides PDF renders each page from the final, ful
 
 All in `src/timeline.ts`:
 
-- The proof clip's speed, so `roles.mp4` fits 3–4 s at the start of the split (one take, `s2-roles.mp4`).
+- The split's cue timing, so the columns, "all lit" and the evidence beat land on B's words (`s2-roles.mp4`).
   `npm run check` warns when a recording is longer than its slot (it would be cut).
 - `END_CARD_SECONDS`: how long the end card shows at the end of the close.
 - Subtitle cues (in `src/content.ts`) share each scene in proportion to their length, after 1 s of silence

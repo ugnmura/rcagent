@@ -21,7 +21,7 @@ the two differ, ask which one wins before building on either.
 | # | Handoff | Who | Needs | Produces |
 |---|---|---|---|---|
 | 1 | [Dialog audio](01-dialog-audio.md) | a person (ElevenLabs account) | script table | `dialog.mp3` |
-| 2 | [Role recordings](02-role-recordings.md) | a person, or Claude driving a terminal | loaded SereneDB, MCP server; **after the benchmark runs finish** | `roles.mp4` |
+| 2 | [Live demo recording](02-role-recordings.md) | a person, or Claude driving a terminal | loaded SereneDB, MCP server; **after the benchmark runs finish** | `demo.mp4` |
 | 3 | [Facecam takes](03-facecam.md) | the three presenters | script | `s1-reveal.mp4`, `s2-roles.mp4`, `s6-benchmarks.mp4`, `s7-close.mp4` |
 | 4 | [Remotion project](04-remotion.md) | Claude | script | the project, with placeholders for every asset |
 | 5 | [Combine and check](05-combine.md) | Claude + a person | 1–4 done, benchmark numbers final | `out/video.mp4`, `out/slides.pdf` |
@@ -36,8 +36,7 @@ exists, the project shows a labelled placeholder of the target length.
 | file | content | format | length |
 |---|---|---|---|
 | `dialog.mp3` | the five dialog lines, with pauses and a phone ring at the start | MP3, 44.1 kHz | 18–24 s |
-| `roles.mp4` | one screen recording of the `/engineer`, `/team-lead` and `/manager` answers in turn | 1920×1080, H.264, no audio needed | any; sped up to fit the split's 3–4 s proof clip |
-| `demo.mp4` | live demo between the split and the benchmarks: a real Claude Code session using the serenedb-extractor MCP server, cut and sped up by whoever records it; played muted | 1920×1080, H.264, no audio needed | any length ≤ the `s-demo.mp4` take (last frame holds if shorter) |
+| `demo.mp4` | live demo between the split and the benchmarks: a real Claude Code session using the serenedb-extractor MCP server, cut and sped up by whoever records it (handoff 2); played muted | 1920×1080, H.264, no audio needed | any length ≤ the `s-demo.mp4` take (last frame holds if shorter) |
 | `s-demo.mp4` | facecam with voice: B narrates the live demo (handoff 3) | 1080p or 720p, H.264 + AAC | ≈ 15–25 s; sets the demo scene length |
 | `s1-reveal.mp4`, `s2-roles.mp4`, `s6-benchmarks.mp4`, `s7-close.mp4` | facecam with voice, one file per script section: A reveal ≤ 40 s, B the whole split ≈ 30 s, C benchmarks ≤ 15 s, all three close ≤ 25 s (handoff 3; there is no s3–s5) | 1080p or 720p, H.264 + AAC | as spoken |
 | `s7-close-a/b/c.mp4` | the close split per presenter, used only when `s7-close.mp4` is missing | same | ≤ 8 s each |
