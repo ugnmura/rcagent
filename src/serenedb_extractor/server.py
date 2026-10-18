@@ -89,7 +89,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         build_filter_index: bool = False,
         build_search_index: bool = False,
     ) -> str:
-        """Set up a log table over a source, read in place, with confirmed field roles; build_filter_index / build_search_index build an index right away (default: none; the result shows size and time estimates for big sources). Re-running with roles or timezone corrects only those. timezone (IANA name, default UTC) is how timestamps without a zone are read."""
+        """Set up a log table over a source, read in place, with confirmed field roles; build_filter_index / build_search_index build an index right away (default: none; the result shows size and time estimates for big sources). Re-running with roles or timezone corrects only those. timezone (IANA name) is how timestamps without a zone are read: default the line format's own zone where it has one (bgl: America/Los_Angeles), else UTC."""
         return await runner.run_tool(
             setup_tools.setup_log_table,
             name=name,
@@ -112,10 +112,10 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         find_values: dict[str, str] | None = None,
         start: str | None = None,
         end: str | None = None,
-        timezone: str = "UTC",
+        timezone: str | None = None,
         confirmed_cost: str | None = None,
     ) -> str:
-        """Describe the log tables: source, field roles, time range, context scopes and top values; find_values={"role_or_column","like"} looks up values containing a word. If a lookup answers TOO EXPENSIVE and the user agrees, repeat it with the confirmed_cost it gives."""
+        """Describe the log tables: source, field roles, time zone, time range, context scopes and top values; find_values={"role_or_column","like"} looks up values containing a word. If a lookup answers TOO EXPENSIVE and the user agrees, repeat it with the confirmed_cost it gives."""
         return await runner.run_tool(
             describe.describe_logs,
             log_table=log_table,
@@ -136,7 +136,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         fuzzy: bool = False,
         order: str = "newest",
         limit: int | None = None,
-        timezone: str = "UTC",
+        timezone: str | None = None,
         confirmed_cost: str | None = None,
     ) -> str:
         """Find log entries by filters (e.g. {"level": "ERROR", "service": "payments"}) and/or text the message contains (any case), newest or oldest first. Each entry shows its time, fields, message and an occurrence ID. The cost is checked first: a too-expensive search may be estimated from a sample (said so), or answer TOO EXPENSIVE with a confirmed_cost to repeat it with once the user agrees. fuzzy needs a search index."""
@@ -163,7 +163,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         before: int = 10,
         after: int = 10,
         filters: dict[str, Any] | None = None,
-        timezone: str = "UTC",
+        timezone: str | None = None,
         confirmed_cost: str | None = None,
     ) -> str:
         """Show the entries shortly before and after one occurrence (an ID from search_logs or locate results), marked with →, each tagged with its template. Default scope is the narrowest available (same trace, else same service and host); scope='everything' or a list of trace/service/host overrides it. window_minutes (default 5) is the window either side; before/after limit the entries shown (nearest first). Long entries are shortened."""
@@ -189,7 +189,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         exclude: list[str] | None = None,
         sample_size: int | None = None,
         limit: int | None = None,
-        timezone: str = "UTC",
+        timezone: str | None = None,
         confirmed_cost: str | None = None,
     ) -> str:
         """First look at a log table: the most common message templates with estimated counts, shares, top services/components and an example each. Saves templates to the catalog (new ones are flagged NEW; IDs are stable). filters={"level": "ERROR"} narrow it first; start/end bound the period."""
@@ -236,7 +236,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         group_by: list[str] | None = None,
         examples_per_group: int = 3,
         limit: int | None = None,
-        timezone: str = "UTC",
+        timezone: str | None = None,
         confirmed_cost: str | None = None,
     ) -> str:
         """Exact counts of the entries matching templates (T<n> IDs from survey), grouped by any role, column or time bucket (group_by=["service", "time:1h"]; buckets are time:<n>m|h|d), with example occurrence IDs per group. Needs at least one template: run survey first. The cost is checked first: a too-expensive count may be estimated from a sample (said so), or answer TOO EXPENSIVE with a confirmed_cost to repeat it with once the user agrees."""
@@ -263,7 +263,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         filters: dict[str, Any] | None = None,
         by: str | None = None,
         limit: int | None = None,
-        timezone: str = "UTC",
+        timezone: str | None = None,
         confirmed_cost: str | None = None,
     ) -> str:
         """For one template (T<n> ID from survey): each parameter's top values with counts (10 per parameter, raisable with limit) and, for numeric parameters, min, p50, p95 and max. by="service" (a role or column) breaks it down per value. The cost is checked first: a too-expensive extraction may be estimated from a sample (said so), or answer TOO EXPENSIVE with a confirmed_cost to repeat it with once the user agrees."""
@@ -290,7 +290,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         exact: bool = False,
         filters: dict[str, Any] | None = None,
         top_n: int | None = None,
-        timezone: str = "UTC",
+        timezone: str | None = None,
         confirmed_cost: str | None = None,
     ) -> str:
         """Compare templates (T<n> IDs; default the catalog's top_n by size) over a period (start and end are required) with the preceding period of equal length: count per hour or day (bucket), change, on how many buckets each was present and which components were affected. Estimated by default (says so); exact=True counts every entry through the cost check, which may fall back to an estimate or answer TOO EXPENSIVE with a confirmed_cost to repeat it with. Where the data does not cover the preceding period the comparison is marked limited and nothing is called new."""

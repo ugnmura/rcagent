@@ -16,6 +16,7 @@ from serenedb_extractor.query import cost
 from serenedb_extractor.query.filters import TimeRange
 from serenedb_extractor.query.guard import Checked, check_read_only
 from serenedb_extractor.query.stats import WHOLE, ScopeStats, collect
+from serenedb_extractor.timezones import is_utc
 
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 500
@@ -31,18 +32,31 @@ class SqlFailed(UserFacingError):
         super().__init__(f"SereneDB could not run this query: {re.sub(r'\s+', ' ', detail).strip()}")
 
 
-def execute_user_sql(db: Database, sql: str, timeout: float | None, what: str) -> Rows:
+def execute_user_sql(db: Database, sql: str, timeout: float | None, what: str, zone: str | None = None) -> Rows:
     """Run user SQL on the reader. `params` is None on purpose: the text is never %-parsed (a `%` in
     a LIKE pattern is literal). `prepared=True` sends it over the extended protocol, so SereneDB
-    itself refuses a string holding several statements even if the guard missed one."""
+    itself refuses a string holding several statements even if the guard missed one. `zone`: the
+    session time zone the statement runs in."""
     try:
-        return db.read(sql, None, timeout, what, NARROW, prepared=True)
+        return db.read(sql, None, timeout, what, NARROW, prepared=True, zone=zone)
     except psycopg.Error as exc:
         raise SqlFailed(str(exc).splitlines()[0] if str(exc) else "unknown error") from exc
 
 
-def _read(ctx: AppContext, sql: str, timeout: float | None, what: str) -> Rows:
-    return execute_user_sql(ctx.db, sql, timeout, what)
+def _read(ctx: AppContext, sql: str, timeout: float | None, what: str, zone: str | None = None) -> Rows:
+    return execute_user_sql(ctx.db, sql, timeout, what, zone)
+
+
+def query_zone(tables: list[LogTable]) -> tuple[str | None, str]:
+    """(zone, why) the statement runs in: the log tables' own zone when they share one, so their
+    timestamps print, truncate and compare as their own clock; UTC when they differ; None (the
+    session's own) when it reads no log table."""
+    zones = {t.timezone for t in tables}
+    if not zones:
+        return None, ""
+    if len(zones) == 1:
+        return zones.pop(), f"the time zone of {', '.join(t.name for t in tables)}"
+    return "UTC", "the log tables' own time zones differ (" + ", ".join(f"{t.name} {t.timezone}" for t in tables) + ")"
 
 
 def _key(name: str) -> str:
@@ -149,6 +163,7 @@ def run_sql(
     plan = _read(ctx, f"EXPLAIN {checked.sql}", timeout, "planning the query")
     plan_text = "\n".join(str(r[0]) for r in plan.rows)
     stats, how = _predict(ctx, checked, plan_text, timeout)
+    zone, zone_why = query_zone(_referenced(checked, ctx.store.list_log_tables())[0])
     s = ctx.settings
     # The prediction is a full-scan bound (WHERE clauses are not credited), so only fewer columns lower it.
     decision = cost.decide(
@@ -159,10 +174,21 @@ def run_sql(
         return fmt.PREFIX + f"cost {how}; nothing was run.\n" + decision.message
     run_for = cost.run_timeout(decision.plan, timeout, s.max_timeout_s) if decision.plan.confirmed else timeout
     wrapped = f"SELECT * FROM (\n{checked.sql}\n) q LIMIT {shown + 1}"
-    result = _read(ctx, wrapped, run_for, "running the query")
+    result = _read(ctx, wrapped, run_for, "running the query", zone)
     rows_out = result.rows[:shown]
     note = " ".join(decision.plan.notes)
-    out = [fmt.PREFIX + f"your SQL ran as a read-only query, cut to {shown} rows; cost {how}; {note or 'within the budget'}."]
+    times = ""
+    if zone is not None and is_utc(zone):
+        times = f"; times in {zone}, {zone_why}"
+    elif zone is not None:
+        times = (
+            f"; times in {zone} (not UTC), {zone_why}: timestamps print with their UTC offset, and dates, "
+            "date_trunc and time literals are in it too (ts AT TIME ZONE 'UTC' gives UTC)"
+        )
+    out = [
+        fmt.PREFIX
+        + f"your SQL ran as a read-only query, cut to {shown} rows; cost {how}; {note or 'within the budget'}{times}."
+    ]
     out.append(_table(result.columns, rows_out) if result.columns else "(no result columns)")
     if len(result.rows) > shown:
         # One extra row is fetched to know there is more; the total is not counted (that would

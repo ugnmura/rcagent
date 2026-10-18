@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import TypeVar
 
 from serenedb_extractor.errors import UserFacingError
+from serenedb_extractor.timezones import is_utc, is_zone_name
 
 T = TypeVar("T")
 PREFIX = "How this was measured: "
@@ -26,7 +27,7 @@ def how_measured(
         f"filters: {filters}" if filters else "no filters",
         sample if sample else "no sampling",
         f"index used: {index_used}" if index_used else "no index used",
-        f"times in {tz}",
+        f"times in {tz}" + (" (not UTC)" if not is_utc(tz) and is_zone_name(tz) else ""),
     ]
     return PREFIX + "; ".join(parts) + "."
 

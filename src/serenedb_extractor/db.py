@@ -142,14 +142,21 @@ class _Conn:
         what: str = "",
         how_to_narrow: str = DEFAULT_NARROW,
         prepared: bool = False,
+        zone: str | None = None,
     ) -> Rows:
         """Run one statement; past `timeout_s` it is cancelled in SereneDB and QueryTimeout is raised.
         `prepared`: use the extended protocol (server-side parsing), so the server itself refuses a
-        string holding several statements; for untrusted SQL (run_sql)."""
+        string holding several statements; for untrusted SQL (run_sql). `zone`: the session time zone
+        for this statement only (how timestamptz values print, and what date_trunc, ::date and time
+        literals mean); it is reset afterwards."""
         with self.lock:
             canceller = _Canceller(self, timeout_s)
+            zoned = False
             try:
                 pg = self.get(timeout_s)
+                if zone is not None:
+                    pg.execute(f"SET TimeZone = {_literal(zone)}")
+                    zoned = True
                 if prepared:
                     cur = psycopg.Cursor(pg)
                     cur.execute(sql, params, prepare=True)  # type: ignore[call-overload]
@@ -175,6 +182,22 @@ class _Conn:
                 raise DatabaseUnreachable(self.setting, str(exc)) from exc
             finally:
                 canceller.finish()
+                if zoned:
+                    self._reset_zone()
+
+    def _reset_zone(self) -> None:
+        """Back to the session's own time zone; a connection that can't be reset is dropped (a new one starts clean)."""
+        pg = self._conn
+        if pg is None or pg.closed:
+            return
+        try:
+            pg.execute("RESET TimeZone")
+        except psycopg.Error:
+            self.close()
+
+
+def _literal(text: str) -> str:
+    return "'" + text.replace("'", "''") + "'"
 
 
 class _Canceller:
@@ -238,9 +261,10 @@ class Database:
         what: str = "",
         how_to_narrow: str = DEFAULT_NARROW,
         prepared: bool = False,
+        zone: str | None = None,
     ) -> Rows:
         return self._execute(
-            self._reader, sql, params, timeout_s, what, how_to_narrow, self.settings.default_timeout_s, prepared
+            self._reader, sql, params, timeout_s, what, how_to_narrow, self.settings.default_timeout_s, prepared, zone
         )
 
     def write(
@@ -263,12 +287,13 @@ class Database:
         how_to_narrow: str,
         default_s: float,
         prepared: bool = False,
+        zone: str | None = None,
     ) -> Rows:
         """Every statement runs under a timeout. Reads default to the query timeout (60 s); writes
         (DDL, catalog updates, copy batches) default to the maximum (600 s), because setup and index
         builds are long but approved work. Either can be set per call, capped at the maximum."""
         timeout = default_s if timeout_s is None or timeout_s <= 0 else timeout_s
-        return conn.run(sql, params, min(timeout, self.settings.max_timeout_s), what, how_to_narrow, prepared)
+        return conn.run(sql, params, min(timeout, self.settings.max_timeout_s), what, how_to_narrow, prepared, zone)
 
     def copy_rows(self, table: str, columns: list[str], rows: list[tuple[Any, ...]], batch: int = 500) -> int:
         """Insert rows in batches through the writer; `table` may be schema-qualified."""

@@ -25,6 +25,7 @@ from serenedb_extractor.query.filters import (
     data_range,
     parse_time_range,
     role_sql,
+    shown_zone,
     time_clause,
 )
 from serenedb_extractor.query.stats import collect, role_columns
@@ -354,10 +355,11 @@ def trend(
     exact: bool = False,
     filters: dict[str, Any] | None = None,
     top_n: int | None = None,
-    timezone: str = "UTC",
+    timezone: str | None = None,
     confirmed_cost: str | None = None,
 ) -> str:
     lt = ctx.store.get_log_table(log_table)
+    timezone = shown_zone(lt, timezone)
     unit = _as_bucket(bucket)
     if not start or not end:
         raise UserFacingError(NEED_PERIOD)

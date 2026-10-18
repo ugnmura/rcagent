@@ -227,6 +227,20 @@ build on a sample) before anything is built; you can also ask for just the estim
 
 Indexes live in the `extractor` schema next to their log table.
 
+## Time zones
+
+Every log table has its own time zone: the zone its timestamps without one were written in. Setup reads them in
+the zone you give (`timezone`), else in the line format's own zone where it has one, else in UTC. The `bgl` line
+format's zone is `America/Los_Angeles`: Blue Gene/L logs record US Pacific local time (their epoch field is 7 or 8
+hours later). Timestamps are stored as real instants.
+
+Results show times in the log table's own zone unless a tool is given `timezone`, and times you pass without a zone
+are read in that zone too, so dates mean the same as in the log itself. Outside UTC, every result says so and the
+times of entries and periods carry their UTC offset (`2005-06-03 16:17:40-07:00`). `run_sql` runs in the zone of the
+log tables it reads (UTC when they differ), so timestamps print with their offset and `date_trunc`, `::date` and time
+literals follow the log's clock; `ts AT TIME ZONE 'UTC'` gives UTC. A copied log table keeps the zone it was read in;
+set it up again under another name to change it.
+
 ## Running the tests
 
 ```sh

@@ -18,6 +18,7 @@ from serenedb_extractor.query.filters import (
     diagnose_empty,
     parse_time_range,
     role_sql,
+    shown_zone,
     time_clause,
     ts_tz_sql,
 )
@@ -218,12 +219,13 @@ def locate_occurrences(
     group_by: list[str] | None = None,
     examples_per_group: int = 3,
     limit: int | None = None,
-    timezone: str = "UTC",
+    timezone: str | None = None,
     confirmed_cost: str | None = None,
 ) -> str:
     if not templates:
         raise UserFacingError(NEED_TEMPLATE)
     lt = ctx.store.get_log_table(log_table)
+    timezone = shown_zone(lt, timezone)
     tr = parse_time_range(start, end, timezone)
     f = Filters.from_dict(filters)
     tpls, notes = _resolve_templates(ctx, lt.name, templates)
@@ -442,10 +444,11 @@ def extract_params(
     filters: dict[str, Any] | None = None,
     by: str | None = None,
     limit: int | None = None,
-    timezone: str = "UTC",
+    timezone: str | None = None,
     confirmed_cost: str | None = None,
 ) -> str:
     lt = ctx.store.get_log_table(log_table)
+    timezone = shown_zone(lt, timezone)
     tr = parse_time_range(start, end, timezone)
     f = Filters.from_dict(filters)
     tpls, notes = _resolve_templates(ctx, lt.name, [template])

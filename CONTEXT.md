@@ -29,6 +29,10 @@ _Avoid_: Dataset
 The mapping from a log table's columns to the meanings the tools rely on: timestamp, message, level, service, host, component, and trace id. A role the log table lacks is simply absent.
 _Avoid_: Schema, column mapping
 
+**Log time zone**:
+The time zone a log table's timestamps were written in when they carry none, chosen at setup: the one given, else the line format's own (BGL logs US Pacific local time), else UTC. Results show times in it unless another zone is asked for.
+_Avoid_: Default time zone, display zone
+
 **Setup**:
 The one-time step that turns a log source into a log table: inspect the source, propose field roles, have them confirmed, and record them with an empty template catalog.
 _Avoid_: Import, ingestion, onboarding

@@ -18,7 +18,7 @@ def _db() -> Database:
 def test_reads_default_and_writes_get_the_maximum(monkeypatch):
     seen: list[tuple[str, float | None]] = []
 
-    def fake_run(self: Any, sql: str, params: Any, timeout_s: float | None = None, what: str = "", how_to_narrow: str = "", prepared: bool = False) -> dbmod.Rows:
+    def fake_run(self: Any, sql: str, params: Any, timeout_s: float | None = None, what: str = "", how_to_narrow: str = "", prepared: bool = False, zone: str | None = None) -> dbmod.Rows:
         seen.append((sql.split()[0], timeout_s))
         return dbmod.Rows([], [])
 

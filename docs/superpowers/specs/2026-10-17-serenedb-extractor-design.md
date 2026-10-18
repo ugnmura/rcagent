@@ -61,7 +61,7 @@ Three audiences ask about the same logs and need different evidence:
 **Assumptions (Claude's calls)**
 - **Log sources are static snapshots.** No refresh or append for copied tables; in-place globs are assumed not to change after setup. Row counts are read fresh from file metadata when cheap rather than trusted from `log_tables.row_count`.
 - **Credentials for private S3/HTTP are configured in SereneDB by the user** (e.g. `CREATE SECRET`), documented in the README. The MCP never receives, stores or echoes credentials; access errors from `inspect_source` are turned into plain-language messages.
-- **Time zone:** periods and buckets are computed in **UTC by default**; tools accept an optional time zone, and the model states which one it used. Zoneless raw-text timestamps are treated as UTC unless the user says otherwise at setup (the setup summary states the assumption).
+- **Time zone:** periods and buckets are computed in **the log table's own time zone by default** (UTC unless setup read the table in another zone); tools accept an optional time zone, and the model states which one it used, with UTC alongside when it is not UTC. Zoneless raw-text timestamps are read in the zone given at setup, else in the line format's own zone where it has one (`bgl`: America/Los_Angeles, the local time Blue Gene/L logged), else as UTC (the setup summary states the assumption). Outside UTC, the times of entries and periods carry their UTC offset. *(Changed in night run 2, round 2: it used to be UTC everywhere, which labelled BGL's US Pacific local times as UTC.)*
 
 ## 4. Configuration
 

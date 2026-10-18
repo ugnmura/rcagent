@@ -25,6 +25,10 @@ class LineFormat:
     ts_format: str | None = None  # strptime format; None means ISO 8601
     host_field: str | None = None
     ignore: tuple[str, ...] = ()  # groups already carried by another field
+    # The zone the format's zoneless times are in, when the format itself says (None: unknown, read as UTC
+    # unless setup is told otherwise), and why, in a few words for the setup summary.
+    zone: str | None = None
+    zone_why: str | None = None
 
 
 # Every line that starts with its format's header is an entry of its own, even when parts the header
@@ -46,6 +50,11 @@ LINE_FORMATS: dict[str, LineFormat] = {
         "%Y-%m-%d-%H.%M.%S.%f",
         host_field="node",
         ignore=("date",),
+        # Blue Gene/L (LLNL, California) logs <Time> as US Pacific local time: its <Timestamp> epoch field
+        # is 7 hours later in summer (PDT) and 8 in winter (PST) on every line but the repeated hour when
+        # the clocks went back.
+        zone="America/Los_Angeles",
+        zone_why="Blue Gene/L logs record US Pacific local time; their epoch field is 7 or 8 hours later",
     ),
     "openstack": LineFormat(
         "openstack",
