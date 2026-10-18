@@ -121,6 +121,7 @@ export const BenchStepsShot: React.FC<{frames: number; benchmarks: Benchmarks}> 
 	return (
 		<AbsoluteFill style={{fontFamily: font.sans}}>
 			{b.final ? null : <PlaceholderTag />}
+			<Title opacity={ramp(frame, 0, FADE)}>{benchContent.scoreTitle.toUpperCase()}</Title>
 			<div style={{opacity: ramp(frame, 0, FADE)}}>
 				<Baseline />
 				<div style={{position: 'absolute', left: COL_LEFT - 20, width: 3 * COL_W + 2 * COL_GAP + 40, top: BASE - BAR_MAX, borderTop: `2px dashed ${color.line}`}} />

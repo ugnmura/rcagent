@@ -315,6 +315,7 @@ export const benchmarks = {
 	todo: 'Numbers pending: final benchmark run',
 	placeholder: 'PLACEHOLDER NUMBERS · benchmarks still running',
 	setup: {questions: 'sealed questions', runs: 'runs each', blind: 'graded blind'},
+	scoreTitle: 'Answer score',
 	costTitle: 'Cost per answer',
 	andTop: 'with the top score:',
 	perAnswer: 'per answer',
