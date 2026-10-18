@@ -96,7 +96,7 @@ spread = 1.4826 * MAD_before, or stddev_before if MAD is 0, floored at 1% of |me
 
 **Error-ish** (fixed): the level role is `error`/`fatal`/`critical` (case-insensitive) when the table has a level role; otherwise the message matches `error|exception|fail|fatal|panic|traceback` (case-insensitive).
 
-**Self time:** `setup_trace_table` copies spans into `extractor.tt_<name>` and adds `self_time_us` = duration − the union of child intervals clipped to the parent (overlapping children are not double-counted; children outside the parent are clipped; orphan spans keep their full duration and are counted). Whether the copy is needed is measured in slice A3 on the fixtures and on B1 data, and decided before the freeze; after the freeze it does not change.
+**Self time:** `setup_trace_table` copies spans into `extractor.tt_<name>` and adds `self_time_us` = duration − the union of child intervals clipped to the parent (overlapping children are not double-counted; children outside the parent are clipped; orphan spans keep their full duration and are counted). Whether the copy is needed is measured in slice A3 on the fixtures and on B1 data, and decided before the freeze; after the freeze it does not change. **Decided (slice A3 measurement, synthetic data):** keep the copy. Setup 0.43 s for 8,400 spans and 0.57 s for 84,000; a per-operation aggregate on a self-time view costs about 2× the copy at 84,000 spans, and `trace_changes` reads spans in three queries. To recheck on B1 data before the freeze.
 
 ### Code layout (so slices can run in parallel)
 
