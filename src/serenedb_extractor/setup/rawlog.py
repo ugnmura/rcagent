@@ -92,6 +92,8 @@ LINE_FORMATS: dict[str, LineFormat] = {
         ("ts",),
     ),
 }
+# Not detected, only a fallback (or asked for): text without a recognisable header, one entry per line.
+LINE_FORMATS["lines"] = LineFormat("lines", re.compile(r"^(?P<content>.*)$"), "<message> (one entry per line)", ())
 _DETECT_ORDER = ("bgl", "openstack", "generic")  # most specific first; ties go to the earlier one
 
 
