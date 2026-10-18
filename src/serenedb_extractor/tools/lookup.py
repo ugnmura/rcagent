@@ -88,7 +88,7 @@ def _scope_text(f: Filters, text: str | None, how: str = "contains") -> str | No
     for key, wanted in f.items():
         parts.append(f"{key} in ({', '.join(repr(w) for w in wanted)})" if isinstance(wanted, list) else f"{key}={wanted!r}")
     if text:
-        parts.append(f"message {how} {text!r} (any case)")
+        parts.append(f"message {how} {fmt.shorten(text, 200)!r} (any case)")
     return ", ".join(parts) or None
 
 
@@ -104,7 +104,7 @@ def _line(lt: LogTable, row: dict[str, Any], tr: TimeRange, tag: str = "") -> st
         occ = occurrence.encode_occurrence(lt, row)
     except KeyError:  # an entry found through the index that could not be placed in the source again
         occ = "(occurrence ID not available)"
-    parts = [_show_ts(row["occ_ts"], tr), occ, roles, tag, fmt.shorten(str(row["occ_msg"] or ""))]
+    parts = [_show_ts(row["occ_ts"], tr), occ, roles, tag, fmt.entry_text(str(row["occ_msg"] or ""))]
     return "  " + "  ".join(p for p in parts if p)
 
 
@@ -325,7 +325,7 @@ def _search_via_index(
     empty_why = diagnose_empty(db, lt, tr, f, cols) if total == 0 else []
     out = _render(
         lt, tr, f, text, tz, plan, fmt.Measured(float(total), True), rows, tags, total, order, empty_why,
-        via=(ix.name, how), notes=[n for n in (missing, lookup_note) if n],
+        via=(ix.name, f"{how} {fmt.shorten(str(text), 200)!r}"), notes=[n for n in (missing, lookup_note) if n],
     )
     return out
 

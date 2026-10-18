@@ -100,7 +100,7 @@ async def test_a_table_without_rules_has_no_team(mcp, tmp_path):
 async def test_count_logs_text_and_time_bucket(mcp, corpus):
     out = await call(mcp, "count_logs", log_tables=["bgl"], text="interrupt", group_by=["time:1d"])
     assert "message contains 'interrupt'" in out
-    assert "2005-06-11: 60" in out and "groups ordered by time" in out
+    assert "2005-06-11: 60" in out and "in time order" in out
 
 
 async def test_count_logs_cuts_and_says_so(mcp, corpus):
@@ -156,3 +156,117 @@ async def test_trend_never_calls_new_across_a_gap_in_the_logs(mcp, tmp_path):
     # 2 March has no entries at all: the data's span covers it, but the logs do not
     assert "no entries at all in the preceding period" in out and "limited comparison" in out
     assert "new in this period" not in out
+
+
+async def test_find_values_takes_the_documented_form(mcp, corpus):
+    short = await call(mcp, "describe_logs", log_table="bgl", find_values={"level": "fat"})
+    long = await call(mcp, "describe_logs", log_table="bgl", find_values={"role_or_column": "level", "like": "fat"})
+    assert "FATAL" in short and short == long
+    assert "one field at a time" in await call(mcp, "describe_logs", log_table="bgl", find_values={"level": "x", "host": "y"})
+
+
+async def test_hour_buckets_keep_both_hours_when_clocks_go_back(mcp, tmp_path):
+    """Generic lines with explicit offsets: 01:30 PDT and 01:30 PST on 2005-10-30 are two different hours."""
+    log = tmp_path / "fallback.log"
+    log.write_text(
+        "2005-10-30T01:30:00-07:00 INFO first pass\n2005-10-30T01:30:00-08:00 INFO second pass\n"
+        "2005-10-30T01:40:00-08:00 INFO second pass again\n",
+        encoding="utf-8",
+    )
+    await call(mcp, "setup_log_table", name="fb", source=str(log), timezone="America/Los_Angeles")
+    out = await call(mcp, "count_logs", log_tables=["fb"], group_by=["time:1h"])
+    assert "2005-10-30 01:00-07:00: 1" in out and "2005-10-30 01:00-08:00: 2" in out
+    week = await call(mcp, "count_logs", log_tables=["fb"], group_by=["time:7d"])
+    assert "2005-10-24: 3" in week  # weeks start on a Monday
+
+
+async def test_input_checks_and_one_line_entries(mcp, corpus):
+    assert "empty list" in await call(mcp, "search_logs", log_table="bgl", filters={"level": []})
+    assert "IS NULL" in await call(mcp, "search_logs", log_table="bgl", filters={"level": None})
+    assert "give 1 or more" in await call(mcp, "search_logs", log_table="bgl", limit=0)
+    found = await call(mcp, "search_logs", log_table="openstack", limit=1)
+    occ = re.search(r"\s(e:\d+|\S+#\d+)\s", found).group(1)
+    out = await call(mcp, "get_context", log_table="openstack", occurrence=occ, scope=["component"],
+                     filters={"level": "INFO"}, before=1, after=1)
+    assert "the same component" in out and "level='INFO'" in out.splitlines()[0]
+    assert "before and after are numbers" in await call(mcp, "get_context", log_table="openstack", occurrence=occ, before=-1)
+
+
+def test_entry_text_keeps_one_line():
+    from serenedb_extractor import format as fmt
+
+    assert fmt.entry_text("Traceback\n  File x\r\n  boom") == "Traceback ⏎   File x ⏎   boom"
+
+
+async def test_an_occurrence_id_may_name_just_the_file(mcp, db_url):
+    from tests.conftest import container_parquet
+    from tests.fixtures.data import FX
+
+    path = container_parquet(db_url, "fx_short", FX)
+    await call(mcp, "setup_log_table", name="fxs", source=path)
+    found = await call(mcp, "search_logs", log_table="fxs", limit=1)
+    occ = re.search(r"\s(\S+#\d+)\s", found).group(1)
+    out = await call(mcp, "get_context", log_table="fxs", occurrence=occ.rsplit("/", 1)[-1], scope="everything")
+    assert "→" in out and occ in out
+
+
+async def test_raw_openstack_logs_get_service_and_trace(mcp, corpus):
+    desc = await call(mcp, "describe_logs", log_table="openstack")
+    assert "service: attrs ->> 'service'" in desc and "trace: attrs ->> 'trace'" in desc
+    counts = await call(mcp, "count_logs", log_tables=["openstack"], group_by=["service"])
+    assert "nova-api:" in counts and "nova-compute:" in counts
+    found = await call(mcp, "search_logs", log_table="openstack", filters={"service": "nova-api"}, limit=1)
+    occ = re.search(r"\s(e:\d+)\s", found).group(1)
+    ctx_out = await call(mcp, "get_context", log_table="openstack", occurrence=occ)
+    assert "the narrowest available context scope: the same trace" in ctx_out
+
+
+async def test_a_timestamp_role_on_a_column_without_times_is_refused(mcp, db_url):
+    from tests.conftest import container_parquet
+    from tests.fixtures.data import FX
+
+    path = container_parquet(db_url, "fx_badts", FX)
+    out = await call(mcp, "setup_log_table", name="badts", source=path, roles={"timestamp": "level"})
+    assert "holds values that are not times" in out and re.search(r"\(e\.g\. '(ERROR|WARN|INFO)'\)", out)
+    fixed = await call(mcp, "setup_log_table", name="badts", source=path)  # nothing was registered: a clean setup works
+    assert "Set up log table 'badts'" in fixed
+    await call(mcp, "setup_log_table", name="goodts", source=path)
+    again = await call(mcp, "setup_log_table", name="goodts", source=path, roles={"timestamp": "service"})
+    assert "holds values that are not times" in again
+
+
+CSV_TEXT = 'ts,level,service,msg\n2026-03-01T00:00:00Z,INFO,web,hello world\n2026-03-01T00:00:05Z,ERROR,pay,"timeout, again"\n'
+
+
+async def test_a_local_csv_is_copied(mcp, tmp_path):
+    p = tmp_path / "events.csv"
+    p.write_text(CSV_TEXT, encoding="utf-8")
+    out = await call(mcp, "setup_log_table", name="csvlocal", source=str(p))
+    assert "Set up log table 'csvlocal'" in out and "message: msg" in out and "timestamp: ts" in out
+    counts = await call(mcp, "count_logs", log_tables=["csvlocal"], group_by=["level"])
+    assert "ERROR: 1" in counts and "INFO: 1" in counts
+
+
+async def test_a_csv_sereneDB_sees_is_read_in_place(mcp, db_url):
+    import psycopg
+
+    with psycopg.connect(db_url, autocommit=True) as conn:
+        conn.execute(  # type: ignore[call-overload]
+            "COPY (SELECT * FROM (VALUES (TIMESTAMPTZ '2026-03-01 00:00:00+00', 'INFO', 'web', 'hello'), "
+            "(TIMESTAMPTZ '2026-03-01 00:00:05+00', 'ERROR', 'pay', 'timeout, again')) t(ts, level, service, msg)) "
+            "TO '/tmp/t_inplace.csv' (FORMAT CSV, HEADER)"
+        )
+    out = await call(mcp, "setup_log_table", name="csvin", source="/tmp/t_inplace.csv")
+    assert "read in place" in out.lower() or "reads the source directly" in out
+    found = await call(mcp, "search_logs", log_table="csvin", text="timeout")
+    assert "1 matching entries" in found or "1 matching entry" in found
+    occ = re.search(r"\s(\S+#\d+)\s", found).group(1)
+    assert "→" in await call(mcp, "get_context", log_table="csvin", occurrence=occ, scope="everything")
+
+
+async def test_several_local_files_are_explained(mcp, tmp_path):
+    for i in range(2):
+        (tmp_path / f"part_00{i}.csv").write_text(CSV_TEXT, encoding="utf-8")
+    for src in (f"{tmp_path}/part_*.csv", f"{tmp_path}/part_{{000..001}}.csv"):
+        out = await call(mcp, "setup_log_table", name="multi", source=src)
+        assert "names several files on this machine" in out, out

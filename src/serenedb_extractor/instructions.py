@@ -51,12 +51,16 @@ Which tool for which question:
 grouped by team, component, level or a time bucket; omit log_tables for the whole corpus).
 - "What kinds of problems are there / what keeps happening?" → survey, then trend for rising, falling or \
 persistent ones.
+- "What should we prioritise / look at first?" → rank_problems (a ranked list by a stated, measured score, \
+with owning teams); explain the top items and give each a next action.
 - "Show me the errors / find this message" → search_logs (full-text with a time window; it returns entries, \
 not frequencies).
 - "What happened around it?" → get_context on an occurrence ID from search_logs or locate_occurrences.
 - "Where and when exactly does this problem occur?" → locate_occurrences grouped by team, host, component or time.
 - "Which values are inside the message (node, status, latency)?" → extract_params.
 - "How did you get that number?" → show_evidence.
+- "Who owns what / are these the real teams?" → show_team_ownership. "Use this ownership file / move X to team Y" \
+→ edit_team_ownership (only on the user's request; dry_run first when replacing many rules).
 
 Shared inputs: start and end are ISO times (end exclusive), read in timezone (default: the log table's own time zone); filters is \
 {{"role or column": value or [values]}} with the roles level, component, team, host, service, trace; \

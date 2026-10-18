@@ -18,7 +18,7 @@ from serenedb_extractor.context import AppContext
 from serenedb_extractor.instructions import SERVER_INSTRUCTIONS
 from serenedb_extractor.prompts import register_prompts
 from serenedb_extractor.query import stats
-from serenedb_extractor.tools import aggregate, catalog_tools, describe, evidence_tools, lookup, setup_tools
+from serenedb_extractor.tools import aggregate, catalog_tools, describe, evidence_tools, lookup, ownership_tools, rank, setup_tools
 from serenedb_extractor.tools import context as context_tool
 from serenedb_extractor.tools import investigate
 from serenedb_extractor.tools import sql as sql_tool
@@ -199,7 +199,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         """Full-text search: the actual log entries matching words and/or field filters in a time window — the engineer's evidence.
         Use when: you need to quote real error messages, find the entries behind a count, or look for a word or phrase (e.g. "timeout", "parity error") in a period. Not for counting how often something happens — use count_logs or locate_occurrences for that; a page of examples says nothing about frequency.
         Inputs: text = words the message contains, any case, as a phrase; fuzzy=True also matches near-misses (needs a search index); filters e.g. {"level": "ERROR", "component": "nova.compute.manager"}; order newest|oldest; limit = entries shown (default 50).
-        Returns: the total number of matching entries, then up to limit entries with time, fields (incl. team), message, template tag and an occurrence ID (e:<n>) to pass to get_context; says when the list is cut."""
+        Returns: the total number of matching entries, then up to limit entries with time, fields (incl. team), message, template tag and an occurrence ID (like /data/bgl.parquet#222715 for a table read in place, or e:42 for a copied one) to pass to get_context exactly as shown; says when the list is cut."""
         return await runner.run_tool(
             lookup.search_logs,
             log_table=log_table,
@@ -227,8 +227,8 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         confirmed_cost: str | None = None,
     ) -> str:
         """What happened just before and after one entry — the nearby events an engineer needs to explain a failure.
-        Use when: you have an occurrence ID (e:<n> from search_logs or locate_occurrences) and want the lead-up and aftermath on the same request, node or service.
-        Inputs: scope = which neighbours count: default the narrowest available (same trace/request, else same service and host); "everything" or a list of trace/service/host/component widens it; window_minutes either side (default 5); before/after = entries shown each side (default 10).
+        Use when: you have an occurrence ID (as search_logs or locate_occurrences show it, e.g. /data/bgl.parquet#222715 or e:42) and want the lead-up and aftermath on the same request, node or service.
+        Inputs: scope = which neighbours count: default the narrowest available (same trace/request, else same service and host); "everything", or a list of the table's context scopes (describe_logs lists them: trace, service, host, component) chooses it; window_minutes either side (default 5); before/after = entries shown each side (default 10).
         Returns: the entries in time order with the occurrence marked →, each with its time offset, fields and template tag; long messages shortened."""
         return await runner.run_tool(
             context_tool.get_context,
@@ -289,7 +289,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
     ) -> str:
         """Is a problem rising, falling, new or persistent? Compares templates over a period with the preceding period of equal length.
         Use when: a team lead or manager asks what recurs, what got worse, or what to prioritise; run after survey.
-        Inputs: start and end (required); templates = T<n> IDs (default: the catalog's largest top_n); bucket hour|day; exact=True counts every entry (default estimates).
+        Inputs: start and end (required); templates = T<n> IDs (default: the catalog's largest top_n); bucket hour|day; exact=True insists on counting every entry (by default it counts every entry when that fits the time budget, else estimates from a sample, said so).
         Returns: per template the count per bucket, change against the preceding period, on how many buckets it was present (persistence), and the components and teams affected. Marks the comparison limited when the data does not cover the earlier period — then nothing may be called new."""
         return await runner.run_tool(
             trend_tool.trend,
@@ -334,6 +334,35 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
             confirmed_cost=confirmed_cost,
         )
 
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))
+    async def rank_problems(
+        start: str,
+        end: str,
+        log_tables: list[str] | None = None,
+        min_level: str = "warning",
+        filters: dict[str, Any] | None = None,
+        limit: int | None = None,
+        candidates: int | None = None,
+        timezone: str | None = None,
+        confirmed_cost: str | None = None,
+    ) -> str:
+        """Which observed problems deserve attention first: a ranked list, scored by a stated formula on measured severity, change against the preceding period, persistence, spread and share.
+        Use when: a manager asks what to prioritise, or a team lead asks what to investigate first; then explain the top items with their owning team and a next action. Rank first, then dig into the top items with trend, locate_occurrences or search_logs.
+        Inputs: start and end (required; the preceding period of equal length is compared); log_tables (omit for all); min_level "warning" (default), "error" or "fatal"; filters e.g. {"team": "Cloud API"}; limit = problems shown (default 10); candidates = templates considered per log table (default 15).
+        Returns: the scoring rule, then per problem its score (0-18), exact entries and levels, change, presence per day/hour, spread over hosts (or services), components and owning team, and the points behind the score. Candidates come from a survey of the period, saved to the catalog like survey's."""
+        return await runner.run_tool(
+            rank.rank_problems,
+            start=start,
+            end=end,
+            log_tables=log_tables,
+            min_level=min_level,
+            filters=filters,
+            limit=limit,
+            candidates=candidates,
+            timezone=timezone,
+            confirmed_cost=confirmed_cost,
+        )
+
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
     async def show_evidence(ids: list[str] | None = None, include_result: bool = True) -> str:
         """The executed queries and results behind earlier answers, for checking — every other tool's result ends with an evidence handle [Q<n>].
@@ -346,7 +375,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
     async def inspect_source(source: str, format_hint: str | None = None, line_format: str | None = None) -> str:
         """Look at a log source before setting it up; changes nothing.
         Use when: the user points at a new file, URL or table and you need its columns, size and proposed field roles.
-        Inputs: source = a Parquet/JSON file or URL (several remote files as part_{000..009}.parquet), a raw .log file, or a table name; format_hint parquet|json|table|raw; line_format for raw logs (bgl, openstack, generic).
+        Inputs: source = a Parquet/JSON/CSV file or URL (several remote files as part_{000..009}.parquet), a raw .log file, or a table name; format_hint parquet|csv|json|table|raw; line_format for raw logs (bgl, openstack, generic).
         Returns: columns, sample entries, size and row count from metadata, proposed field roles with the reason for each, and index size estimates."""
         return await runner.run_tool(
             setup_tools.inspect_source, source=source, format_hint=format_hint, line_format=line_format
@@ -362,7 +391,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         build_filter_index: bool = False,
         build_search_index: bool = False,
     ) -> str:
-        """Register a log source as a log table so the other tools can query it. Parquet/JSON (local or remote URL) is read in place — nothing is downloaded; raw text logs are parsed and copied.
+        """Register a log source as a log table so the other tools can query it. Parquet/JSON/CSV (local or remote URL) is read in place — nothing is downloaded; raw text logs are parsed and copied.
         Use when: the user wants new logs analysed. Re-running on an existing name only corrects roles or the time zone.
         Inputs: name (lowercase); source as for inspect_source (several remote files: part_{000..009}.parquet); roles = {"timestamp": col, "message": col, "level": col, "component": col, "service": col, "host": col, "trace": col} to confirm or correct the proposal; timezone (IANA) for timestamps without a zone: default the line format's own zone where it has one (bgl: America/Los_Angeles), else UTC; build_filter_index / build_search_index only when the user asks.
         Returns: the field roles, entry count, files, size, how long setup took and index estimates. Teams come from the ownership table automatically when it covers the table."""
@@ -380,9 +409,54 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
     @mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
     async def create_index(log_table: str, kind: str, dry_run: bool = False) -> str:
         """Build an index so repeated questions on a big log table answer faster. Only when the user asks for one.
-        Use when: the user wants faster filters (kind="filter": exact value lists, nearly free filters) or faster/fuzzy text search (kind="search"), or asks what an index would cost (dry_run=True: a trial build on a sample, nothing kept).
+        Use when: the user wants exact, instant value lists in describe_logs (kind="filter") or faster and fuzzy text search in search_logs (kind="search"); counts, surveys and trends still read the entries either way, or asks what an index would cost (dry_run=True: a trial build on a sample, nothing kept).
         Returns: the index's size on disk and build time (measured, or estimated for dry_run)."""
         return await runner.run_tool(setup_tools.create_index, log_table=log_table, kind=kind, dry_run=dry_run)
+
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    async def show_team_ownership(log_table: str | None = None, coverage: bool = True, confirmed_cost: str | None = None) -> str:
+        """The team-ownership table: which team owns which component (or service), where the rules came from (imported file, set by hand, or the fictional stand-in), and how well they cover the logs.
+        Use when: the user asks who owns what, which teams exist, whether the teams are official, or before and after editing the ownership table; also when a team breakdown shows many "Unassigned" entries.
+        Inputs: log_table (omit for all); coverage=False skips the counts.
+        Returns: the rules grouped by team, their sources, recent changes, and per log table the entries per team plus the component values no rule covers (exact counts, or TOO EXPENSIVE / a block sample on huge tables, said so)."""
+        return await runner.run_tool(
+            ownership_tools.show_team_ownership, log_table=log_table, coverage=coverage, confirmed_cost=confirmed_cost
+        )
+
+    @mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
+    async def edit_team_ownership(
+        action: str,
+        csv_path: str | None = None,
+        csv_text: str | None = None,
+        mode: str = "replace",
+        log_table: str | None = None,
+        role: str | None = None,
+        rules: list[dict[str, Any]] | None = None,
+        team: str | None = None,
+        dry_run: bool = False,
+    ) -> str:
+        """Change the team-ownership table: import a CSV, set or remove rules, export to a CSV file, or reset. Team breakdowns in every tool follow the change at once. Only when the user asks for it.
+        Use when: the user supplies an ownership table (e.g. the organisers' component-to-team CSV), corrects a team, or wants the rules as a file to edit.
+        Inputs: action = "import" | "set" | "remove" | "export" | "reset".
+          import: csv_path (a file on this machine) or csv_text; columns are matched loosely: log table from log_table/dataset/table, value from component/service/pattern/value, team from team/owner, optional role and area/description. log_table names the log table when the file has no such column. mode "replace" (default) replaces the rules of the log tables the file covers, "merge" adds to and updates them, "replace_all" removes every other rule.
+          set: rules=[{"log_table": "bgl", "component": "KERNEL", "team": "Kernel"}] adds or changes rules.
+          remove: rules=[{"log_table": "bgl", "component": "KERNEL"}] or team="Kernel" (every rule of that team).
+          export: csv_path = the full path of the file to write (edit it, then import it); dry_run=True only says what it would write.
+          reset: back to the packaged stand-in (fictional) rules.
+          Values are matched case-insensitively; % matches any text (nova.compute.% covers every nova.compute module). dry_run=True shows the change without making it.
+        Returns: the rules added, changed and removed, then per affected log table the entries per team and the component values still without a team."""
+        return await runner.run_tool(
+            ownership_tools.edit_team_ownership,
+            action=action,
+            csv_path=csv_path,
+            csv_text=csv_text,
+            mode=mode,
+            log_table=log_table,
+            role=role,
+            rules=rules,
+            team=team,
+            dry_run=dry_run,
+        )
 
     @mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
     async def drop_index(log_table: str, kind: str) -> str:

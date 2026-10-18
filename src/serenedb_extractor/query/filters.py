@@ -32,7 +32,7 @@ class MissingRole(UserFacingError):
         if role == "team":
             super().__init__(
                 "No team ownership rule covers this log table's components or services, so it can't be filtered "
-                f"or grouped by team.{have} Rules live in extractor.ownership (see the README's ownership section)."
+                f"or grouped by team.{have} show_team_ownership lists the rules; edit_team_ownership adds rules for it."
             )
             return
         super().__init__(
@@ -74,7 +74,15 @@ def _parse_moment(text: str, zone: ZoneInfo, what: str) -> datetime:
         raise UserFacingError(
             f"I could not read {what} '{text}' as a time. Use a form like 2026-03-01 or 2026-03-01T12:30:00."
         ) from None
-    return (dt.replace(tzinfo=zone) if dt.tzinfo is None else dt).astimezone(UTC)
+    if dt.tzinfo is not None:
+        return dt.astimezone(UTC)
+    local = dt.replace(tzinfo=zone)
+    if local.astimezone(UTC).astimezone(zone).replace(tzinfo=None) != dt:
+        raise UserFacingError(
+            f"{what.capitalize()} '{text}' does not exist in {zone.key}: the clocks moved forward an hour that night. "
+            "Use a time after the change (or give the time with its UTC offset)."
+        )
+    return local.astimezone(UTC)
 
 
 def shown_zone(lt: LogTable, given: str | None) -> str:
@@ -104,8 +112,16 @@ class Filters:
     @classmethod
     def from_dict(cls, d: dict[str, Any] | None) -> "Filters":
         d = dict(d or {})
-        roles = {r: d.pop(r) for r in FILTER_ROLES if d.get(r) is not None}
         d.pop("columns", None)
+        for key, value in d.items():
+            if value is None:
+                raise UserFacingError(
+                    f"The filter on '{key}' has no value. Filters match given values; to find entries where {key} is "
+                    "missing, use run_sql with IS NULL."
+                )
+            if isinstance(value, list) and not [v for v in value if v is not None]:
+                raise UserFacingError(f"The filter on '{key}' is an empty list: give at least one value.")
+        roles = {r: d.pop(r) for r in FILTER_ROLES if d.get(r) is not None}
         return cls(**roles, columns={k: str(v) for k, v in d.items()})
 
     def items(self) -> list[tuple[str, str | list[str]]]:

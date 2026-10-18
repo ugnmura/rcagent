@@ -1,6 +1,6 @@
 """trend: chosen templates (or the catalog's top ones) over a period against the preceding period of
-equal length, per hour or day. Estimated from a block sample by default, exact on request; both go
-through the cost check. A comparison is only made where the data covers both periods (R69: when the
+equal length, per hour or day. Exact whenever every entry fits the time budget (or on request), else
+estimated from a block sample; both go through the cost check. A comparison is only made where the data covers both periods (R69: when the
 current period runs past the data's end, both are cut to the same whole buckets the data covers), and
 nothing is called new, or risen without limit, because data is missing."""
 
@@ -47,6 +47,7 @@ DEFAULT_TOP_N = 10
 # sample size governs scopes with few buckets, and the floor keeps every bucket's share at 2,000
 # entries on average when there are many (so with more than 50 buckets the floor is what applies).
 MIN_BUCKET_SAMPLE = 2000
+EXACT_WITHIN_S = cost.BUDGET_SECONDS  # count every entry by default when the exact read fits this
 MAX_BUCKETS = 1000  # across both periods; more would make an unreadable answer
 SHOWN_COMPONENTS = 5
 SERIES_NUMBERS_MAX = 31
@@ -70,6 +71,15 @@ def _as_bucket(bucket: str) -> Bucket:
     if bucket == "day":
         return "day"
     raise UserFacingError(f"bucket must be 'hour' or 'day', not '{bucket}'.")
+
+
+def preceding_start(start: datetime, end: datetime, zone: tzinfo) -> datetime:
+    """Start of the preceding period of equal length on the clock in `zone`: the same number of calendar days and
+    clock hours, so a period that crosses a daylight-saving change still starts at local midnight (or the same
+    local hour) instead of drifting by an hour."""
+    a, b = start.astimezone(zone), end.astimezone(zone)
+    wall = b.replace(tzinfo=None) - a.replace(tzinfo=None)
+    return (a.replace(tzinfo=None) - wall).replace(tzinfo=zone).astimezone(start.tzinfo or UTC)
 
 
 def _first_hour(start: datetime) -> datetime:
@@ -124,6 +134,8 @@ def _label(b: datetime, zone: tzinfo, bucket: Bucket) -> str:
         return b.strftime("%Y-%m-%d")
     local = b.astimezone(zone)
     off = local.strftime("%z")
+    if off == "+0000" and local.tzname() == "UTC":
+        return f"{local:%Y-%m-%d %H:%M} UTC"
     return f"{local:%Y-%m-%d %H:%M} UTC{off[:3]}:{off[3:]}"
 
 
@@ -185,13 +197,32 @@ def _seen_buckets(
     return out
 
 
+# A gap in the data is a run of empty buckets at least this long: one quiet hour is normal for many logs, while
+# hours on end (or a whole day) with no entry at all means the logs are missing.
+MIN_GAP_RUN = {"hour": 3, "day": 1}
+
+
+def gap_buckets(buckets: list[datetime], seen: set[datetime], whole: Any, unit: Bucket) -> list[datetime]:
+    """The whole buckets that lie in a gap: runs of at least MIN_GAP_RUN consecutive buckets with no entry at all."""
+    out: list[datetime] = []
+    run: list[datetime] = []
+    for b in [*buckets, None]:
+        if b is not None and whole(b) and b not in seen:
+            run.append(b)
+            continue
+        if len(run) >= MIN_GAP_RUN[unit]:
+            out += run
+        run = []
+    return out
+
+
 def _gap_cover(
     cover: Coverage, buckets: list[datetime], seen: set[datetime], whole: Any, unit: Bucket, what: str, zone: Any
 ) -> Coverage:
-    """Downgrade a full coverage when whole buckets inside the period have no entries at all."""
+    """Downgrade a full coverage when the period holds a gap in the data (see MIN_GAP_RUN)."""
     if cover.status != "full":
         return cover
-    empty = [b for b in buckets if whole(b) and b not in seen]
+    empty = gap_buckets(buckets, seen, whole, unit)
     if not empty:
         return cover
     n, total = len(empty), len(buckets)
@@ -353,8 +384,15 @@ def _change(cur: fmt.Measured, prev: fmt.Measured, cur_cover: Coverage, prev_cov
     if cur.exact and cur.value == 0:
         return "-100%"
     pct_change = (cur.value - prev.value) / prev.value * 100
-    text = "no change" if round(pct_change) == 0 else f"{pct_change:+.0f}%"
+    text = "no change" if round(pct_change) == 0 else pct_text(pct_change)
     return text if cur.exact and prev.exact else f"≈{text} (from the two estimates above)"
+
+
+def pct_text(pct: float) -> str:
+    """A change in percent, never rounded to -100% while something is left (or to +0%/-0% while it changed)."""
+    if -100 < pct <= -99.5:
+        return f"{max(pct, -99.9):+.1f}%"
+    return f"{pct:+.0f}%"
 
 
 def _amount(m: fmt.Measured) -> str:
@@ -414,10 +452,10 @@ def trend(
         raise UserFacingError(f"Log table '{lt.name}' has no timestamp field, so there is nothing to trend over time.")
     cur = parse_time_range(start, end, timezone)
     assert cur.start is not None and cur.end is not None
-    prev_start = cur.start - (cur.end - cur.start)
+    zone = get_zone(timezone)
+    prev_start = preceding_start(cur.start, cur.end, zone)
     prev = TimeRange(prev_start, cur.start, timezone)
     tr_all = TimeRange(prev_start, cur.end, timezone)
-    zone = get_zone(timezone)
     n_buckets = _count_buckets(prev_start, cur.start, zone, unit) + _count_buckets(cur.start, cur.end, zone, unit)
     if n_buckets > MAX_BUCKETS:
         raise UserFacingError(
@@ -439,9 +477,11 @@ def trend(
         prev_cover = _coverage(rng, checked, prev_start, cur.start, cur, "the preceding period")
         stats = collect(db, lt, tr_all)
         target = max(ctx.settings.sample_size, MIN_BUCKET_SAMPLE * n_buckets)
-        decision = cost.decide(
-            stats, _columns_read(lt, f, cols), exact, target, confirmed_cost, max_s=ctx.settings.max_timeout_s
-        )
+        read = _columns_read(lt, f, cols)
+        # A comparison of two periods from a few sampled blocks can be far off (whole blocks cluster in time), so
+        # every entry is counted whenever that fits the time budget; a sample is used only when it does not.
+        affordable = cost.exact_plan(stats, read).seconds <= EXACT_WITHIN_S
+        decision = cost.decide(stats, read, exact or affordable, target, confirmed_cost, max_s=ctx.settings.max_timeout_s)
         if decision.status == "ask":
             head = fmt.how_measured(cost.ASKED_HOW, tr_all.describe(), _filters_text(f), tz=timezone)
             return head + "\n" + decision.message

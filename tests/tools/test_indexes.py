@@ -65,7 +65,7 @@ async def test_inspect_source_is_read_only_and_gives_rough_sizes(mcp, fx_path, d
     assert "rough, from column sizes" in out and "create_index with dry_run measures it" in out
     assert "nothing was created or changed" in out.splitlines()[0]
     assert database.read("SELECT table_name FROM information_schema.tables WHERE table_schema = 'extractor'", {}).rows == [] or all(
-        r[0] in ("log_tables", "templates", "template_redirects", "log_index_columns", "evidence", "ownership")
+        r[0] in ("log_tables", "templates", "template_redirects", "log_index_columns", "evidence", "ownership", "ownership_changes")
         for r in database.read("SELECT table_name FROM information_schema.tables WHERE table_schema = 'extractor'", {}).rows
     )
     with pytest.raises(Exception, match="log_dict"):
@@ -137,7 +137,7 @@ async def test_text_search_same_answer_with_and_without_index(mcp, fx_lt, monkey
         if "confirmed_cost=" in out:  # the occurrence-ID lookup is priced; approve it
             out = await call(mcp, "search_logs", log_table="fx", confirmed_cost=token_of(out), **q)
         after.append(out)
-    notes = ("Whole words only", "The search index wasn't needed")
+    notes = ("Whole words only", "The search index wasn't needed", "Confirmed_cost=")
     for q, b, a in zip(queries, before, after, strict=True):
         assert [ln for ln in _body(b) if not ln.startswith(notes)] == [ln for ln in _body(a) if not ln.startswith(notes)], q
     assert "search index" in after[0].splitlines()[0]

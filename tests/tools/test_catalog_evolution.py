@@ -45,6 +45,36 @@ async def test_generalize_keeps_id(mcp, users_lt):
     assert id_of(a, "login failed for user alice") == id_of(b, "login failed for user <*>")
 
 
+async def test_a_narrower_candidate_never_narrows_a_template(mcp, users_lt, database):
+    """A broad template whose example is one narrow variant: surveying that variant alone again must not
+    shrink the broad template back to it (BGL's CioStream "<*> <*> <*> <*>" vs "Link has been severed")."""
+    from datetime import datetime
+
+    from serenedb_extractor.catalog.models import CandidateTemplate
+    from serenedb_extractor.templating.regex import compile_template
+
+    def cand(text: str, example: str) -> CandidateTemplate:
+        c = compile_template(text)
+        return CandidateTemplate(text, c.regex, list(c.params), example, None, None, 1)
+
+    store = CatalogStore(database)
+    broad = store.upsert_survey_templates("users", [cand("socket closed: <*> <*>", "socket closed: link severed")], datetime(2026, 4, 1))
+    broad_id = broad.items[0][0].template_id
+    narrow = store.upsert_survey_templates("users", [cand("socket closed: link severed", "socket closed: link severed")], datetime(2026, 4, 2))
+    saved, status = narrow.items[0]
+    assert status == "new" and saved.template_id != broad_id
+    assert store.resolve("users", broad_id).template.template == "socket closed: <*> <*>"
+    # a typed placeholder is narrower than <*>: "<PATH>" never replaces "<*>" either
+    wide = store.upsert_survey_templates("users", [cand("open failed: <*>", "open failed: /tmp/x")], datetime(2026, 4, 3))
+    typed = store.upsert_survey_templates("users", [cand("open failed: <PATH>", "open failed: /tmp/x")], datetime(2026, 4, 4))
+    assert typed.items[0][1] == "new"
+    assert store.resolve("users", wide.items[0][0].template_id).template.template == "open failed: <*>"
+    # and the broadest template covering a narrow one is found for ranking
+    from serenedb_extractor.catalog.store import covering
+
+    assert covering(saved, store.templates("users")).template_id == broad_id
+
+
 async def test_merge_redirect_and_note(mcp, users_lt, database):
     _, bob, carol_out = await survey_a(mcp)
     bob_id, carol = id_of(bob, "login failed for admin bob"), id_of(carol_out, "login failed for admin carol")

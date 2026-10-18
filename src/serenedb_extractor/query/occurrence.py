@@ -17,7 +17,7 @@ from serenedb_extractor.query.filters import role_sql
 def kind(lt: LogTable) -> str | None:
     if lt.mode == "copied":
         return "entry"
-    if lt.source_format in ("parquet", "json"):
+    if lt.source_format in ("parquet", "json", "csv"):
         return "file"
     return "pk" if lt.roles.order is not None else None
 
@@ -58,6 +58,12 @@ def decode_occurrence(lt: LogTable, occ: str) -> tuple[str, dict[str, Any]]:
         name, sep, num = text.rpartition("#")
         if not sep or not name or not num.isdigit():
             raise BadOccurrence(occ, "<file>#<row>")
+        if "/" not in name and "\\" not in name:  # just the file's name: match it in any folder
+            pattern = "%/" + name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            return (
+                "filename LIKE %(occ_file)s ESCAPE '\\' AND file_row_number = %(occ_row)s",
+                {"occ_file": pattern, "occ_row": int(num)},
+            )
         return "filename = %(occ_file)s AND file_row_number = %(occ_row)s", {"occ_file": name, "occ_row": int(num)}
     if k == "entry":
         num = text.removeprefix("e:")

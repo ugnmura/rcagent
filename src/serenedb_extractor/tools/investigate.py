@@ -29,7 +29,7 @@ from serenedb_extractor.setup.sniff import readable
 from serenedb_extractor.query.templatematch import fixed_word_prefilter, template_match_sql
 from serenedb_extractor.query.coverage import untimestamped_note
 from serenedb_extractor.tools.describe import known_columns
-from serenedb_extractor.timezones import get_zone
+from serenedb_extractor.timezones import get_zone, is_utc
 
 DEFAULT_GROUPS = 20
 DEFAULT_VALUES = 10
@@ -57,11 +57,40 @@ def _int(n: int) -> str:
 
 
 def _bucket_sql(lt: LogTable, cols: dict[str, str], n: int, unit: str, tz: str) -> str:
+    """A time bucket as text. Days (and multi-day buckets, which start on a Monday) follow the calendar in `tz`.
+    Hours and minutes are real spans of time on the clock in `tz`: each bucket is labelled with its local start
+    and, outside UTC, the UTC offset in force, so the repeated hour when daylight saving time ends is two buckets
+    (01:00-07:00 and 01:00-08:00), never one merged one."""
     secs = _int(n * _UNIT_SECONDS[unit])
-    local = f"({ts_tz_sql(lt, cols)} AT TIME ZONE {sql_literal(tz)})"
-    shape = "%Y-%m-%d" if unit == "d" else "%Y-%m-%d %H:%M"
+    instant = ts_tz_sql(lt, cols)
+    local = f"({instant} AT TIME ZONE {sql_literal(tz)})"
+    if unit == "d":
+        monday = 4 * 86400 if n > 1 else 0  # 1970-01-01 was a Thursday; weeks (and longer) start on a Monday
+        start = f"(TIMESTAMP '1970-01-01' + to_seconds((floor((epoch({local}) - {monday}) / {secs}) * {secs} + {monday})::bigint))"
+        return f"coalesce(strftime({start}, {sql_literal('%Y-%m-%d')}), {NONE_SQL})"
     start = f"(TIMESTAMP '1970-01-01' + to_seconds((floor(epoch({local}) / {secs}) * {secs})::bigint))"
-    return f"coalesce(strftime({start}, {sql_literal(shape)}), {NONE_SQL})"
+    label = f"strftime({start}, {sql_literal('%Y-%m-%d %H:%M')})"
+    if not is_utc(tz):
+        off = f"(round(epoch({local}) - epoch({instant}))::bigint)"
+        sign = f"CASE WHEN {off} < 0 THEN '-' ELSE '+' END"
+        hh = f"lpad(((abs({off}) // 3600))::varchar, 2, '0')"
+        mm = f"lpad((((abs({off}) - (abs({off}) // 3600) * 3600) // 60))::varchar, 2, '0')"
+        label = f"({label} || {sign} || {hh} || ':' || {mm})"
+    return f"coalesce({label}, {NONE_SQL})"
+
+
+def ordered(keys: list[tuple[str, ...]], labels: list[str], value: dict[tuple[str, ...], float]) -> list[tuple[str, ...]]:
+    """Group keys in reading order: with time buckets among other keys, each series (the non-time part) is kept
+    together, largest series first, in time order inside; time alone is in time order; otherwise largest first."""
+    timed = [i for i, lbl in enumerate(labels) if lbl.startswith("time:")]
+    if not timed:
+        return sorted(keys, key=lambda k: (-value[k], k))
+    rest = [i for i in range(len(labels)) if i not in timed]
+    series: dict[tuple[str, ...], float] = {}
+    for k in keys:
+        sk = tuple(k[i] for i in rest)
+        series[sk] = series.get(sk, 0.0) + value[k]
+    return sorted(keys, key=lambda k: (-series[tuple(k[i] for i in rest)], tuple(k[i] for i in rest), tuple(k[i] for i in timed)))
 
 
 def parse_group_by(
@@ -323,10 +352,13 @@ def _totals(
 def _order(
     measured: dict[tuple[int, tuple[str, ...]], fmt.Measured], groups: list[tuple[str, str]], tpls: list[Template]
 ) -> list[tuple[tuple[int, tuple[str, ...]], fmt.Measured]]:
-    by_time = any(label.startswith("time:") for label, _ in groups)
-    if by_time:
-        return sorted(measured.items(), key=lambda kv: (kv[0][0], kv[0][1]))
-    return sorted(measured.items(), key=lambda kv: (kv[0][0], -kv[1].value, kv[0][1]))
+    labels = [label for label, _ in groups]
+    out: list[tuple[tuple[int, tuple[str, ...]], fmt.Measured]] = []
+    for ti in sorted({k[0] for k in measured}):
+        mine = {k[1]: m for k, m in measured.items() if k[0] == ti}
+        keys = ordered(list(mine), labels, {k: m.value for k, m in mine.items()})
+        out += [((ti, k), mine[k]) for k in keys]
+    return out
 
 
 def _examples(
@@ -476,6 +508,7 @@ def extract_params(
         if (missing := untimestamped_note(db, lt, tr)) is not None:
             notes.append(missing)
         run = _ParamRun(sc, plan, t, by_expr, shown_limit, ctx)
+        run.by_values = fmt.clamp_limit(limit, BY_VALUES, BY_VALUES * ctx.settings.limit_cap)
         result = run.go()
     return _render_params(sc, plan, t, by_items[0][0] if by_items else None, result, shown_limit, notes)
 
@@ -499,6 +532,7 @@ class ParamResult:
 class _ParamRun:
     def __init__(self, sc: Scope, plan: cost.Plan, t: Template, by_expr: str | None, limit: int, ctx: AppContext) -> None:
         self.sc, self.plan, self.t, self.by_expr, self.limit = sc, plan, t, by_expr, limit
+        self.by_values = BY_VALUES  # values shown per group of `by`
         self.db = ctx.db
         self.timeout = cost.run_timeout(plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
         self.what = f"extracting parameters of {t.template_id} in log table {sc.lt.name}"
@@ -577,7 +611,7 @@ class _ParamRun:
         for b, name, v, c in self.q(
             "SELECT b, p, v, c FROM (SELECT b, p, v, c, row_number() OVER (PARTITION BY b, p ORDER BY c DESC, v) AS rn FROM ("
             f"SELECT b, p, v, count(*) AS c FROM ({self.unpivot}) WHERE v IS NOT NULL AND b IN ({', '.join(marks)}) GROUP BY 1, 2, 3)) "
-            f"WHERE rn <= {_int(BY_VALUES)}",
+            f"WHERE rn <= {_int(self.by_values)}",
             p,
         ):
             res.by_top.setdefault((str(b), name), []).append((str(v), int(c)))

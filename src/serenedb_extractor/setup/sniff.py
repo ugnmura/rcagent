@@ -16,9 +16,40 @@ from serenedb_extractor.setup.paths import ResolvedSource, source_sql, sql_liter
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
 
 
+# Engine messages that mean the source itself could not be found, opened or decoded (as opposed to a query on
+# its data failing): only these get the "check the path / access" advice.
+_SOURCE_PROBLEM = re.compile(
+    r"no files? found|no such file|does not exist|could not open|cannot open|failed to open|io error|http|"
+    r"magic bytes|not a parquet|malformed json|invalid json|permission denied|access denied|forbidden|"
+    r"unauthori[sz]ed|\b40[134]\b|timed? ?out connecting|could not resolve",
+    re.IGNORECASE,
+)
+
+
+_WRONG_FORMAT = re.compile(r"magic bytes|not a parquet|malformed json|invalid json|could not sniff|csv error", re.IGNORECASE)
+
+
+def _engine_detail(detail: str) -> str:
+    """The engine's message without the echoed SQL (LINE n: ... and the caret line)."""
+    text = re.split(r"\bLINE \d+:", detail, maxsplit=1)[0]
+    return re.sub(r"\s+", " ", text).strip().rstrip(".")[:300]
+
+
 class SourceUnreadable(UserFacingError):
     def __init__(self, source: str, detail: str, remote: bool) -> None:
-        detail = re.sub(r"\s+", " ", detail).strip()[:300]
+        detail = _engine_detail(detail)
+        if not _SOURCE_PROBLEM.search(detail):
+            super().__init__(
+                f"SereneDB could not finish reading {source}: {detail}. The source itself was found; the values "
+                "it holds did not fit this request (for example a field role pointing at the wrong kind of column)."
+            )
+            return
+        if _WRONG_FORMAT.search(detail):
+            super().__init__(
+                f"SereneDB could not read {source} in the format it was read as: {detail}. The file exists but holds "
+                "another format: check its name or give format_hint (parquet, json, csv or raw_text)."
+            )
+            return
         hint = (
             " If the storage is private, SereneDB itself needs access to it (credentials configured "
             "on the SereneDB server); nothing is downloaded here."
@@ -61,7 +92,7 @@ def reader_sql(rs: ResolvedSource) -> str:
     """The FROM-clause reader for a source, with the position columns (spike section 5)."""
     if rs.kind == "table":
         return table_ref(rs.db_path)
-    fn = "read_parquet" if rs.kind == "parquet" else "read_json"
+    fn = {"parquet": "read_parquet", "csv": "read_csv"}.get(rs.kind, "read_json")
     return f"{fn}({source_sql(rs)}, filename=true, file_row_number=true)"
 
 
@@ -106,7 +137,10 @@ def sniff(db: Database, rs: ResolvedSource, source: str, for_setup: bool = False
             {"t": table, "s": schema},
         )
         if not found.rows or schema == "extractor":
-            raise UserFacingError(f"There is no table named '{rs.db_path}' that can be used as a log source.")
+            raise UserFacingError(
+                f"There is no database table named '{rs.db_path}' to use as a log source. If it is a log table set up "
+                "here, describe_logs shows it; for a file, give its path with the extension (.parquet, .json, .csv, .log)."
+            )
     columns = relation_columns(db, from_sql, source, rs.remote)
     with readable(source, rs.remote):
         sample = db.read(

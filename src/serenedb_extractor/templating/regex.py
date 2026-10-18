@@ -39,13 +39,22 @@ class CompiledTemplate:
     fixed_words: tuple[str, ...]
 
 
+# A NUL character can't be stored in a text value, so templates and examples show it as this symbol; a
+# template's regex turns the symbol back into a match for the real NUL in the data.
+NUL_MARK = "\u2400"
+
+
+def without_nul(text: str) -> str:
+    return text.replace("\x00", NUL_MARK)
+
+
 def _escape(literal: str) -> str:
     out = []
     pieces = _ASCII_WS.split(literal)
     for i, piece in enumerate(pieces):
         if i:
             out.append(WHITESPACE_RUN)
-        out.append("".join("\\" + c if c in _META else c for c in piece))
+        out.append("".join("\\x00" if c == NUL_MARK else "\\" + c if c in _META else c for c in piece))
     return "".join(out)
 
 
@@ -88,7 +97,7 @@ def _safe_tokens(literal: str, after_placeholder: bool, before_placeholder: bool
         pieces[0] = ""
     if before_placeholder and pieces[-1]:
         pieces[-1] = ""
-    return [p for p in pieces if p]
+    return [p for p in pieces if p and NUL_MARK not in p]  # the data holds a real NUL, not the symbol
 
 
 def _fixed_words(tokens: list[str]) -> tuple[str, ...]:

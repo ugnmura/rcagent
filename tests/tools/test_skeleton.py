@@ -88,20 +88,23 @@ EXPECTED_ANNOTATIONS = {
             "run_sql",
             "count_logs",
             "show_evidence",
+            "show_team_ownership",
         )
     },
     "setup_log_table": (None, True),
     "create_index": (None, True),
     "drop_index": (None, True),
+    "edit_team_ownership": (None, True),
     "survey": (False, False),
     "rename_parameter": (False, False),
+    "rank_problems": (False, False),
 }
 
 
-async def test_exactly_fifteen_tools_with_expected_annotations(mcp_no_db):
+async def test_exactly_eighteen_tools_with_expected_annotations(mcp_no_db):
     listed = (await mcp_no_db.list_tools()).tools
     assert sorted(t.name for t in listed) == sorted(EXPECTED_ANNOTATIONS)
-    assert len(listed) == 15
+    assert len(listed) == 18
     for t in listed:
         assert t.annotations is not None
         read_only, destructive = EXPECTED_ANNOTATIONS[t.name]
@@ -181,7 +184,7 @@ async def _client_with(reader: str, writer: str):
 
 
 def _assert_permission_message(out: str, setting: str) -> None:
-    assert setting in out and "permission denied" in out and "README" in out, out
+    assert setting in out and "permission denied" in out and "docs/reference.md" in out, out
     assert "Something went wrong" not in out and "could not read" not in out, out
     assert "\n" not in out.strip()
 

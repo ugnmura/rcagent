@@ -292,3 +292,16 @@ def test_reg_casts_rejected(bad):
 
 def test_reg_prefix_names_that_are_not_types_still_work():
     check_read_only("SELECT regexp_extract(name, 'a') AS region FROM extractor.log_tables")
+
+
+def test_refusals_name_the_real_reason():
+    import pytest
+
+    from serenedb_extractor.query.guard import SqlRejected, check_read_only
+
+    with pytest.raises(SqlRejected, match="one statement at a time"):
+        check_read_only("SELECT 1; DROP TABLE extractor.lt_x")
+    with pytest.raises(SqlRejected, match="changes data"):
+        check_read_only("WITH x AS (DELETE FROM extractor.lt_x RETURNING *) SELECT * FROM x")
+    check_read_only("SELECT timezone('UTC', ts) FROM extractor.lt_x")  # read-only: allowed
+    check_read_only("SELECT 'a;b' FROM extractor.lt_x;")  # a ; inside a string, and a trailing one, are fine

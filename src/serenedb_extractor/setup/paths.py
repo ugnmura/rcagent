@@ -9,16 +9,19 @@ from typing import Literal
 from serenedb_extractor.config import Settings
 from serenedb_extractor.errors import UserFacingError
 
-Kind = Literal["parquet", "json", "table", "raw_text"]
+Kind = Literal["parquet", "json", "csv", "table", "raw_text"]
 _REMOTE = re.compile(r"^(https?|s3|gs|gcs|az|abfss?|r2|hf)://", re.IGNORECASE)
 _PARQUET_EXT = (".parquet", ".pq")
 _JSON_EXT = (".json", ".jsonl", ".ndjson", ".json.gz", ".jsonl.gz", ".ndjson.gz")
+_CSV_EXT = (".csv", ".tsv", ".csv.gz", ".tsv.gz")
 _RAW_EXT = (".log", ".txt", ".out", ".err", ".log.gz", ".txt.gz")
 _FORMAT_HINTS: dict[str, Kind] = {
     "parquet": "parquet",
     "json": "json",
     "jsonl": "json",
     "ndjson": "json",
+    "csv": "csv",
+    "tsv": "csv",
     "table": "table",
     "raw": "raw_text",
     "raw_text": "raw_text",
@@ -111,6 +114,8 @@ def _kind_from_name(name: str) -> Kind | None:
         return "parquet"
     if low.endswith(_JSON_EXT):
         return "json"
+    if low.endswith(_CSV_EXT):
+        return "csv"
     if low.endswith(_RAW_EXT):
         return "raw_text"
     return None
@@ -125,7 +130,7 @@ def resolve_source(source: str, settings: Settings, format: str | None = None) -
     if format:
         hint = _FORMAT_HINTS.get(format.strip().lower())
         if hint is None:
-            raise UserFacingError(f"Unknown format '{format}'. Use parquet, json, table or raw_text.")
+            raise UserFacingError(f"Unknown format '{format}'. Use parquet, json, csv, table or raw_text.")
     remote = is_remote(src)
     looks_like_path = remote or "/" in src or src.startswith(".") or _kind_from_name(src) is not None
     kind = hint or _kind_from_name(src.split("?", 1)[0] if remote else src)
@@ -142,7 +147,22 @@ def resolve_source(source: str, settings: Settings, format: str | None = None) -
     local = host_path or db_path  # outside the mount the path is a file on this machine, if it exists
     if os.path.isfile(local):
         size = os.path.getsize(local)
+    elif host_path is None and _local_matches(db_path):
+        raise UserFacingError(
+            f"{src} names several files on this machine. SereneDB can't see this machine's files, and only a single "
+            "local file is copied in, so set them up one at a time, or put them in the logs folder mount "
+            "(LOGS_HOST_DIR and LOGS_CONTAINER_DIR) or anywhere SereneDB can read, where several files work as one log table."
+        )
     return ResolvedSource(kind, db_path, host_path, size)
+
+
+def _local_matches(path: str) -> bool:
+    """Whether a path with wildcards ({a,b}, {000..009}, *, ?) names files that exist on this machine."""
+    if not any(c in path for c in "*?{["):
+        return False
+    import glob
+
+    return any(glob.glob(os.path.expanduser(p)) for p in expand_files(path))
 
 
 def _translate(path: str, settings: Settings) -> tuple[str, str | None]:

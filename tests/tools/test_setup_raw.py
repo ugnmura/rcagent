@@ -91,7 +91,7 @@ def test_openstack_line_maps_to_fields():
 
 
 def test_known_line_formats():
-    assert set(LINE_FORMATS) == {"generic", "bgl", "openstack"}
+    assert set(LINE_FORMATS) == {"generic", "bgl", "openstack", "lines"}
 
 
 # A line that starts with its format's header is an entry of its own, even when parts the header
@@ -363,8 +363,10 @@ async def test_all_untimestamped_file_is_still_reported(mcp, tmp_path):
     p = tmp_path / "plain.log"
     p.write_text("just some text\nmore text\n")
     out = await call(mcp, "setup_log_table", name="plain", source=str(p))
-    assert "timestamp: absent" in out and "1 entry has no timestamp" in out
-    assert "1 entry has no timestamp" in await call(mcp, "describe_logs", log_table="plain")
+    assert "timestamp: absent" in out and "2 entries have no timestamp" in out and "each line is one entry" in out
+    assert "2 entries have no timestamp" in await call(mcp, "describe_logs", log_table="plain")
+    bgl_as_os = await call(mcp, "setup_log_table", name="wrong", source=str(p), line_format="openstack")
+    assert "No line of" in bgl_as_os and "matches the openstack line format" in bgl_as_os
 
 
 @db

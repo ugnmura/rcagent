@@ -26,6 +26,7 @@ from serenedb_extractor.query.stats import role_columns
 from serenedb_extractor.query import indexcover
 from serenedb_extractor.setup.roles import resolve_column, role_column, role_lines
 from serenedb_extractor.setup.sniff import readable, relation_columns
+from serenedb_extractor.ownership import STAND_IN
 from serenedb_extractor.timezones import is_utc
 
 SAMPLE_ROWS = 10_000
@@ -34,7 +35,11 @@ _TOP_ROLES = ("level", "service", "component", "team")
 
 
 def context_scopes(roles: FieldRoles) -> list[str]:
-    scopes = [s for s, role in (("trace", roles.trace), ("service", roles.service), ("host", roles.host)) if role]
+    scopes = [
+        s
+        for s, role in (("trace", roles.trace), ("service", roles.service), ("host", roles.host), ("component", roles.component))
+        if role
+    ]
     return scopes + ["everything"]
 
 
@@ -222,7 +227,11 @@ def _team_line(ctx: AppContext, lt: LogTable) -> str:
         return "team: absent (no ownership rule covers this log table)"
     role, rules = found
     teams = sorted({r.team for r in rules})
-    return f"team: from the ownership table on {role} ({len(rules)} rules; teams: {', '.join(teams)})"
+    sources = sorted({r.source or "unknown source" for r in rules})
+    line = f"team: from the ownership table on {role} ({len(rules)} rules; teams: {', '.join(teams)}; {'; '.join(sources)})"
+    if STAND_IN in sources:
+        line += " — the stand-in teams are fictional, not an official mapping; say so when you name them"
+    return line
 
 
 def _resolve_field(lt: LogTable, name: str, cols: dict[str, str]) -> tuple[str, str]:
@@ -255,10 +264,15 @@ def _find_values(
     ctx: AppContext, lt: LogTable, find: dict[str, str], tr: TimeRange, confirmed_cost: str | None = None
 ) -> tuple[str, str | None, list[str]]:
     """(how it was measured, sample label, lines). Cost-checked first; an ask returns the refusal."""
-    field = find.get("role_or_column")
-    like = find.get("like")
-    if not field or like is None or str(like) == "":
-        raise UserFacingError("find_values needs both 'role_or_column' (for example service) and 'like' (a word to look for).")
+    # Two spellings: {"level": "err"} (as the tool description shows) or {"role_or_column": "level", "like": "err"}.
+    if "role_or_column" in find or "like" in find:
+        field, like = find.get("role_or_column"), find.get("like")
+    elif len(find) == 1:
+        field, like = next(iter(find.items()))
+    else:
+        raise UserFacingError('Look up one field at a time, e.g. find_values={"level": "err"}.')
+    if not field or like is None or str(like).strip() == "":
+        raise UserFacingError('find_values needs a field and a word to look for, e.g. find_values={"level": "err"}.')
     db = ctx.db
     cols = known_columns(db, lt)
     label, expr = _resolve_field(lt, field, cols)

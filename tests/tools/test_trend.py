@@ -37,13 +37,26 @@ async def ticks_lt(mcp, db_url):
 P = {"start": "2026-03-15", "end": "2026-03-29"}
 
 
-async def test_estimated_default(mcp, trend_lt):
+@pytest.fixture
+def sampled(monkeypatch):
+    """Pretend an exact count does not fit the budget, so trend estimates from a block sample."""
+    from serenedb_extractor.tools import trend
+
+    monkeypatch.setattr(trend, "EXACT_WITHIN_S", 0.0)
+
+
+async def test_exact_by_default_when_affordable(mcp, trend_lt):
+    out = await call(mcp, "trend", log_table="tr", templates=[trend_lt["rise"]], **P)
+    assert out.startswith("How this was measured: trend, exact") and "56,000 (exact)" in out
+
+
+async def test_estimated_default(mcp, trend_lt, sampled):
     out = await call(mcp, "trend", log_table="tr", templates=[trend_lt["rise"]], **P)
     assert out.startswith("How this was measured: trend, estimated")
     assert "≈" in out and "UTC" in out and "block sample" in out
 
 
-async def test_estimate_is_near_the_truth_and_unsampled_days_are_marked(mcp, trend_lt):
+async def test_estimate_is_near_the_truth_and_unsampled_days_are_marked(mcp, trend_lt, sampled):
     out = await call(mcp, "trend", log_table="tr", templates=[trend_lt["rise"]], **P)
     m = re.search(r"this period: ≈([\d,]+) \(.*?preceding period: ≈([\d,]+) \(", out)
     assert m
