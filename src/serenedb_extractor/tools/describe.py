@@ -26,6 +26,7 @@ from serenedb_extractor.query.stats import role_columns
 from serenedb_extractor.query import indexcover
 from serenedb_extractor.setup.roles import resolve_column, role_column, role_lines
 from serenedb_extractor.setup.sniff import readable, relation_columns
+from serenedb_extractor.ownership import STAND_IN
 from serenedb_extractor.timezones import is_utc
 
 SAMPLE_ROWS = 10_000
@@ -222,7 +223,11 @@ def _team_line(ctx: AppContext, lt: LogTable) -> str:
         return "team: absent (no ownership rule covers this log table)"
     role, rules = found
     teams = sorted({r.team for r in rules})
-    return f"team: from the ownership table on {role} ({len(rules)} rules; teams: {', '.join(teams)})"
+    sources = sorted({r.source or "unknown source" for r in rules})
+    line = f"team: from the ownership table on {role} ({len(rules)} rules; teams: {', '.join(teams)}; {'; '.join(sources)})"
+    if STAND_IN in sources:
+        line += " — the stand-in teams are fictional, not an official mapping; say so when you name them"
+    return line
 
 
 def _resolve_field(lt: LogTable, name: str, cols: dict[str, str]) -> tuple[str, str]:

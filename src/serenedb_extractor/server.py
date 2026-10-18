@@ -18,7 +18,7 @@ from serenedb_extractor.context import AppContext
 from serenedb_extractor.instructions import SERVER_INSTRUCTIONS
 from serenedb_extractor.prompts import register_prompts
 from serenedb_extractor.query import stats
-from serenedb_extractor.tools import aggregate, catalog_tools, describe, evidence_tools, lookup, setup_tools
+from serenedb_extractor.tools import aggregate, catalog_tools, describe, evidence_tools, lookup, ownership_tools, setup_tools
 from serenedb_extractor.tools import context as context_tool
 from serenedb_extractor.tools import investigate
 from serenedb_extractor.tools import sql as sql_tool
@@ -383,6 +383,51 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         Use when: the user wants faster filters (kind="filter": exact value lists, nearly free filters) or faster/fuzzy text search (kind="search"), or asks what an index would cost (dry_run=True: a trial build on a sample, nothing kept).
         Returns: the index's size on disk and build time (measured, or estimated for dry_run)."""
         return await runner.run_tool(setup_tools.create_index, log_table=log_table, kind=kind, dry_run=dry_run)
+
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    async def show_ownership(log_table: str | None = None, coverage: bool = True, confirmed_cost: str | None = None) -> str:
+        """The team-ownership table: which team owns which component (or service), where the rules came from (imported file, set by hand, or the fictional stand-in), and how well they cover the logs.
+        Use when: the user asks who owns what, which teams exist, whether the teams are official, or before and after editing the ownership table; also when a team breakdown shows many "Unassigned" entries.
+        Inputs: log_table (omit for all); coverage=False skips the counts.
+        Returns: the rules grouped by team, their sources, recent changes, and per log table the entries per team plus the component values no rule covers (exact counts, or TOO EXPENSIVE / a block sample on huge tables, said so)."""
+        return await runner.run_tool(
+            ownership_tools.show_ownership, log_table=log_table, coverage=coverage, confirmed_cost=confirmed_cost
+        )
+
+    @mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
+    async def edit_ownership(
+        action: str,
+        csv_path: str | None = None,
+        csv_text: str | None = None,
+        mode: str = "replace",
+        log_table: str | None = None,
+        role: str | None = None,
+        rules: list[dict[str, Any]] | None = None,
+        team: str | None = None,
+        dry_run: bool = False,
+    ) -> str:
+        """Change the team-ownership table: import a CSV, set or remove rules, export to a CSV file, or reset. Team breakdowns in every tool follow the change at once. Only when the user asks for it.
+        Use when: the user supplies an ownership table (e.g. the organisers' component-to-team CSV), corrects a team, or wants the rules as a file to edit.
+        Inputs: action = "import" | "set" | "remove" | "export" | "reset".
+          import: csv_path (a file on this machine) or csv_text; columns are matched loosely: log table from log_table/dataset/table, value from component/service/pattern/value, team from team/owner, optional role and area/description. log_table names the log table when the file has no such column. mode "replace" (default) replaces the rules of the log tables the file covers, "merge" adds to and updates them, "replace_all" removes every other rule.
+          set: rules=[{"log_table": "bgl", "component": "KERNEL", "team": "Kernel"}] adds or changes rules.
+          remove: rules=[{"log_table": "bgl", "component": "KERNEL"}] or team="Kernel" (every rule of that team).
+          export: csv_path = where to write the rules (edit the file, then import it).
+          reset: back to the packaged stand-in (fictional) rules.
+          Values are matched case-insensitively; % matches any text (nova.compute.% covers every nova.compute module). dry_run=True shows the change without making it.
+        Returns: the rules added, changed and removed, then per affected log table the entries per team and the component values still without a team."""
+        return await runner.run_tool(
+            ownership_tools.edit_ownership,
+            action=action,
+            csv_path=csv_path,
+            csv_text=csv_text,
+            mode=mode,
+            log_table=log_table,
+            role=role,
+            rules=rules,
+            team=team,
+            dry_run=dry_run,
+        )
 
     @mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
     async def drop_index(log_table: str, kind: str) -> str:
