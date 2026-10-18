@@ -26,6 +26,7 @@ Beyond the required workflow:
 | **Polished MCP server** | 18 tools that say when to use them, what they take and what they return. Results are capped and say when they were cut. Role prompts `/engineer`, `/team-lead`, `/manager` | **96.9%** on 30 sealed held-out questions, blind-graded, at **$0.117** per answer, benchmarked when it had 12 tools ([evaluation](docs/EVALUATION.md)) |
 | **Huge datasets** | Reads one TextBench file, **1 billion rows**, in place from the public S3 bucket. Nothing is downloaded | one minute searched without an index: **2.88 s**. Whole file searched with an index: **4.18 s**, after a **69.9 s** build needing over 64 GB of RAM ([timings](docs/HUGE_DATASETS.md)) |
 | **Agent-managed indexes** | `create_index` (with a `dry_run` size and time estimate) and `drop_index`. The agent builds an index for an investigation and removes it after | build time against query time in [docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md#the-trade-off-index-build-time-against-query-time) |
+| **Logs with metrics and traces** | Metric and trace tables next to the log tables. `telemetry_overview` shows a system's logs, metrics and traces around one moment, per service. `metric_changes`, `metric_series`, `trace_changes` (self time and network time per call) and `get_trace` go deeper | |
 | **Phrase and fuzzy search** | `search_logs` matches words in order, or with `fuzzy` each word within a typo or two, through the search index | |
 | **Template mining** | Groups log lines into message templates at question time (SQL masking, then Drain), kept as stable IDs `T1, T2, …` | best BGL grouping score (FGA 0.745) of every approach compared, published parsers included ([table](docs/EVALUATION.md#templating-better-grouping-than-drain-on-the-full-loghub-20-data)) |
 
@@ -117,7 +118,7 @@ query. Full write-up: [docs/worked-investigation.md](docs/worked-investigation.m
 - **Found by:** `count_logs` on FATAL entries by node, full-text `search_logs`, `get_context`.
 - **What failed:** one compute node, **R30-M0-N9-C:J16-U01**, produced **152,229 of BGL's 855,501 FATAL entries**
   (17.8%). The next node has 1,567 [step 2]. Almost all of them are `data TLB error interrupt`
-  (152,182) [step 3], in one run on 11 June 2005 from 17:17:44 to 23:39:32 PDT [step 4].
+  (152,182) [step 3], in one run on 11 June 2005 from 17:17:44 PDT through the 23:00 hour [steps 3, 4].
 - **Just before:** in the same second, the node logged `machine check interrupt (bit=0x10): L2 DCU read error`
   [step 5]. Nothing else on the machine was logged in the 10 minutes before [step 6]. That error appears only 3 times in the whole log,
   twice on this node [step 7].
@@ -132,10 +133,10 @@ query. Full write-up: [docs/worked-investigation.md](docs/worked-investigation.m
   Applications 228,536 FATAL on BGL, Virtualization 3,071 WARNING on OpenStack.
 - **Recurring:** "Link has been severed" (CioStream socket) on **22 of 31 days** in December, 14,616 entries, +4%
   against November [step 21]. Kernel fault storms are rarer but huge: 62% of all BGL FATAL entries fall in 9-15
-  June [step 11]. On OpenStack, an image-cache warning appears in every hour at a steady rate [step 16].
+  June [step 11]. On OpenStack, an image-cache warning appears in each of the 15 hours checked, 97 to 136 times an hour [step 16].
 - **Investigate first:** **HPC Applications**, the "Link has been severed" failures: the most persistent fatal
-  problem, and not falling. Then Node OS, to confirm whether the 14 June event on about 22,500 nodes was a planned
-  restart [steps 12, 13].
+  problem, and not falling. Then Node OS, to confirm whether the 14 June burst (344,064 FATAL entries in three hours)
+  was a planned restart [step 13].
 
 ### Manager: "What should we prioritise, and what happens next?"
 
@@ -144,7 +145,7 @@ query. Full write-up: [docs/worked-investigation.md](docs/worked-investigation.m
 
 | # | risk (measured) | owner | next action |
 |---|---|---|---|
-| 1 | Broken links between compute and I/O nodes: FATAL, 22 of 31 days, 1,024 nodes, 31% of December's severe entries | HPC Applications | trace which I/O-node links drop |
+| 1 | Broken links between compute and I/O nodes: FATAL, 22 of 31 days, 1,024 nodes, 31% of the ranked entries | HPC Applications | trace which I/O-node links drop |
 | 2 | Failing job launches ("permission denied"), up 91% (7,296 → 13,952) | HPC Applications | review program-image permissions |
 | 3 | Lustre mounts failing, up 716% (230 → 1,877) on 924 nodes | Node OS | check the mounts and their servers for those 4 days |
 | 4 | One faulty node in June: 17.8% of all FATAL entries | Node OS | hardware diagnostics, out of service until it passes |
