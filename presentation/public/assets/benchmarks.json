@@ -1,0 +1,9 @@
+{
+  "final": false,
+  "footnote": "TODO: model, questions, runs per question, blind grader",
+  "designs": [
+    {"name": "Ours: template catalog + evidence", "score_pct": null, "usd_per_answer": null, "ours": true},
+    {"name": "Lean server, no index", "score_pct": null, "usd_per_answer": null, "ours": false},
+    {"name": "Broad toolbox", "score_pct": null, "usd_per_answer": null, "ours": false}
+  ]
+}
