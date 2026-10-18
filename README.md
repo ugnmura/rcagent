@@ -66,7 +66,7 @@ Then start `claude` in this folder and ask, as each role:
 
 `/engineer`, `/team-lead` and `/manager` are project slash commands (`.claude/commands/`). Outside this folder
 the same role prompts are served by the MCP server as `/mcp__serenedb-extractor__engineer` (and `team-lead`,
-`manager`). You can also just ask in your own words. `/mcp` lists the server with its 15 tools and 3 prompts.
+`manager`). You can also just ask in your own words. `/mcp` lists the server with its 17 tools and 3 prompts.
 
 This quick start runs SereneDB with no passwords on 127.0.0.1 and one connection for everything ("single-role
 mode"). For anything shared, use a reader and a writer role and keep passwords out of URLs: see
@@ -127,10 +127,13 @@ System Log Datasets for AI-driven Log Analytics*, ISSRE 2023. For BGL, also Olin
 ## Team ownership
 
 `count_logs`, `search_logs`, `survey`, `trend` and `locate_occurrences` can group and filter by **team**. Team
-is a derived field: a log table gets one when ownership rules cover its components (or services). The rules are
-a fictional platform organisation, shipped in
-[`src/serenedb_extractor/data/ownership.csv`](src/serenedb_extractor/data/ownership.csv) and loaded into
-`extractor.ownership` on first start:
+is a derived field: a log table gets one when ownership rules cover its components (or services). The rules live
+in `extractor.ownership`.
+
+**The shipped rules are a stand-in.** The challenge supplies its own team-ownership table, which we did not have,
+so a fresh database starts with a fictional platform organisation we wrote,
+[`src/serenedb_extractor/data/ownership.csv`](src/serenedb_extractor/data/ownership.csv). Answers and
+`describe_logs` say when a team comes from the stand-in. Replace it with the supplied table (see below).
 
 | team | owns (BGL component / OpenStack component / TextBench service) |
 |---|---|
@@ -146,9 +149,28 @@ a fictional platform organisation, shipped in
 | Identity & Access | OpenStack `keystonemiddleware.*` |
 | Storefront, Checkout & Payments, Fulfilment, Catalog & Recommendations, Platform | TextBench (OpenTelemetry demo) services |
 
-A rule is `(log_table pattern, role, value pattern, team)` with SQL `LIKE` patterns, and the most specific
-pattern wins. Every BGL and OpenStack entry maps to a team. Entries no rule covers are in team "Unassigned".
-To change the mapping, edit `extractor.ownership` (your edits are kept) or the CSV before the first start.
+A rule is `(log_table pattern, role, value pattern, team)` with SQL `LIKE` patterns (case-insensitive, `%` matches
+any text), and the most specific pattern wins. With the stand-in, every BGL and OpenStack entry maps to a team.
+Entries no rule covers are in team "Unassigned".
+
+### Importing and editing the ownership table
+
+Ask the agent ("use the ownership table in ~/Downloads/teams.csv"), or call the tools yourself:
+
+| call | what it does |
+|---|---|
+| `show_ownership()` | the rules by team, where each came from (imported file, set by hand, stand-in), the latest changes, and per log table the entries per team plus the components no rule covers |
+| `edit_ownership(action="import", csv_path="teams.csv")` | import a CSV. Headers are matched loosely: `dataset`/`log_table`/`table`, `component`/`service`/`pattern`, `team`/`owner`, optional `role` and `area`/`description`; `,` `;` tab or `\|` separated. `log_table="bgl"` names the log table when the file has no such column. |
+| `mode="replace"` (default) / `"merge"` / `"replace_all"` | replace the rules of the log tables the file covers (others stay) / add and update only / drop every other rule |
+| `edit_ownership(action="set", rules=[{"log_table": "bgl", "component": "KERNEL", "team": "Kernel"}])` | add or change single rules |
+| `edit_ownership(action="remove", team="Kernel")` or `rules=[...]` | remove a team's rules, or single rules |
+| `edit_ownership(action="export", csv_path="ownership.csv")` | write the rules to a file to edit and import again |
+| `edit_ownership(action="reset")` | back to the stand-in |
+| `dry_run=True` | show the change without making it |
+
+Every change reports what was added, changed and removed, then the coverage of the affected log tables, so a
+component the file misses shows up at once instead of silently counting as "Unassigned". Changes are logged in
+`extractor.ownership_changes`; after the first import or edit the stand-in is never added back on a restart.
 
 ## Tools
 
@@ -169,6 +191,8 @@ footer** (see below).
 | `trend` | rising, falling, new or persistent: a period against the one before | `start`, `end`, `templates`, `bucket` hour\|day, `exact` | per template the counts per bucket, change, presence, components and teams; refuses to call anything new across gaps |
 | `extract_params` | the values inside a template (nodes, status codes, latencies) | `template`, `by` | top values per parameter; min / p50 / p95 / max for numbers |
 | `show_evidence` | the queries and results behind any earlier answer | `ids` (Q-handles) | the tool call, every query with its time and row count, the result |
+| `show_ownership` | who owns what, and whether the teams are official | `log_table`, `coverage` | rules by team, their source, recent changes, entries per team and components without a team |
+| `edit_ownership` | import the supplied ownership CSV, fix a team, export the rules | `action` import\|set\|remove\|export\|reset, `csv_path`/`csv_text`, `mode`, `rules`, `team`, `dry_run` | the rules added, changed and removed, then coverage |
 | `inspect_source` | look at a new source before setting it up | `source` | columns, samples, size, proposed roles |
 | `setup_log_table` | register a source (Parquet/JSON read in place, raw text copied) | `name`, `source` (several files: `part_{000..009}.parquet`), `roles` | roles, entries, files, size, setup time, index estimates |
 | `create_index` / `drop_index` | build an index for repeated questions; remove it after the investigation | `log_table`, `kind` filter\|search, `dry_run` | size and build time (estimated with `dry_run`) |
@@ -456,8 +480,9 @@ This is a prototype:
   process; several server processes writing the same catalog at the same time are not supported.
 - **Timings under emulation are not representative.** Size and time estimates and test timings measured with the
   amd64 image on an arm64 machine are slower than on native hardware.
-- **The ownership table is fictional** and keyed by log table name patterns (`bgl%`, `openstack%`, `textbench%`);
-  a log table with another name has no team until rules are added to `extractor.ownership`.
+- **The shipped ownership table is a fictional stand-in** until the supplied one is imported with `edit_ownership`.
+  Its rules are keyed by log table name patterns (`bgl%`, `openstack%`, `textbench%`); a log table with another
+  name has no team until rules cover it.
 - **Evidence records grow without limit** in `extractor.evidence` (one row per tool call); clear the table when it
   gets large.
 - **Gap detection needs an affordable scan of the timestamp column.** When even that is too expensive (a huge
