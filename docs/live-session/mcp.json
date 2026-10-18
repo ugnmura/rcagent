@@ -1,0 +1,1 @@
+{"mcpServers":{"serenedb-extractor":{"command":"uv","args":["run","--directory","<checkout>","serenedb-extractor"],"env":{"SERENEDB_READER_URL":"postgresql://postgres@localhost:7890/postgres","SERENEDB_ALLOW_SQL":"1","LOGS_HOST_DIR":"~/logs","LOGS_CONTAINER_DIR":"/logs"}}}}

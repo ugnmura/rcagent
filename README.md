@@ -146,6 +146,10 @@ Full list: [docs/reference.md](docs/reference.md#known-limits).
   ([full transcript](docs/worked-investigation-transcript.md))
 - [docs/EVALUATION.md](docs/EVALUATION.md) and [docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md): how the benchmarks
   were run
+- [docs/live-session.md](docs/live-session.md): live, unscripted Claude sessions, one question per role, with every
+  tool call the agent chose and the raw sessions
+- [docs/INDEX_TIMINGS.md](docs/INDEX_TIMINGS.md): base-corpus queries with and without a search index, and the
+  index build times
 - [docs/reference.md](docs/reference.md): the requirements checklist, all tools, configuration, security, tests
 
 Data: Loghub (Zhu et al., ISSRE 2023; BGL: Oliner & Stearley, DSN 2007), research use only.
