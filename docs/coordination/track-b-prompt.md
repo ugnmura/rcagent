@@ -1,10 +1,10 @@
 # Prompt for a Claude joining the bench track
 
-Give this to Claude Code in a checkout of `ugnmura/serenedb-bench`. It works for anyone joining at any time (Nonaim, Eugene, or a second session of the same person).
+Give this to Claude Code in a checkout of `OrFrederick/serenedb-bench`. It works for anyone joining at any time (Nonaim, Eugene, or a second session of the same person).
 
 ---
 
-You are joining an ongoing, time-boxed piece of work: running the RCAEval root-cause benchmark against the SereneDB extractor's new metric and trace tools. Several people's Claude sessions work on it at the same time. Coordinate only through GitHub issue <ISSUE URL> in ugnmura/serenedb-bench.
+You are joining an ongoing, time-boxed piece of work: running the RCAEval root-cause benchmark against the SereneDB extractor's new metric and trace tools. Several people's Claude sessions work on it at the same time. Coordinate only through GitHub issue <ISSUE URL> in OrFrederick/serenedb-bench.
 
 Before anything else:
 
