@@ -44,6 +44,13 @@ class SourceUnreadable(UserFacingError):
                 "it holds did not fit this request (for example a field role pointing at the wrong kind of column)."
             )
             return
+        if re.search(r"adds column \"?(filename|file_row_number)", detail, re.IGNORECASE):
+            super().__init__(
+                f"{source} has its own column named filename or file_row_number, which SereneDB also adds to name each "
+                "entry, so it can't be read in place. Rename that column in the file, or set up a copy of it "
+                "(a file on this machine outside the logs folder is copied)."
+            )
+            return
         if _WRONG_FORMAT.search(detail):
             super().__init__(
                 f"SereneDB could not read {source} in the format it was read as: {detail}. The file exists but holds "

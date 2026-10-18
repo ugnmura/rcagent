@@ -299,3 +299,21 @@ async def test_more_input_checks(mcp, corpus):
     assert "can't be combined" in await call(mcp, "get_context", log_table="bgl", occurrence=occ, scope=["host", "everything"])
     assert "0 to 200" in await call(mcp, "get_context", log_table="bgl", occurrence=occ, before=1000)
     assert "times in UTC" in await call(mcp, "search_logs", log_table="bgl", limit=1, timezone="utc")
+
+
+async def test_local_csv_quotes_and_repeated_columns(mcp, tmp_path):
+    p = tmp_path / "q.csv"
+    p.write_text('ts,level,msg,level\n2026-03-01T00:00:00Z,INFO,"slow query ""select 1"" took 900 ms",ERROR\n', encoding="utf-8")
+    await call(mcp, "setup_log_table", name="csvq", source=str(p), roles={"timestamp": "ts", "message": "msg", "level": "level"})
+    out = await call(mcp, "search_logs", log_table="csvq")
+    assert 'slow query "select 1" took 900 ms' in out
+    desc = await call(mcp, "describe_logs", log_table="csvq")
+    assert "level_1" in (await call(mcp, "run_sql", sql="SELECT level_1 FROM extractor.lt_csvq")) or "level_1" in desc
+
+
+async def test_a_file_with_its_own_entry_id_keeps_unique_ids(mcp, tmp_path):
+    p = tmp_path / "ids.csv"
+    p.write_text("entry_id,ts,msg\n900,2026-03-01T00:00:00Z,first\n900,2026-03-01T00:00:01Z,second\n", encoding="utf-8")
+    await call(mcp, "setup_log_table", name="ids", source=str(p))
+    out = await call(mcp, "search_logs", log_table="ids", order="oldest")
+    assert "e:1 " in out and "e:2 " in out
