@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from serenedb_extractor.catalog.models import LogTable
 from serenedb_extractor.db import Database, quote_ident
 from serenedb_extractor.query.filters import TimeRange
-from serenedb_extractor.setup.paths import resolve_source, sql_literal
+from serenedb_extractor.setup.paths import resolve_source, source_sql, sql_literal
 from serenedb_extractor.setup.roles import HELPER_COLUMNS, is_temporal, role_column
 from serenedb_extractor.setup.sniff import relation_columns
 
@@ -124,7 +124,7 @@ def _collect(db: Database, lt: LogTable, tr: TimeRange) -> ScopeStats:
 
 def _parquet(db: Database, lt: LogTable, tr: TimeRange, has_f: bool, has_s: bool) -> ScopeStats:
     rs = resolve_source(lt.source, db.settings, "parquet")
-    meta = f"parquet_metadata({sql_literal(rs.db_path)})"
+    meta = f"parquet_metadata({source_sql(rs)})"
     ts_col = role_column(lt.roles.timestamp) if lt.roles.timestamp else None
     params: dict[str, object] = {"ts": ts_col or ""}
     what = f"reading the Parquet metadata of {lt.name}"

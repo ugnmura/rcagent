@@ -10,11 +10,11 @@ import psycopg
 from serenedb_extractor.catalog.models import LogTable
 from serenedb_extractor.db import Database, quote_ident
 from serenedb_extractor.errors import UserFacingError
-from serenedb_extractor.setup.paths import pct, resolve_source, sql_literal
+from serenedb_extractor.setup.paths import pct, resolve_source, source_sql, sql_literal
 from serenedb_extractor.timezones import get_zone  # noqa: F401  (re-exported)
 from serenedb_extractor.setup.roles import is_temporal, resolve_column, role_column
 
-FILTER_ROLES = ("level", "service", "host", "component", "trace")
+FILTER_ROLES = ("level", "service", "host", "component", "trace", "team")
 _FMT = "%Y-%m-%d %H:%M:%S"
 
 
@@ -29,6 +29,12 @@ class MissingRole(UserFacingError):
     def __init__(self, role: str, present: list[str] | None = None) -> None:
         self.role = role
         have = f" It has: {', '.join(present)}." if present else ""
+        if role == "team":
+            super().__init__(
+                "No team ownership rule covers this log table's components or services, so it can't be filtered "
+                f"or grouped by team.{have} Rules live in extractor.ownership (see the README's ownership section)."
+            )
+            return
         super().__init__(
             f"This log table has no {role} field, so it can't be filtered or grouped by {role}.{have} "
             "If a column holds it, set the role again with setup_log_table (roles={...})."
@@ -85,6 +91,7 @@ class Filters:
     host: str | list[str] | None = None
     component: str | list[str] | None = None
     trace: str | list[str] | None = None
+    team: str | list[str] | None = None
     columns: dict[str, str] = field(default_factory=dict)
 
     @classmethod
@@ -224,12 +231,12 @@ def data_range(db: Database, lt: LogTable, known_columns: dict[str, str]) -> Dat
     zone = sql_literal(lt.timezone)
     note = ""
     if lt.mode == "in_place" and lt.source_format == "parquet" and col is not None:
-        path = resolve_source(lt.source, db.settings, "parquet").db_path
+        path_sql = source_sql(resolve_source(lt.source, db.settings, "parquet"))
         cast = f"(stats_min::timestamp) AT TIME ZONE {zone}" if naive else "stats_min::timestamptz"
         cast_max = f"(stats_max::timestamp) AT TIME ZONE {zone}" if naive else "stats_max::timestamptz"
         try:
             row = db.read(
-                f"SELECT min({cast}), max({cast_max}) FROM parquet_metadata({sql_literal(path)}) "
+                f"SELECT min({cast}), max({cast_max}) FROM parquet_metadata({path_sql}) "
                 "WHERE path_in_schema = %(c)s AND stats_min IS NOT NULL",
                 {"c": col},
             ).rows[0]

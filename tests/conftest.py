@@ -148,10 +148,25 @@ async def mcp_unreachable() -> AsyncIterator[Client]:
         yield c
 
 
-async def call(client: Client, tool: str, **args: Any) -> str:
-    """Call a tool by name and return its text result."""
+async def call_raw(client: Client, tool: str, **args: Any) -> str:
+    """Call a tool by name and return its whole text result, evidence footer included."""
     result = await client.call_tool(tool, args)
     return "\n".join(getattr(b, "text", "") for b in result.content)
+
+
+def strip_evidence(out: str) -> str:
+    """The result without its evidence footer (kept: a note that follows the footer)."""
+    head, sep, tail = out.partition("\nEvidence [Q")
+    if not sep:
+        return out
+    kept = [ln for ln in tail.splitlines()[1:] if not ln.startswith("  ")]
+    return "\n".join([head, *kept])
+
+
+async def call(client: Client, tool: str, **args: Any) -> str:
+    """Call a tool by name and return its text result without the evidence footer (tests/tools/test_evidence.py
+    covers the footer)."""
+    return strip_evidence(await call_raw(client, tool, **args))
 
 
 def container_parquet(db_url: str, name: str, select_sql: str) -> str:

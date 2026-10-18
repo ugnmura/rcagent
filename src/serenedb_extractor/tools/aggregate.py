@@ -1,0 +1,251 @@
+"""count_logs: counts of log entries over one, several or all log tables, grouped by team, component, level,
+any other role or column, or a time bucket; optionally only entries whose message contains a text.
+
+This is the aggregation that needs no templates: "how many FATAL entries per team over the whole corpus",
+"errors per day for the Cloud API team", "how often does 'timeout' appear per component". Each log table is
+counted on its own (exactly, when the cost check allows it; otherwise from a block sample, said so) and the
+results are reported together, with a combined line per group when several tables share group values.
+"""
+
+from dataclasses import dataclass
+from typing import Any
+
+from serenedb_extractor import format as fmt
+from serenedb_extractor.catalog.models import LogTable
+from serenedb_extractor.context import AppContext
+from serenedb_extractor.errors import UserFacingError
+from serenedb_extractor.query import cost, sampling
+from serenedb_extractor.query.coverage import untimestamped_note
+from serenedb_extractor.query.filters import (
+    Filters,
+    MissingRole,
+    TimeRange,
+    build_where,
+    diagnose_empty,
+    parse_time_range,
+    role_sql,
+    time_clause,
+)
+from serenedb_extractor.query.stats import role_columns
+from serenedb_extractor.setup.sniff import readable
+from serenedb_extractor.tools.describe import known_columns, like_pattern
+from serenedb_extractor.tools.investigate import _filter_columns, _group_columns, _one, parse_group_by
+
+DEFAULT_GROUPS = 25
+NARROW = "narrow it: a shorter period (start/end), filters such as level or team, or fewer log tables."
+
+
+@dataclass
+class TableCount:
+    lt: LogTable
+    plan: cost.Plan | None
+    total: fmt.Measured | None
+    groups: list[tuple[tuple[str, ...], fmt.Measured]]
+    labels: list[str]
+    note: str | None = None  # why the table was not counted, or something to know about its count
+    asked: str | None = None  # a TOO EXPENSIVE message
+    empty_why: list[str] | None = None
+
+
+def _scope_text(f: Filters, text: str | None) -> str | None:
+    parts = [f"{k} in ({', '.join(repr(w) for w in v)})" if isinstance(v, list) else f"{k}={v!r}" for k, v in f.items()]
+    if text:
+        parts.append(f"message contains {text!r} (any case)")
+    return ", ".join(parts) or None
+
+
+def _count_one(
+    ctx: AppContext,
+    lt: LogTable,
+    tr: TimeRange,
+    f: Filters,
+    text: str | None,
+    group_by: list[str],
+    tz: str,
+    confirmed_cost: str | None,
+) -> TableCount:
+    db = ctx.db
+    with readable(f"the source of log table '{lt.name}'"):
+        cols = known_columns(db, lt)
+        groups = parse_group_by(lt, group_by, cols, tz)
+        time_sql, time_params = time_clause(lt, tr, cols)
+        match_sql, params = build_where(lt, TimeRange(), f, cols)
+        params.update(time_params)
+        if text:
+            match_sql += f" AND ({role_sql(lt, 'message')})::varchar ILIKE %(text_pattern)s ESCAPE '\\'"
+            params["text_pattern"] = like_pattern(text)
+        read = (
+            (role_columns(lt.roles.timestamp) if tr.bounded or any(g.startswith("time:") for g in group_by) else [])
+            + _filter_columns(lt, f, cols)
+            + _group_columns(lt, group_by, cols)
+            + (role_columns(lt.roles.message) if text else [])
+        )
+        _, decision = cost.check(db, lt, tr, read, confirmed_cost)
+        labels = [label for label, _ in groups]
+        if decision.status == "ask":
+            return TableCount(lt, None, None, [], labels, asked=decision.message)
+        plan = decision.plan
+        note = untimestamped_note(db, lt, tr)
+        scope_sql = time_sql + (" AND " + sampling.clause(plan) if plan.sampling else "")
+        timeout = cost.run_timeout(plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
+        what = f"counting entries in log table {lt.name}"
+        keys = "".join(f", {expr} AS k{i}" for i, (_, expr) in enumerate(groups))
+        key_names = [f"k{i}" for i in range(len(groups))]
+        blk = [] if plan.exact else ["blk"]
+        blk_sel = "" if plan.exact else f", {sampling.block_id_sql(plan)} AS blk"
+        gcols = ", ".join(key_names + blk)
+        inner = f"SELECT 1 AS one{keys}{blk_sel} FROM {lt.relation} WHERE {scope_sql} AND {match_sql}"
+        sql = (
+            f"SELECT {gcols}, count(*) AS n FROM ({inner}) GROUP BY {gcols}"
+            if gcols
+            else f"SELECT count(*) AS n FROM ({inner})"
+        )
+        rows = db.read(sql, params, timeout_s=timeout, what=what, how_to_narrow=NARROW).rows
+        per_key: dict[tuple[str, ...], list[tuple[int, int]]] = {}
+        all_blocks: dict[int, int] = {}
+        for r in rows:
+            key = tuple(str(x) for x in r[: len(key_names)])
+            b = 0 if plan.exact else int(r[len(key_names)])
+            n = int(r[-1])
+            per_key.setdefault(key, []).append((b, n))
+            all_blocks[b] = all_blocks.get(b, 0) + n
+        entries: list[int] = []
+        if not plan.exact:
+            block_rows = db.read(
+                f"SELECT {sampling.block_id_sql(plan)} AS b, count(*) FROM {lt.relation} WHERE {scope_sql} GROUP BY 1",
+                params if "text_pattern" not in params else {k: v for k, v in params.items() if k in time_params},
+                timeout_s=timeout,
+                what=what,
+                how_to_narrow=NARROW,
+            ).rows
+            found = {int(r[0]): int(r[1]) for r in block_rows if r[0] is not None}
+            entries = [found.get(i, 0) for i in range(len(plan.groups))]
+        total = _one(plan, list(all_blocks.items()), entries)
+        measured = [(k, _one(plan, v, entries)) for k, v in per_key.items()]
+        if any(lbl.startswith("time:") for lbl in labels):
+            measured.sort(key=lambda kv: kv[0])
+        else:
+            measured.sort(key=lambda kv: (-kv[1].value, kv[0]))
+        empty_why = None
+        if plan.exact and total.value == 0 and (f.items() or tr.bounded) and not text:
+            empty_why = diagnose_empty(db, lt, tr, f, cols)
+        return TableCount(lt, plan, total, measured, labels, note=note, empty_why=empty_why)
+
+
+def _share(part: fmt.Measured, whole: fmt.Measured | None) -> str:
+    if whole is None or not whole.value:
+        return ""
+    return f", {100 * part.value / whole.value:.1f}%"
+
+
+def _how(tables: list[TableCount], tr: TimeRange, f: Filters, text: str | None, tz: str) -> str:
+    counted = [t for t in tables if t.plan is not None]
+    exact = all(t.plan.exact for t in counted) if counted else True
+    kind = (
+        "exact count: every entry in scope of each log table was counted inside SereneDB"
+        if exact
+        else "count per log table: exact where marked exact, else estimated from a block sample (said per table)"
+    )
+    if any(t.plan is not None and t.plan.confirmed for t in counted):
+        kind += " (run as you confirmed)"
+    sample = None if exact else "block sample where marked"
+    return fmt.how_measured(kind, tr.describe() if tr.bounded else None, _scope_text(f, text), sample, tz=tz)
+
+
+def _key_text(labels: list[str], key: tuple[str, ...]) -> str:
+    if not labels:
+        return "all entries"
+    return " · ".join(key)
+
+
+def count_logs(
+    ctx: AppContext,
+    log_tables: list[str] | None = None,
+    group_by: list[str] | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    filters: dict[str, Any] | None = None,
+    text: str | None = None,
+    limit: int | None = None,
+    timezone: str = "UTC",
+    confirmed_cost: str | None = None,
+) -> str:
+    tr = parse_time_range(start, end, timezone)
+    f = Filters.from_dict(filters)
+    text = text.strip() if text and text.strip() else None
+    group_by = [g for g in (group_by or []) if g and g.strip()]
+    if len(group_by) > 3:
+        raise UserFacingError("Group by at most three things at once, e.g. ['team', 'level'] or ['component', 'time:1d'].")
+    if log_tables:
+        tables = [ctx.store.get_log_table(n) for n in dict.fromkeys(log_tables)]
+    else:
+        tables = ctx.store.list_log_tables()
+        if not tables:
+            raise UserFacingError("There are no log tables yet; set one up first.")
+    shown_limit = fmt.clamp_limit(limit, DEFAULT_GROUPS, DEFAULT_GROUPS * ctx.settings.limit_cap)
+    results: list[TableCount] = []
+    for lt in tables:
+        try:
+            results.append(_count_one(ctx, lt, tr, f, text, group_by, timezone, confirmed_cost))
+        except MissingRole as exc:
+            if len(tables) == 1:
+                raise
+            results.append(TableCount(lt, None, None, [], [], note=f"not counted: {exc}"))
+    return _render(results, tr, f, text, timezone, group_by, shown_limit)
+
+
+def _render(
+    results: list[TableCount], tr: TimeRange, f: Filters, text: str | None, tz: str, group_by: list[str], limit: int
+) -> str:
+    lines = [_how(results, tr, f, text, tz)]
+    many = len(results) > 1
+    if many:
+        lines.append(
+            f"Counted {len(results)} log tables separately ({', '.join(t.lt.name for t in results)}) and reported "
+            "together; the tables are not merged."
+        )
+    if group_by:
+        lines.append("grouped by " + ", ".join(group_by) + ("; groups ordered by time" if any(g.startswith("time:") for g in group_by) else "; largest first"))
+    for t in results:
+        lines.append("")
+        if t.asked:
+            lines.append(f"Log table {t.lt.name}: TOO EXPENSIVE to count. {t.asked}")
+            continue
+        if t.total is None:
+            lines.append(f"Log table {t.lt.name}: {t.note}")
+            continue
+        total_text = _num(t.total)
+        lines.append(f"Log table {t.lt.name}: {total_text} matching entries" + (" (exact)." if t.total.exact else "."))
+        if t.note:
+            lines.append(f"  note: {t.note}")
+        if t.groups:
+            cut = t.groups[:limit]
+            if len(cut) < len(t.groups):
+                lines.append(f"  showing {len(cut)} of {len(t.groups)} groups (raise limit to see more)")
+            for key, m in cut:
+                lines.append(f"  {_key_text(t.labels, key)}: {_num(m)}{_share(m, t.total)}")
+        for why in t.empty_why or []:
+            lines.append(f"  {why}")
+    if many and group_by:
+        combined: dict[tuple[str, ...], float] = {}
+        exact = True
+        for t in results:
+            for key, m in t.groups:
+                combined[key] = combined.get(key, 0.0) + m.value
+                exact = exact and m.exact
+        shared = [k for k in combined if sum(any(g[0] == k for g in t.groups) for t in results) > 1]
+        if shared:
+            lines.append("")
+            lines.append(
+                "combined over the log tables, for group values found in more than one of them"
+                + ("" if exact else " (sums of estimates: estimates)")
+                + ":"
+            )
+            for key in sorted(shared, key=lambda k: -combined[k])[:limit]:
+                lines.append(f"  {' · '.join(key)}: {int(round(combined[key])):,}")
+    return "\n".join(lines)
+
+
+def _num(m: fmt.Measured) -> str:
+    """Exact counts as plain numbers (the header says they are exact); estimates with their margin."""
+    return f"{round(m.value):,}" if m.exact else fmt.render(m)

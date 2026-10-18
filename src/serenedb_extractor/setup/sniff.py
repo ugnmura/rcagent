@@ -11,7 +11,7 @@ import psycopg
 from serenedb_extractor.db import Database, quote_ident
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.format import shorten
-from serenedb_extractor.setup.paths import ResolvedSource, sql_literal
+from serenedb_extractor.setup.paths import ResolvedSource, source_sql, sql_literal
 
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
 
@@ -62,14 +62,16 @@ def reader_sql(rs: ResolvedSource) -> str:
     if rs.kind == "table":
         return table_ref(rs.db_path)
     fn = "read_parquet" if rs.kind == "parquet" else "read_json"
-    return f"{fn}({sql_literal(rs.db_path)}, filename=true, file_row_number=true)"
+    return f"{fn}({source_sql(rs)}, filename=true, file_row_number=true)"
 
 
 def relation_columns(db: Database, from_sql: str, source: str = "", remote: bool = False) -> list[tuple[str, str]]:
     """(name, type) of every column of a relation or reader, helper columns included."""
+    slow = db.settings.max_timeout_s if remote else None
+    what = f"reading the columns of {source or 'the source'}"
     with readable(source or from_sql, remote):
-        names = db.read(f"SELECT * FROM {from_sql} LIMIT 0", {}).columns
-        types = {r[0]: r[1] for r in db.read(f"DESCRIBE SELECT * FROM {from_sql}", {}).rows}
+        names = db.read(f"SELECT * FROM {from_sql} LIMIT 0", {}, timeout_s=slow, what=what).columns
+        types = {r[0]: r[1] for r in db.read(f"DESCRIBE SELECT * FROM {from_sql}", {}, timeout_s=slow, what=what).rows}
     return [(n, types.get(n, "VARCHAR" if n == "filename" else "")) for n in names]
 
 
@@ -77,8 +79,25 @@ def _short(v: Any) -> str:
     return shorten(str(v), 80)
 
 
-def sniff(db: Database, rs: ResolvedSource, source: str) -> SourceInfo:
+_NESTED = re.compile(r"^(MAP|STRUCT|UNION)\b|\[\]$|^LIST\b", re.I)
+
+
+def sample_columns(columns: list[tuple[str, str]]) -> str:
+    """What to select for the sample entries: every column, except that the nested ones (maps, structs,
+    lists) are left out when there are plain ones; they are the bulk of a remote file and say nothing about
+    which column holds the timestamp, message or level."""
+    plain = [c for c, t in columns if not _NESTED.search(t.strip())]
+    if not plain or len(plain) == len(columns):
+        return "*"
+    return ", ".join(quote_ident(c) for c in plain)
+
+
+def sniff(db: Database, rs: ResolvedSource, source: str, for_setup: bool = False) -> SourceInfo:
+    """Columns, 5 sample entries and the size of a source, reading no data beyond the sample. A remote
+    source's reads may take up to the maximum query time (setup is a one-off), and setup skips the
+    per-column sizes that only inspect_source shows."""
     from_sql = reader_sql(rs)
+    slow = db.settings.max_timeout_s if rs.remote else None
     if rs.kind == "table":
         schema, _, table = rs.db_path.rpartition(".")
         found = db.read(
@@ -90,14 +109,19 @@ def sniff(db: Database, rs: ResolvedSource, source: str) -> SourceInfo:
             raise UserFacingError(f"There is no table named '{rs.db_path}' that can be used as a log source.")
     columns = relation_columns(db, from_sql, source, rs.remote)
     with readable(source, rs.remote):
-        sample = db.read(f"SELECT * FROM {from_sql} LIMIT 5", {})
+        sample = db.read(
+            f"SELECT {sample_columns(columns)} FROM {from_sql} LIMIT 5", {}, timeout_s=slow,
+            what=f"reading 5 sample entries of {source}",
+        )
         info = SourceInfo(rs, from_sql, columns, sample.dicts(), size_bytes=rs.size_bytes)
         if rs.kind == "parquet":
-            lit = sql_literal(rs.db_path)
+            lit = source_sql(rs)
             meta = db.read(
                 "SELECT sum(num_rows)::bigint AS n, count(*) AS files, sum(file_size_bytes)::bigint AS size, "
                 f"sum(num_row_groups)::bigint AS groups FROM parquet_file_metadata({lit})",
                 {},
+                timeout_s=slow,
+                what=f"reading the Parquet metadata of {source}",
             ).dicts()[0]
             info.row_count, info.num_files, info.size_bytes, info.row_groups = (
                 meta["n"],
@@ -105,12 +129,15 @@ def sniff(db: Database, rs: ResolvedSource, source: str) -> SourceInfo:
                 meta["size"],
                 meta["groups"],
             )
-            big = db.read(
-                "SELECT path_in_schema AS c, sum(total_compressed_size)::bigint AS b "
-                f"FROM parquet_metadata({lit}) GROUP BY 1 ORDER BY 2 DESC LIMIT 5",
-                {},
-            )
-            info.big_columns = [(r[0], int(r[1])) for r in big.rows]
+            if not for_setup:
+                big = db.read(
+                    "SELECT path_in_schema AS c, sum(total_compressed_size)::bigint AS b "
+                    f"FROM parquet_metadata({lit}) GROUP BY 1 ORDER BY 2 DESC LIMIT 5",
+                    {},
+                    timeout_s=slow,
+                    what=f"reading the column sizes of {source}",
+                )
+                info.big_columns = [(r[0], int(r[1])) for r in big.rows]
         elif rs.kind == "table":
             info.row_count = db.read(f"SELECT count(*) FROM {from_sql}", {}).scalar()
     return info

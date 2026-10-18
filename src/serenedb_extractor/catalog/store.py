@@ -24,6 +24,7 @@ from serenedb_extractor.catalog.models import (
 )
 from serenedb_extractor.db import Database
 from serenedb_extractor.errors import UserFacingError
+from serenedb_extractor.ownership import Ownership, team_expr
 from serenedb_extractor.templating.regex import compile_template
 
 _COLUMNS = (
@@ -132,10 +133,19 @@ def _template_number(template_id: str) -> int:
 class CatalogStore:
     def __init__(self, db: Database) -> None:
         self.db = db
+        self.ownership = Ownership(db)
+
+    def _with_team(self, lt: LogTable) -> LogTable:
+        """The log table with its derived team role, when ownership rules cover it."""
+        found = self.ownership.for_table(lt.name, lt.roles.present())
+        if found is None:
+            return lt
+        role, rules = found
+        return replace(lt, roles=replace(lt.roles, team=team_expr(getattr(lt.roles, role), rules)))
 
     def list_log_tables(self) -> list[LogTable]:
         rows = self.db.read(f"SELECT {_COLUMNS} FROM extractor.log_tables ORDER BY name")
-        return [_log_table(r) for r in rows.dicts()]
+        return [self._with_team(_log_table(r)) for r in rows.dicts()]
 
     def get_log_table(self, name: str) -> LogTable:
         rows = self.db.read(
@@ -143,7 +153,7 @@ class CatalogStore:
         )
         if not rows.rows:
             raise UnknownLogTable(name, [t.name for t in self.list_log_tables()])
-        return _log_table(rows.dicts()[0])
+        return self._with_team(_log_table(rows.dicts()[0]))
 
     def create_log_table(self, lt: LogTable) -> None:
         """Insert a new log table; the template numbering starts at 1."""

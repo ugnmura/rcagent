@@ -1,0 +1,37 @@
+log_table,role,pattern,team,area
+bgl%,component,KERNEL,Node OS,"compute-node kernel: memory/cache faults, interrupts, core dumps"
+bgl%,component,APP,HPC Applications,user jobs and the I/O daemon (ciod) that serves them
+bgl%,component,MMCS,Control System,midplane management and control system
+bgl%,component,BGLMASTER,Control System,the master process that supervises the control system
+bgl%,component,CMCS,Control System,core management and control
+bgl%,component,HARDWARE,Hardware Reliability,"service cards, power and hardware checks"
+bgl%,component,MONITOR,Hardware Reliability,environmental and hardware monitoring
+bgl%,component,DISCOVERY,Hardware Reliability,hardware discovery at boot
+bgl%,component,LINKCARD,Interconnect,link cards of the torus and tree networks
+bgl%,component,SERV_NET,Interconnect,service network
+openstack%,component,nova.osapi_compute.%,Cloud API,the compute REST API (request latency and status codes)
+openstack%,component,nova.api.%,Cloud API,API request handling and external events
+openstack%,component,nova.metadata.%,Cloud API,the instance metadata service
+openstack%,component,nova.compute.%,Compute Service,"instance lifecycle on hypervisor hosts: claims, resources, spawns"
+openstack%,component,nova.virt.%,Virtualization,libvirt driver and image cache
+openstack%,component,nova.scheduler.%,Scheduling,placing instances on hosts
+openstack%,component,nova.conductor.%,Compute Service,database proxy for compute hosts
+textbench%,service,frontend%,Storefront,web frontend and its proxy
+textbench%,service,image-provider,Storefront,product images
+textbench%,service,ad%,Storefront,ads
+textbench%,service,checkout%,Checkout & Payments,order checkout
+textbench%,service,payment%,Checkout & Payments,payment processing
+textbench%,service,cart%,Checkout & Payments,shopping cart
+textbench%,service,currency%,Checkout & Payments,currency conversion
+textbench%,service,shipping%,Fulfilment,shipping quotes and orders
+textbench%,service,quote%,Fulfilment,shipping cost quotes
+textbench%,service,email%,Fulfilment,order confirmation email
+textbench%,service,accounting%,Fulfilment,order accounting
+textbench%,service,fraud%,Fulfilment,fraud detection
+textbench%,service,product%,Catalog & Recommendations,product catalog and reviews
+textbench%,service,recommendation%,Catalog & Recommendations,product recommendations
+textbench%,service,kafka%,Platform,message queue
+textbench%,service,flagd%,Platform,feature flags
+textbench%,service,load-generator%,Platform,synthetic load
+openstack%,component,oslo_service.%,Compute Service,periodic tasks of the compute service
+openstack%,component,keystonemiddleware.%,Identity & Access,authentication tokens for API requests

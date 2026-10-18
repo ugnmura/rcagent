@@ -2,6 +2,8 @@
 
 from serenedb_extractor.catalog.models import ROLE_FIELDS
 from serenedb_extractor.db import Database
+from serenedb_extractor.evidence import EVIDENCE_DDL
+from serenedb_extractor.ownership import OWNERSHIP_DDL, seed
 
 _ROLE_COLUMNS = ",\n        ".join(
     f"role_{f} VARCHAR NOT NULL" if f == "message" else f"role_{f} VARCHAR" for f in ROLE_FIELDS
@@ -53,9 +55,12 @@ DDL = [
         merged_at          TIMESTAMP NOT NULL,
         PRIMARY KEY (log_table, old_id)
     )""",
+    EVIDENCE_DDL,
+    OWNERSHIP_DDL,
 ]
 
 
 def bootstrap(db: Database) -> None:
     for statement in DDL:
         db.write(statement)
+    seed(db)

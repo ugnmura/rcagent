@@ -217,9 +217,23 @@ def _columns(lt: LogTable, tr: TimeRange, f: Filters, cols: dict[str, str], excl
     return scan, count
 
 
-def _decide(stats: ScopeStats, columns: list[str], n_target: int, confirmed_cost: str | None, max_s: float) -> cost.Decision:
-    """The cost check for the survey scan. R46: a block sample takes at least MIN_BLOCKS row groups
-    whenever that still fits, so its margins can be estimated; otherwise the usual ladder."""
+def _decide(
+    stats: ScopeStats,
+    columns: list[str],
+    n_target: int,
+    confirmed_cost: str | None,
+    max_s: float,
+    prefer_full: bool = True,
+) -> cost.Decision:
+    """The cost check for the survey scan. Reading every entry in scope comes first whenever it fits the
+    budget: the counts are then exact, or a uniform sample of the matching entries — far tighter than a
+    block sample on logs whose messages come in bursts (BGL). Otherwise R46: a block sample takes at least
+    MIN_BLOCKS row groups whenever that still fits, so its margins can be estimated; else the usual ladder.
+    `prefer_full` is off when the caller asked for a sample of a given size."""
+    if prefer_full:
+        full = cost.decide(stats, columns, True, n_target, confirmed_cost, max_s=max_s)
+        if full.status == "run" and full.plan.exact:
+            return full
     usual = cost.decide(stats, columns, False, n_target, confirmed_cost, max_s=max_s)
     g = len(stats.groups) if stats.can_sample else 0
     if g < 2 or usual.plan.confirmed:
@@ -266,7 +280,9 @@ def survey(
         match_sql += pct(SURVEY_SQL_SUFFIX)
         scan_cols, count_cols = _columns(lt, tr, f, cols, bool(hidden))
         stats = collect(db, lt, tr)
-        decision = _decide(stats, scan_cols + count_cols, n_target, confirmed_cost, s.max_timeout_s)
+        decision = _decide(
+            stats, scan_cols + count_cols, n_target, confirmed_cost, s.max_timeout_s, prefer_full=sample_size is None
+        )
         if decision.status == "ask":
             head = fmt.how_measured(cost.ASKED_HOW, period, scope_text, tz=timezone)
             return "\n".join([head, *exclusion_notes, decision.message])

@@ -4,6 +4,7 @@ from serenedb_extractor.catalog import schema
 from serenedb_extractor.catalog.store import CatalogStore
 from serenedb_extractor.config import Settings
 from serenedb_extractor.db import Database
+from serenedb_extractor.evidence import EvidenceLog
 from serenedb_extractor.query.indexcover import EstimateCache
 
 
@@ -13,6 +14,7 @@ class AppContext:
     db: Database
     store: CatalogStore
     estimates: EstimateCache = field(default_factory=EstimateCache)
+    evidence: EvidenceLog = field(default_factory=lambda: EvidenceLog(None))
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "AppContext":
@@ -22,4 +24,4 @@ class AppContext:
         except BaseException:
             db.close()
             raise
-        return cls(settings, db, CatalogStore(db))
+        return cls(settings, db, CatalogStore(db), evidence=EvidenceLog(db))

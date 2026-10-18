@@ -1,5 +1,6 @@
 """inspect_source and setup_log_table: structured sources read in place, raw text and outside files copied."""
 
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -11,7 +12,7 @@ import psycopg
 
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.setup import indexes, localfiles, rawcopy, structcopy
-from serenedb_extractor.setup.paths import ResolvedSource, resolve_source
+from serenedb_extractor.setup.paths import ResolvedSource, resolve_source, source_sql
 from serenedb_extractor.setup.rawlog import LINE_FORMATS, detect_line_format, line_format_named, parse_entries
 from serenedb_extractor.setup.roles import HELPER_COLUMNS, propose_roles, role_lines, validate_roles
 from serenedb_extractor.timezones import get_zone
@@ -61,7 +62,12 @@ def inspect_source(
     columns = [(c, t) for c, t in info.columns if c not in HELPER_COLUMNS]
     roles, evidence = propose_roles(info.columns, sample_values(info))
     offer = indexes.inspect_lines(
-        ctx, source, info.resolved.db_path if info.resolved.kind == "parquet" else None, roles, info.row_count
+        ctx,
+        source,
+        source_sql(info.resolved) if info.resolved.kind == "parquet" else None,
+        roles,
+        info.row_count,
+        is_sql=True,
     )
     lines = [
         fmt.how_measured(
@@ -167,7 +173,8 @@ def setup_log_table(
         return _setup_raw(ctx, name, rs, source, roles, line_format, zone, (build_filter_index, build_search_index))
     if localfiles.copy_needed(rs):
         return _setup_outside(ctx, name, rs, source, roles, zone, (build_filter_index, build_search_index))
-    info = sniff(ctx.db, rs, source)
+    began = time.perf_counter()
+    info = sniff(ctx.db, rs, source, for_setup=True)
     given = validate_roles(roles, dict(info.columns)) if roles else None
     final, _ = propose_roles(info.columns, sample_values(info), given)
     with readable(source, rs.remote):
@@ -192,7 +199,7 @@ def setup_log_table(
         except Exception:
             ctx.db.write(f"DROP VIEW IF EXISTS {relation}", {})
             raise
-    index_lines, read_data = _index_section(ctx, lt, build_filter_index, build_search_index)
+    index_lines, read_data = _index_section(ctx, lt, build_filter_index, build_search_index, info)
     lines = [
         fmt.how_measured(
             "log table registered; only the source's metadata and 5 sample entries were read"
@@ -201,6 +208,9 @@ def setup_log_table(
         f"Set up log table '{name}': {_where_read(rs)}."
         + f" View {relation} reads the source directly.",
         f"entries: {lt.row_count:,}" if lt.row_count is not None else "entries: not counted",
+        *([f"files: {info.num_files:,}"] if info.num_files and info.num_files > 1 else []),
+        *([f"size: {human_bytes(info.size_bytes)}"] if info.size_bytes else []),
+        f"setup took {fmt.duration(time.perf_counter() - began)}",
         f"time zone for naive timestamps: {zone}",
         "field roles:",
         *role_lines(final, "  "),
@@ -424,10 +434,18 @@ def index_lines_how(read_data: bool) -> str:
     return "; trial or real index builds read the entries (see the index lines)" if read_data else ""
 
 
-def _index_section(ctx: AppContext, lt: LogTable, build_filter: bool, build_search: bool) -> tuple[list[str], bool]:
+def _index_section(
+    ctx: AppContext, lt: LogTable, build_filter: bool, build_search: bool, info: SourceInfo | None = None
+) -> tuple[list[str], bool]:
     """Lines about indexes for a fresh log table, and whether entries were read for them. A requested
-    build runs now; otherwise estimates are shown for a big source. A failed build leaves the table set up."""
+    build runs now; otherwise estimates are shown for a big source: from a trial build for a local one,
+    from the Parquet column sizes for a remote one (a trial would pull a million entries over the network,
+    which is what made remote setups slow). A failed build leaves the table set up."""
     wanted = [k for k, on in (("filter", build_filter), ("search", build_search)) if on]
+    if not wanted and info is not None and info.resolved.remote:
+        parquet = source_sql(info.resolved) if info.resolved.kind == "parquet" else None
+        out = indexes.inspect_lines(ctx, lt.source, parquet, lt.roles, lt.row_count, is_sql=True)
+        return out + ["No index was built."], False
     if not wanted:
         out = indexes.offer_lines(ctx, lt.relation, lt.roles, lt.row_count, lt.source)
         big = lt.row_count is not None and lt.row_count >= indexes.MIN_ROWS_FOR_OFFER

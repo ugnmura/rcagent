@@ -5,12 +5,14 @@ import logging
 import math
 import re
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any
 
 import psycopg
 from psycopg.types.datetime import TimestampLoader, TimestamptzLoader
 
+from serenedb_extractor import evidence
 from serenedb_extractor.config import Settings
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.format import timeout_message
@@ -128,6 +130,16 @@ class _Conn:
             self._conn.adapters.register_loader("timestamptz", _NsTimestamptzLoader)
         return self._conn
 
+    def mogrify(self, sql: str, params: dict[str, Any] | None) -> str:
+        """The statement with its parameters filled in, as it would be sent (for the evidence log)."""
+        if params is None:  # sent as is: psycopg leaves the text alone without a params dict
+            return sql
+        try:
+            with self.lock:
+                return psycopg.ClientCursor(self.get()).mogrify(sql, params)
+        except Exception:
+            return sql + "  -- parameters: " + ", ".join(f"{k}={v!r}" for k, v in params.items())
+
     def close(self) -> None:
         with self.lock:
             if self._conn is not None and not self._conn.closed:
@@ -239,9 +251,21 @@ class Database:
         how_to_narrow: str = DEFAULT_NARROW,
         prepared: bool = False,
     ) -> Rows:
-        return self._execute(
-            self._reader, sql, params, timeout_s, what, how_to_narrow, self.settings.default_timeout_s, prepared
-        )
+        if not evidence.active():
+            return self._execute(
+                self._reader, sql, params, timeout_s, what, how_to_narrow, self.settings.default_timeout_s, prepared
+            )
+        shown = self._reader.mogrify(sql, params)
+        began = time.perf_counter()
+        try:
+            rows = self._execute(
+                self._reader, sql, params, timeout_s, what, how_to_narrow, self.settings.default_timeout_s, prepared
+            )
+        except Exception as exc:
+            evidence.note(shown, None, time.perf_counter() - began, " ".join(str(exc).split())[:200] or type(exc).__name__)
+            raise
+        evidence.note(shown, len(rows.rows), time.perf_counter() - began)
+        return rows
 
     def write(
         self,
