@@ -30,7 +30,7 @@ from serenedb_extractor.query.filters import (
 from serenedb_extractor.query.stats import role_columns
 from serenedb_extractor.setup.sniff import readable
 from serenedb_extractor.tools.describe import known_columns, like_pattern
-from serenedb_extractor.tools.investigate import _filter_columns, _group_columns, _one, parse_group_by
+from serenedb_extractor.tools.investigate import _filter_columns, _group_columns, _one, ordered, parse_group_by
 
 DEFAULT_GROUPS = 25
 NARROW = "narrow it: a shorter period (start/end), filters such as level or team, or fewer log tables."
@@ -123,10 +123,8 @@ def _count_one(
             entries = [found.get(i, 0) for i in range(len(plan.groups))]
         total = _one(plan, list(all_blocks.items()), entries)
         measured = [(k, _one(plan, v, entries)) for k, v in per_key.items()]
-        if any(lbl.startswith("time:") for lbl in labels):
-            measured.sort(key=lambda kv: kv[0])
-        else:
-            measured.sort(key=lambda kv: (-kv[1].value, kv[0]))
+        by_key = dict(measured)
+        measured = [(k, by_key[k]) for k in ordered(list(by_key), labels, {k: m.value for k, m in by_key.items()})]
         empty_why = None
         if plan.exact and total.value == 0 and (f.items() or tr.bounded) and not text:
             empty_why = diagnose_empty(db, lt, tr, f, cols)
@@ -224,7 +222,13 @@ def _render(
             "together; the tables are not merged."
         )
     if group_by:
-        lines.append("grouped by " + ", ".join(group_by) + ("; groups ordered by time" if any(g.startswith("time:") for g in group_by) else "; largest first"))
+        timed = [g for g in group_by if g.startswith("time:")]
+        order = (
+            "largest first"
+            if not timed
+            else "in time order" if len(timed) == len(group_by) else "each series largest first, in time order inside"
+        )
+        lines.append("grouped by " + ", ".join(group_by) + "; " + order)
     for t in results:
         lines.append("")
         if t.asked:

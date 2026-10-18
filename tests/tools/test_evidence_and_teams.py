@@ -100,7 +100,7 @@ async def test_a_table_without_rules_has_no_team(mcp, tmp_path):
 async def test_count_logs_text_and_time_bucket(mcp, corpus):
     out = await call(mcp, "count_logs", log_tables=["bgl"], text="interrupt", group_by=["time:1d"])
     assert "message contains 'interrupt'" in out
-    assert "2005-06-11: 60" in out and "groups ordered by time" in out
+    assert "2005-06-11: 60" in out and "in time order" in out
 
 
 async def test_count_logs_cuts_and_says_so(mcp, corpus):
@@ -156,3 +156,25 @@ async def test_trend_never_calls_new_across_a_gap_in_the_logs(mcp, tmp_path):
     # 2 March has no entries at all: the data's span covers it, but the logs do not
     assert "no entries at all in the preceding period" in out and "limited comparison" in out
     assert "new in this period" not in out
+
+
+async def test_find_values_takes_the_documented_form(mcp, corpus):
+    short = await call(mcp, "describe_logs", log_table="bgl", find_values={"level": "fat"})
+    long = await call(mcp, "describe_logs", log_table="bgl", find_values={"role_or_column": "level", "like": "fat"})
+    assert "FATAL" in short and short == long
+    assert "one field at a time" in await call(mcp, "describe_logs", log_table="bgl", find_values={"level": "x", "host": "y"})
+
+
+async def test_hour_buckets_keep_both_hours_when_clocks_go_back(mcp, tmp_path):
+    """Generic lines with explicit offsets: 01:30 PDT and 01:30 PST on 2005-10-30 are two different hours."""
+    log = tmp_path / "fallback.log"
+    log.write_text(
+        "2005-10-30T01:30:00-07:00 INFO first pass\n2005-10-30T01:30:00-08:00 INFO second pass\n"
+        "2005-10-30T01:40:00-08:00 INFO second pass again\n",
+        encoding="utf-8",
+    )
+    await call(mcp, "setup_log_table", name="fb", source=str(log), timezone="America/Los_Angeles")
+    out = await call(mcp, "count_logs", log_tables=["fb"], group_by=["time:1h"])
+    assert "2005-10-30 01:00-07:00: 1" in out and "2005-10-30 01:00-08:00: 2" in out
+    week = await call(mcp, "count_logs", log_tables=["fb"], group_by=["time:7d"])
+    assert "2005-10-24: 3" in week  # weeks start on a Monday
