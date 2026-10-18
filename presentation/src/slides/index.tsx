@@ -12,6 +12,13 @@ const Mono: React.FC<{children: React.ReactNode; style?: React.CSSProperties}> =
 	<span style={{fontFamily: font.mono, ...style}}>{children}</span>
 );
 
+/** SchubKI × SereneDB, the same corner on every page (the close shows it next to the repository link instead). */
+const Brand: React.FC = () => (
+	<div style={{position: 'absolute', right: 48, bottom: 40}}>
+		<LogoPair height={26} />
+	</div>
+);
+
 // ------------------------------------------------------------------ slides 1–3 (the call, the node, the scale)
 // Static pages that carry the talk without the video: each is the final frame of its video shot.
 
@@ -19,9 +26,6 @@ export const SlideCall: React.FC<{mode: Mode}> = () => (
 	<AbsoluteFill style={{backgroundColor: '#030405', color: color.text, fontFamily: font.sans}}>
 		<div style={{position: 'absolute', left: 110, top: 90}}>
 			<TitleCaption done scale={0.62} />
-		</div>
-		<div style={{position: 'absolute', right: 56, top: 70}}>
-			<LogoPair height={30} />
 		</div>
 		<div style={{position: 'absolute', left: 110, right: 110, top: 430, display: 'flex', flexDirection: 'column', gap: 26}}>
 			{coldOpen.dialog.map((d, i) => (
@@ -31,6 +35,7 @@ export const SlideCall: React.FC<{mode: Mode}> = () => (
 				</div>
 			))}
 		</div>
+		<Brand />
 	</AbsoluteFill>
 );
 
@@ -38,12 +43,14 @@ export const SlideCounter: React.FC<{mode: Mode}> = () => (
 	<AbsoluteFill style={{backgroundColor: '#030405', color: color.text, fontFamily: font.sans, justifyContent: 'center', alignItems: 'center'}}>
 		<div style={{fontSize: 240, fontWeight: 800, color: color.accent, letterSpacing: -6, lineHeight: 1}}>{reveal.counter.value}</div>
 		<div style={{fontSize: 56, marginTop: 30}}>{reveal.counter.label}</div>
+		<Brand />
 	</AbsoluteFill>
 );
 
 export const SlideFact: React.FC<{mode: Mode}> = () => (
 	<AbsoluteFill style={{backgroundColor: '#030405'}}>
 		<FactShot done />
+		<Brand />
 	</AbsoluteFill>
 );
 
@@ -53,12 +60,14 @@ export const SlideFact: React.FC<{mode: Mode}> = () => (
 export const SlideTemplating: React.FC<{mode: Mode}> = () => (
 	<AbsoluteFill style={{backgroundColor: '#030405'}}>
 		<TemplatesShot done />
+		<Brand />
 	</AbsoluteFill>
 );
 
 export const SlideHowItWorks: React.FC<{mode: Mode}> = () => (
 	<AbsoluteFill style={{backgroundColor: '#030405'}}>
 		<FlowDiagramShot done />
+		<Brand />
 	</AbsoluteFill>
 );
 
@@ -68,6 +77,7 @@ export const SlideHowItWorks: React.FC<{mode: Mode}> = () => (
 export const SlideSplit: React.FC<{mode: Mode}> = () => (
 	<AbsoluteFill style={{backgroundColor: '#030405'}}>
 		<SplitBoard times={DONE_TIMES} />
+		<Brand />
 	</AbsoluteFill>
 );
 
@@ -86,6 +96,7 @@ export const SlideDemo: React.FC<{mode: Mode}> = () => (
 				</div>
 			))}
 		</div>
+		<Brand />
 	</AbsoluteFill>
 );
 
@@ -104,12 +115,14 @@ export const Slide5: React.FC<{mode: Mode}> = ({mode}) => (
 		<Region style={{left: 0, right: 0, top: 600, height: 400}}>
 			<SnapShot done scale={0.8} />
 		</Region>
+		<Brand />
 	</SlideFrame>
 );
 
 export const Slide6: React.FC<{mode: Mode; benchmarks: Benchmarks | null}> = ({benchmarks}) => (
 	<AbsoluteFill style={{backgroundColor: color.bg}}>
 		<BenchShot done benchmarks={benchmarks} footnote />
+		<Brand />
 	</AbsoluteFill>
 );
 
