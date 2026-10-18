@@ -14,7 +14,7 @@ export type AssetSpec = {
 
 export const ASSETS = {
 	dialog: {file: 'dialog.mp3', kind: 'audio', placeholderSeconds: 20, target: '18–24 s'},
-	/** A real Claude Code session with the serenedb-extractor MCP server, already cut and sped up; played muted (sDemo narrates). */
+	/** A real Claude Code session with the RCAgent MCP server, already cut and sped up; played muted (sDemo narrates). */
 	demo: {file: 'demo.mp4', kind: 'recording', placeholderSeconds: 20, target: '≈ 15–25 s'},
 	/** Presenter B narrating the live demo; its length sets the demo scene. */
 	sDemo: {file: 's-demo.mp4', kind: 'facecam', placeholderSeconds: 20, target: '≈ 15–25 s'},

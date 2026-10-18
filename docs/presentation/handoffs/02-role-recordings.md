@@ -1,6 +1,6 @@
 # Handoff 2: Live demo recording
 
-**Goal:** one screen recording of a real Claude Code session with the serenedb-extractor MCP server, on the
+**Goal:** one screen recording of a real Claude Code session with the RCAgent MCP server, on the
 loaded base corpus: `demo.mp4` in `presentation/public/assets/`. It plays muted as a screen inside the film in
 the live demo scene, between the three-way split and the benchmarks, while B narrates it in the corner
 (`s-demo.mp4`, handoff 3). This replaces the earlier `roles.mp4` proof clip, which is no longer used.
@@ -12,7 +12,7 @@ start.
 ## Setup
 
 Follow the README "Quick start (from a clean checkout)" on the commit chosen for the presentation (handoff 5
-records which one): SereneDB container, `scripts/load_base_corpus.py`, `claude mcp add serenedb-extractor …`.
+records which one): SereneDB container, `scripts/load_base_corpus.py`, `claude mcp add rcagent …`.
 Check with `/mcp` that the server lists 15 tools and 3 prompts.
 
 Terminal for recording: dark theme, font size 18 or larger, window 1920×1080, nothing private visible

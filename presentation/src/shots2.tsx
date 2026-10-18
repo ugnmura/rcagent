@@ -4,7 +4,7 @@ import React from 'react';
 import {AbsoluteFill, Audio, Img, interpolate, interpolateColors, random, Sequence, spring, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
 import {DesignLabel} from './bench';
 import {hasNumbers, type Benchmarks} from './benchmarks';
-import {benchmarks as benchContent, close, evidence, intro, manager, REPO_URL, star, teamLead} from './content';
+import {benchmarks as benchContent, close, evidence, intro, manager, PROJECT_NAME, star, teamLead} from './content';
 import {ease, easeOut, ramp} from './film';
 import {RED} from './shots';
 import {color, font} from './theme';
@@ -411,7 +411,7 @@ export const EndCard: React.FC<{done?: boolean}> = ({done}) => {
 	return (
 		<AbsoluteFill style={{justifyContent: 'center', alignItems: 'center', fontFamily: font.sans}}>
 			<div style={{fontSize: 56, fontWeight: 300, color: color.text, opacity: a}}>{close.cardLine}</div>
-			<div style={{fontFamily: font.mono, fontSize: 64, fontWeight: 600, color: color.accent, marginTop: 40, opacity: b}}>{REPO_URL}</div>
+			<div style={{fontFamily: font.mono, fontSize: 64, fontWeight: 600, color: color.accent, marginTop: 40, opacity: b}}>{PROJECT_NAME}</div>
 			<div style={{position: 'absolute', bottom: 110, opacity: c}}>
 				<LogoPair height={44} />
 			</div>

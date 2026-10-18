@@ -54,7 +54,7 @@ a one-line answer and its next step. At the end all three are lit, with a quick 
 
 ## Live demo (demo.mp4)
 
-*A real Claude Code session with the serenedb-extractor MCP server, cut and sped up, shown muted as a screen inside the film; B narrates it live in the corner (take `s-demo.mp4`, ≈ 15–25 s).*
+*A real Claude Code session with the RCAgent MCP server, cut and sped up, shown muted as a screen inside the film; B narrates it live in the corner (take `s-demo.mp4`, ≈ 15–25 s).*
 
 ## 1:50 – 2:18 · Benchmarks (slide 4)
 

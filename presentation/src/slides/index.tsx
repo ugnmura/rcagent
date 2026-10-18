@@ -5,7 +5,7 @@ import {SlideFrame, type Mode} from '../components';
 import {DONE_TIMES, SplitBoard} from '../split';
 import {FactShot, FlowDiagramShot, TemplatesShot, TitleCaption} from '../shots';
 import {BenchShot, CitationShot, LogoPair, SnapShot} from '../shots2';
-import {close, coldOpen, demo, evidence, intro, REPO_URL, reveal} from '../content';
+import {close, coldOpen, demo, evidence, intro, PROJECT_NAME, reveal} from '../content';
 import {color, font} from '../theme';
 
 const Mono: React.FC<{children: React.ReactNode; style?: React.CSSProperties}> = ({children, style}) => (
@@ -151,7 +151,7 @@ export const Slide7: React.FC<{mode: Mode}> = ({mode}) => (
 			<div style={{fontSize: 52, fontWeight: 800, color: color.accent, marginTop: 16}}>{close.traceable}</div>
 		</div>
 		<div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
-			<Mono style={{fontSize: 46, fontWeight: 600}}>{REPO_URL}</Mono>
+			<Mono style={{fontSize: 46, fontWeight: 600}}>{PROJECT_NAME}</Mono>
 			<LogoPair height={40} />
 		</div>
 	</SlideFrame>
