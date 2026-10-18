@@ -23,7 +23,7 @@ export const TAKE_PADDING_SECONDS = 1;
 /** Ring before the first dialog line in dialog.mp3. */
 export const DIALOG_LEAD_SECONDS = 2;
 
-export type SceneId = 'intro' | 'star' | 'coldOpen' | 'reveal' | 'split' | 'benchmarks' | 'close';
+export type SceneId = 'intro' | 'star' | 'coldOpen' | 'reveal' | 'split' | 'demo' | 'benchmarks' | 'close';
 
 export type SceneTiming = {
 	id: SceneId;
@@ -46,6 +46,7 @@ const SCENES: {id: SceneId; label: string; lengthFrom: AssetKey | null; fixedSec
 	{id: 'coldOpen', label: '1a Cold open', lengthFrom: 'dialog'},
 	{id: 'reveal', label: '1b Reveal', lengthFrom: 's1'},
 	{id: 'split', label: '2  Three roles', lengthFrom: 's2'},
+	{id: 'demo', label: '2b Live demo', lengthFrom: 'sDemo'},
 	{id: 'benchmarks', label: '3  Benchmarks', lengthFrom: 's6'},
 	{id: 'close', label: '4  Close', lengthFrom: 's7'},
 	{id: 'star', label: '5  Star gag', lengthFrom: null, fixedSeconds: STAR_SECONDS},
