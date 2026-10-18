@@ -30,7 +30,7 @@ Setup and searches without an index ([`A.jsonl`](huge-datasets/b51daa1/A.jsonl))
 
 | Step | What the tool did | Time |
 |---|---|---|
-| `setup_log_table` | read only the Parquet footer and 5 sample entries; the table is a view over the S3 file | **1.38 s** |
+| `setup_log_table` | read only the Parquet footer and 5 sample entries. The table is a view over the S3 file | **1.38 s** |
 | `survey` | block sample of 5 row groups (99,096 entries), 235 templates, counts stated as estimates | **1.73 s** |
 | `search_logs` "error", 60 s window (00:10–00:11 UTC) | exact scan of the window: 2,936,098 matches | **1.71 s** (median of 3) |
 | `search_logs` "error", whole file, default | **estimated**, from a block sample of 1 row group (614,400 entries): "≈100,000,000 … rough estimate". The tool explains its choice: "An exact count would read ~26.1 GB (~4 min), so this is estimated from a sample" | **1.01 s** (median of 3) |
@@ -41,7 +41,7 @@ Exact search of the whole file without an index (one run each, [`Ax1_psql_substr
 | How | Query | Result | Time |
 |---|---|---|---|
 | plain SQL in psql, no extractor | `SELECT count(*) FROM extractor.lt_tb WHERE "Body" ILIKE '%error%'` | 94,902,425 (substring) | **11.5 s** |
-| the extractor's `run_sql`, the same query | the guard answered TOO EXPENSIVE ("reads up to ~37.7 GB, ~6 min") and offered `confirmed_cost=37.7GB`; run again with that confirmation | 94,902,425 | **15.4 s** (0.55 s for the guard's answer) |
+| the extractor's `run_sql`, the same query | the guard answered TOO EXPENSIVE ("reads up to ~37.7 GB, ~6 min") and offered `confirmed_cost=37.7GB`, then ran again with that confirmation | 94,902,425 | **15.4 s** (0.55 s for the guard's answer) |
 
 With the search index ([`A.jsonl`](huge-datasets/b51daa1/A.jsonl)):
 
@@ -49,8 +49,8 @@ With the search index ([`A.jsonl`](huge-datasets/b51daa1/A.jsonl)):
 |---|---|---|
 | `create_index(kind="search", dry_run=true)` | trial build on 1,000,000 entries: "≈38.3 GB on disk, ~6 min" | 0.47 s |
 | `create_index(kind="search")` | built over all 1,000,000,000 entries: **37.5 GB** on disk (**index build time**) | **70.7 s** |
-| `search_logs` "error", **whole file, with index** | "exact search through the search index extractor."tb_search_idx" … no sampling": 93,638,388 matches (whole words; SQL `"Body" @@ ts_phrase('error')`) | **2.32 s** (median of 3) |
-| `search_logs` "error", 60 s window, index present | scan of the window, on purpose: "the search index wasn't needed: a scan of this scope fits the cost budget"; 2,936,098 matches | 1.73 s (median of 3) |
+| `search_logs` "error", **whole file, with index** | "exact search through the search index extractor."tb_search_idx" … no sampling": 93,638,388 matches (whole words, SQL `"Body" @@ ts_phrase('error')`) | **2.32 s** (median of 3) |
+| `search_logs` "error", 60 s window, index present | scan of the window, on purpose: "the search index wasn't needed: a scan of this scope fits the cost budget". 2,936,098 matches | 1.73 s (median of 3) |
 | `count_logs` "error" by service, index present | the same block-sample estimate as without the index: `count_logs` doesn't use the search index | 0.67 s |
 | `drop_index` | index removed, disk space freed | 0.10 s |
 
@@ -62,7 +62,7 @@ With the search index ([`A.jsonl`](huge-datasets/b51daa1/A.jsonl)):
   entries contain "error" anywhere). The index matches whole words (93,638,388). A whole-word scan without the
   index wasn't timed: SereneDB rejected the `\m…\M` word-boundary regex ([`Ax2_psql_wholeword.txt`](huge-datasets/b51daa1/Ax2_psql_wholeword.txt)).
 - **Without the index, the default is a stated estimate:** for a whole-file search the tool answers in about
-  1 s from a sample, and says so. It doesn't offer to run the exact search; that took the `run_sql` call above.
+  1 s from a sample, and says so. It doesn't offer to run the exact search. That took the `run_sql` call above.
 - **Time windows don't need the index:** a 60-second window is a scan of about 3 million entries in under 2 s,
   with or without it.
 - **When to drop it:** `drop_index` frees the 37.5 GB after the investigation.
@@ -76,11 +76,11 @@ a 128 GB node. That was not tried. Results from [`B.jsonl`](huge-datasets/b51daa
 |---|---|---|
 | `inspect_source` `part_{000..009}` | metadata only: 10 files, 10,000,000,000 entries, 410.2 GB, 16,246 row groups | 2.40 s |
 | `setup_log_table` as `textbench10` | a view over the ten S3 files, nothing downloaded | **0.57 s** |
-| `survey`, all 10 files | **refused**: "TOO EXPENSIVE: needs ~113.3 GB read, ~19 min … more than the server's maximum query time (600 s)"; nothing ran | 0.57 s |
+| `survey`, all 10 files | **refused**: "TOO EXPENSIVE: needs ~113.3 GB read, ~19 min … more than the server's maximum query time (600 s)". Nothing ran | 0.57 s |
 | `search_logs` "error", 60 s window at 00:10 UTC (file 0) | exact: 2,936,098 matches | **2.87 s** (median of 3) |
 | `search_logs` "error", 60 s window at 02:30 UTC (file 5) | exact: 2,960,892 matches | **3.05 s** (median of 3) |
 | `search_logs` "error", 60 s window at 04:50 UTC (file 9) | exact: 2,795,044 matches | **3.49 s** (median of 3) |
-| `count_logs` "error" by service, 5 minutes (02:30–02:35 UTC) | exact: 15,211,837 matches; frontend 13,785,160 (90.6%), payment 1,206,121, email 189,420 | **4.39 s** (median of 3) |
+| `count_logs` "error" by service, 5 minutes (02:30–02:35 UTC) | exact: 15,211,837 matches. frontend 13,785,160 (90.6%), payment 1,206,121, email 189,420 | **4.39 s** (median of 3) |
 | `count_logs` by service and level, **all 10 billion entries** | the guard asked first ("~5.3 GB, ~53 s", `confirmed_cost=5.3GB`), then ran exact: 62 groups, e.g. frontend·error 1,063,483,297 | **31.8 s** (+0.59 s for the guard's answer) |
 
 A 60 s window costs about the same in the first file as in the last: 2.9 s against 3.5 s, over ten times the data
@@ -121,7 +121,7 @@ was: exact, estimated from a stated sample, or refused, with the reason.
   SereneDB). An earlier build at a 64 GB limit was killed for running out of memory
   ([`oom-run-slurm-excerpt.txt`](huge-datasets/oom-run-slurm-excerpt.txt)). The ten-file job without an index
   peaked at 13.9 GB.
-- **Compute:** the four jobs took 38 CPU-minutes in total (`TotalCPU` 20:45 + 4:04 + 3:05 + 10:09; the
+- **Compute:** the four jobs took 38 CPU-minutes in total (`TotalCPU` 20:45 + 4:04 + 3:05 + 10:09, the
   `sacct-*.txt` files), about **0.63 core-hours**. The longest job ran for 2 minutes. That was an academic HPC
   allocation with no money charged.
 - **Data transfer:** none on our side. The bucket is public and read in place.
@@ -132,10 +132,10 @@ was: exact, estimated from a stated sample, or refused, with the reason.
 The first measurement (Slurm job 5113147, 2026-10-18 07:02 UTC, same node type and SereneDB) ran at `6cad141` and
 covered one file only:
 
-- setup 1.97 s;
-- index build 69.9 s;
-- whole-file search with the index 4.18 s;
-- 60 s window without the index 2.88 s;
+- setup 1.97 s
+- index build 69.9 s
+- whole-file search with the index 4.18 s
+- 60 s window without the index 2.88 s
 - survey 7.8 s.
 
 Its raw logs are in [`huge-datasets/`](huge-datasets/) ([`run.sh`](huge-datasets/run.sh)). At `b51daa1`, setup,
@@ -145,13 +145,13 @@ survey and both searches are faster, and the index build takes about the same ti
 
 - **Shows:**
   - one billion rows and ten billion rows, registered from S3 in about a second and searched exactly within
-    time windows;
-  - engineer, team-lead and manager answers on ten billion rows, from live sessions;
-  - the whole-file trade-off measured on both sides: 15.4 s exact without the index, 2.3 s with it, 71 s to build;
+    time windows
+  - engineer, team-lead and manager answers on ten billion rows, from live sessions
+  - the whole-file trade-off measured on both sides: 15.4 s exact without the index, 2.3 s with it, 71 s to build
   - every answer saying how it was measured.
 - **Does not show:**
-  - an index over all ten files: it won't fit in 128 GB;
-  - a survey of all ten files: the guard refused it as longer than the 600 s query limit;
-  - a whole-word scan without the index: the regex was rejected;
-  - timings at the current `main`: these ran at `b51daa1`;
+  - an index over all ten files: it won't fit in 128 GB
+  - a survey of all ten files: the guard refused it as longer than the 600 s query limit
+  - a whole-word scan without the index: the regex was rejected
+  - timings at the current `main`: these ran at `b51daa1`
   - timings on a dedicated machine: the node is shared, so treat the numbers as indicative.
