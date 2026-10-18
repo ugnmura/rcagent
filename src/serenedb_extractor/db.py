@@ -21,6 +21,14 @@ from serenedb_extractor.format import timeout_message
 
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 
+# Set on each connection, for that session only (both are LOCAL settings in SereneDB). The Parquet
+# metadata cache keeps a file's footer between queries and reads it again when the file's modification
+# time changes; without it, every query over a remote Parquet file fetches and parses the footer again
+# (TextBench, 1,624 row groups: ~0.05-0.1 s per query; a one-row-group listing 0.23 -> 0.12 s, the
+# column listing 0.07 -> 0.02 s). The HTTP metadata cache stays off, so the modification time is
+# really asked for each time and a changed file is noticed.
+SESSION_SETTINGS = ("SET parquet_metadata_cache = true",)
+
 
 DEFAULT_NARROW = "narrow it: a shorter period (start/end) or more filters (level, service), then try again."
 CONNECT_TIMEOUT_CAP_S = 30  # libpq connect_timeout (whole seconds, at least 2): the query timeout, at most this
@@ -131,6 +139,11 @@ class _Conn:
             )
             self._conn.adapters.register_loader("timestamp", _NsTimestampLoader)
             self._conn.adapters.register_loader("timestamptz", _NsTimestamptzLoader)
+            for setting in SESSION_SETTINGS:
+                try:
+                    self._conn.execute(setting)
+                except psycopg.Error:  # a SereneDB without it: every query just reads the footer again
+                    logging.getLogger("serenedb_extractor").info("not applied: %s", setting)
         return self._conn
 
     def mogrify(self, sql: str, params: dict[str, Any] | None) -> str:
