@@ -48,10 +48,8 @@ checked … no sampling; no index used".
   budget is answered from a stated block sample, or the tool asks first.
 - **With the index**, the whole billion-row file is searchable in about 4 s, after a one-off 70 s build. That
   is the only way to ask "where does this error occur at all?" over the whole file in seconds.
-- **The break-even point.** A whole-file scan without the index was not timed, so we can't give an exact
-  count of searches. At 2.9 s per minute of data, a scan of the whole 30-minute file without the index
-  would take about 90 s per search. The 70 s build is then repaid on the first or second whole-file search. That rate is
-  indicative only: the node was shared and a scan does not scale exactly linearly.
+- **The break-even point was not measured.** A whole-file scan without the index was not timed, so how many
+  searches repay the 70 s build is not established here.
 - **When to drop it.** `drop_index` removes the index after the investigation, and `create_index` with
   `dry_run` estimates the size and the build time before building.
 
