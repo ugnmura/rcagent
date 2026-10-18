@@ -86,6 +86,19 @@ a 128 GB node. That was not tried. Results from [`B.jsonl`](huge-datasets/b51daa
 A 60 s window costs about the same in the first file as in the last: 2.9 s against 3.5 s, over ten times the data
 of one file.
 
+## Role answers on 10 billion rows
+
+Three live Claude sessions asked an engineer's, a team lead's and a manager's question about `textbench10`. The
+agent picked its own tools. All three answered with evidence, exact counts where they could be afforded, and stated
+estimates where they couldn't. See [live-session-textbench.md](live-session-textbench.md). For example, the team-lead
+session:
+
+- **Asked before a 27.1 GB count:** the cost guard predicted it would read about 27.1 GB, so the agent asked first
+  and was told to go ahead.
+- **Exact numbers:** it then gave exact error counts per service and team over all 10 billion entries.
+- **Recommendation:** it pointed the team at Checkout & Payments, because most frontend errors repeat payment's
+  "Visa cache full" failure.
+
 ## How good the cost guard's predictions were
 
 The guard predicts a query's cost before running it, and then samples, asks or refuses. Here its byte estimates
@@ -133,6 +146,7 @@ survey and both searches are faster, and the index build takes about the same ti
 - **Shows:**
   - one billion rows and ten billion rows, registered from S3 in about a second and searched exactly within
     time windows;
+  - engineer, team-lead and manager answers on ten billion rows, from live sessions;
   - the whole-file trade-off measured on both sides: 15.4 s exact without the index, 2.3 s with it, 71 s to build;
   - every answer saying how it was measured.
 - **Does not show:**
