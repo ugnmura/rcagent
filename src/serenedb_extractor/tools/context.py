@@ -196,11 +196,18 @@ def _fetch_occurrence(
     return rows[0], covered
 
 
+SKIPPED = "skipped"  # the nearest entry outside the window was not looked up: too large a read
+
+
 @dataclass
 class _Window:
     prior: list[dict[str, Any]]
     following: list[dict[str, Any]]
     plan: cost.Plan
+    # When a side has fewer entries than asked: the nearest entry's time outside the window, None for none,
+    # SKIPPED when not looked up; "" when not needed.
+    nearest_before: datetime | None | str = ""
+    nearest_after: datetime | None | str = ""
 
 
 def _fetch_window(
@@ -257,7 +264,61 @@ def _fetch_window(
     split = ids.index(mine) if mine in ids else 0
     others = [r for r, i in zip(same, ids, strict=True) if i != mine]
     prior = (earlier + others[:split])[-before:] if before else []
-    return _Window(prior, (others[split:] + later)[:after], decision.plan)
+    following = (others[split:] + later)[:after]
+    win = _Window(prior, following, decision.plan)
+    # Fewer entries than asked on a side: the window ran out, so say when the nearest one outside it is.
+    scoped = " AND ".join([*conds, filt_sql])
+    scoped_params = {k: v for k, v in params.items() if k not in win_params}
+    if before and len(prior) < before:
+        win.nearest_before = _nearest(ctx, lt, cols, wcols, scoped, scoped_params, TimeRange(None, tr.start, tr.tz), "DESC", what)
+    if after and len(following) < after:
+        win.nearest_after = _nearest(ctx, lt, cols, wcols, scoped, scoped_params, TimeRange(tr.end, None, tr.tz), "ASC", what)
+    return win
+
+
+def _nearest(
+    ctx: AppContext, lt: LogTable, cols: dict[str, str], wcols: list[str], scoped: str, params: dict[str, Any],
+    side: TimeRange, direction: str, what: str,
+) -> datetime | None | str:
+    """The time of the nearest entry in scope on one side outside the window: a datetime, None when there is
+    none, or SKIPPED when the cost check does not allow reading that side (no confirmation is asked for it)."""
+    decision = _decide(ctx, collect(ctx.db, lt, side), wcols, None, [])
+    if decision.status != "run":
+        return SKIPPED
+    timeout = cost.run_timeout(decision.plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
+    side_sql, side_params = time_clause(lt, side, cols, prefix="n")
+    rows = ctx.db.read(
+        f"SELECT {ts_select(lt, cols)} FROM {lt.relation} WHERE {side_sql} AND {scoped} "
+        f"ORDER BY {role_sql(lt, 'timestamp')} {direction} LIMIT 1",
+        {**params, **side_params}, timeout_s=timeout, what=what, how_to_narrow=NARROW,
+    ).rows
+    found = rows[0][0] if rows else None
+    return found if isinstance(found, datetime) else None
+
+
+def _span(d: timedelta) -> str:
+    """A distance in time in the largest unit that keeps it readable."""
+    s = abs(d.total_seconds())
+    if s >= 2 * 86400:
+        return f"{s / 86400:,.0f} days"
+    if s >= 2 * 3600:
+        return f"{s / 3600:,.0f} h"
+    if s >= 120:
+        return f"{s / 60:,.0f} min"
+    return f"{s:,.0f} s" if s >= 1 else f"{s:.3g} s"
+
+
+def _nearest_line(found: datetime | None | str, ts: datetime, tr: TimeRange, earlier: bool) -> str:
+    word = "earlier" if earlier else "later"
+    if found is SKIPPED:
+        return f"{word} entries in this scope outside the window were not looked up (too large a read); widen window_minutes to see them"
+    if found is None:
+        return f"none {word} in this scope"
+    assert isinstance(found, datetime)
+    return (
+        f"the nearest {word} entry in this scope is {_span(found - ts)} {'before' if earlier else 'after'} "
+        f"({tr.fmt(found)})"
+    )
 
 
 def _entry_line(lt: LogTable, row: dict[str, Any], tr: TimeRange, mark: str, tag: str) -> str:
@@ -292,6 +353,9 @@ def _render(
         f"showing {len(win.prior)} of up to {before} entries before and {len(win.following)} of up to {after} entries after "
         "the occurrence (nearest first when more exist); → marks the occurrence",
     ]
+    for found, earlier in ((win.nearest_before, True), (win.nearest_after, False)):
+        if found != "":
+            out.append(fmt.sentence(_nearest_line(found, ts, tr, earlier)))
     out += [_entry_line(lt, r, tr, mark, tag_text(tags[i]) if tags else "") for i, (mark, r) in enumerate(entries)]
     return "\n".join(out)
 
