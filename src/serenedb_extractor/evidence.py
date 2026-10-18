@@ -88,6 +88,23 @@ def active() -> bool:
     return _current.get() is not None
 
 
+def mark() -> int:
+    """How many queries the running tool call has noted so far (0 outside a call)."""
+    queries = _current.get()
+    return len(queries) if queries is not None else 0
+
+
+def since(start: int) -> list[Query]:
+    """The queries the running tool call noted after `mark()` returned `start`."""
+    queries = _current.get()
+    return list(queries[start:]) if queries is not None else []
+
+
+def note_reused(q: Query, when: datetime) -> None:
+    """Record, in the running tool call, an earlier query whose result is used again without running it."""
+    note(f"{q.sql} -- reused: the source's files are unchanged since it ran at {when:%Y-%m-%d %H:%M:%S} UTC", q.rows, 0.0)
+
+
 def note(sql: str, rows: int | None, seconds: float, error: str | None = None) -> None:
     """Remember one query of the running tool call (no-op outside a call)."""
     queries = _current.get()
@@ -237,7 +254,8 @@ def _q_line(i: int, q: Query, handle: str, chars: int | None) -> str:
 
 
 _LOOKUP = re.compile(
-    r"^\s*(DESCRIBE\b|EXPLAIN\b|SELECT \* FROM \S+ LIMIT 0\b)|parquet_(file_)?metadata\(|information_schema\.",
+    r"^\s*(DESCRIBE\b|EXPLAIN\b|SELECT \* FROM \S+ LIMIT 0\b|SELECT filename, size, last_modified, )"
+    r"|parquet_(file_)?metadata\(|information_schema\.",
     re.I,
 )
 

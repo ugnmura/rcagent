@@ -14,14 +14,23 @@ an upper bound (every entry), marked `rows_exact=False`.
 `collect` is remembered for the rest of a tool call inside `per_call()` (the server wraps every tool
 call in it), so the several cost checks of one call read the metadata once. So are a log table's
 columns (`table_columns`): reading them costs two round trips (~0.14 s on remote TextBench).
+
+An in-place Parquet log table's columns and metadata are also kept for the server process (they don't
+depend on the time range: the per-row-group timestamp min/max are kept and the range is applied here),
+and used again while the source's files keep their names, sizes and modification times (`_held`): one
+file listing per call (~0.02 s) instead of the columns and metadata (~0.13 s on TextBench).
 """
 
 import re
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import Any
 
+from serenedb_extractor import evidence
 from serenedb_extractor.catalog.models import LogTable
 from serenedb_extractor.db import Database, quote_ident
 from serenedb_extractor.query.filters import TimeRange
@@ -42,6 +51,10 @@ class GroupStat:
     first_row: int  # its first file_row_number
     rows: int
     bytes_by_column: dict[str, int]
+    # The timestamp column's min/max in this group from the Parquet statistics (None: no usable
+    # statistic). Microsecond precision, so a nanosecond value may lie up to 1 µs either side.
+    ts_min: datetime | None = None
+    ts_max: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -88,12 +101,14 @@ _COLUMNS: ContextVar[dict[tuple[object, ...], dict[str, str]] | None] = ContextV
 def per_call() -> Iterator[None]:
     """Remember collected scope statistics until the block ends (one tool call)."""
     token, rows_token, cols_token = _MEMO.set({}), _LIVE_ROWS.set({}), _COLUMNS.set({})
+    stamps_token = _STAMPS.set({})
     try:
         yield
     finally:
         _MEMO.reset(token)
         _LIVE_ROWS.reset(rows_token)
         _COLUMNS.reset(cols_token)
+        _STAMPS.reset(stamps_token)
 
 
 def table_columns(db: Database, lt: LogTable, remote: bool = False) -> dict[str, str]:
@@ -101,11 +116,96 @@ def table_columns(db: Database, lt: LogTable, remote: bool = False) -> dict[str,
     memo = _COLUMNS.get()
     key = (id(db), lt.relation, lt.source)
     if memo is None or key not in memo:
-        cols = dict(relation_columns(db, lt.relation, lt.source, remote))
+        held = _held(db, lt)
+        if held is not None and held.columns is not None:
+            cols = dict(held.columns)
+            _cite(held.columns_from)
+        else:
+            start, at = evidence.mark(), datetime.now(UTC)
+            cols = dict(relation_columns(db, lt.relation, lt.source, remote))
+            if held is not None:
+                held.columns = dict(cols)
+                held.columns_from = (evidence.since(start), at)
         if memo is None:
             return cols
         memo[key] = cols
     return dict(memo[key])
+
+
+# ---- the session copy of in-place Parquet columns and metadata -------------------------------------
+
+
+@dataclass
+class _Held:
+    stamp: tuple[tuple[Any, ...], ...]  # (file, size, last modified) of every file of the source
+    columns: dict[str, str] | None = None
+    meta: tuple[tuple[Any, ...], ...] | None = None  # the rows of _read_meta
+    # The queries that read them, and when: noted again in the evidence of a call that reuses them, so every
+    # number planned from them is traced to the query that produced it.
+    columns_from: tuple[list[evidence.Query], datetime] | None = None
+    meta_from: tuple[list[evidence.Query], datetime] | None = None
+
+
+def _cite(source: tuple[list[evidence.Query], datetime] | None) -> None:
+    if source is not None:
+        for q in source[0]:
+            evidence.note_reused(q, source[1])
+
+
+_SESSION: dict[tuple[object, ...], _Held] = {}
+_SESSION_LOCK = threading.Lock()
+_STAMPS: ContextVar[dict[tuple[object, ...], _Held | None] | None] = ContextVar("source_stamp_memo", default=None)
+STAMP_SQL = (
+    "SELECT filename, size, last_modified, last_modified < now() - INTERVAL '{settle} seconds' AS settled "
+    "FROM read_blob({src}) ORDER BY 1"
+)
+# A file modified this recently is not kept: a modification time has whole-second precision on some
+# file systems, so a rewrite of the same size within that second would look unchanged (the Parquet
+# metadata cache of DuckDB, which SereneDB builds on, waits 10 s for the same reason).
+SETTLE_S = 10
+
+
+def _session_key(db: Database, lt: LogTable) -> tuple[object, ...] | None:
+    if lt.mode != "in_place" or lt.source_format != "parquet":
+        return None
+    return (db.settings.reader_url, lt.name, lt.relation, lt.source, lt.roles.timestamp, lt.timezone)
+
+
+def _held(db: Database, lt: LogTable) -> _Held | None:
+    """The session copy of an in-place Parquet log table's columns and metadata, valid for this call:
+    the source's files have the same names, sizes and modification times as when the copy was read
+    (one listing, ~0.02 s on remote TextBench, once per tool call). A changed source starts an empty
+    copy; None when the source can't be listed or was modified in the last SETTLE_S seconds (then
+    nothing is kept)."""
+    key = _session_key(db, lt)
+    if key is None:
+        return None
+    memo = _STAMPS.get()
+    if memo is not None and key in memo:
+        return memo[key]
+    rs = resolve_source(lt.source, db.settings, "parquet")
+    try:
+        rows = db.read(
+            STAMP_SQL.format(src=source_sql(rs), settle=SETTLE_S), {}, what=f"checking the files of {lt.name}"
+        ).rows
+    except Exception:  # no listing for this source: read the columns and metadata every time
+        rows = []
+    stamp = tuple(tuple(r[:3]) for r in rows)
+    held: _Held | None = None
+    if rows and all(r[2] is not None and r[3] is True for r in rows):
+        with _SESSION_LOCK:
+            held = _SESSION.get(key)
+            if held is None or held.stamp != stamp:
+                held = _SESSION[key] = _Held(stamp)
+    if memo is not None:
+        memo[key] = held
+    return held
+
+
+def forget_session() -> None:
+    """Drop every session copy (tests)."""
+    with _SESSION_LOCK:
+        _SESSION.clear()
 
 
 def _memo_key(db: Database, lt: LogTable, tr: TimeRange) -> tuple[object, ...]:
@@ -137,53 +237,82 @@ def _collect(db: Database, lt: LogTable, tr: TimeRange) -> ScopeStats:
     return _table(db, lt, tr, has_f, has_s)
 
 
+def _ts_bounds_sql(lt: LogTable, cols: dict[str, str]) -> tuple[str, str] | None:
+    """SQL for the timestamp column's per-row-group (min, max) as timestamptz from the Parquet statistics,
+    or None when the timestamp is not a plain time column (then no row group can be skipped by time)."""
+    ts_col = role_column(lt.roles.timestamp) if lt.roles.timestamp else None
+    if ts_col is None:
+        return None
+    typ = cols.get(ts_col, "").upper()
+    if not is_temporal(typ):
+        return None
+    naive = "WITH TIME ZONE" not in typ and not typ.startswith("TIMESTAMPTZ")
+    zone = sql_literal(lt.timezone)
+
+    def bound(stat: str) -> str:  # try_cast: statistics are text and may be missing
+        return f"try_cast({stat} AS timestamp) AT TIME ZONE {zone}" if naive else f"try_cast({stat} AS timestamptz)"
+
+    return bound("stats_min"), bound("stats_max")
+
+
+def _read_meta(db: Database, lt: LogTable, cols: dict[str, str]) -> tuple[tuple[Any, ...], ...]:
+    """One metadata read for the row counts, the per-column sizes and the timestamp's min/max per row
+    group (each read of a remote file's metadata costs ~0.15 s on TextBench). Rows: (file, row group,
+    top-level column, compressed bytes, rows, timestamp min, timestamp max); the min/max only on the
+    timestamp column's row."""
+    rs = resolve_source(lt.source, db.settings, "parquet")
+    ts_col = role_column(lt.roles.timestamp) if lt.roles.timestamp else None
+    bounds = _ts_bounds_sql(lt, cols)
+    lo, hi = bounds if bounds is not None else ("NULL::timestamptz", "NULL::timestamptz")
+    rows = db.read(
+        f"SELECT file_name, row_group_id, split_part(path_in_schema, ', ', 1) AS c, "
+        f"sum(total_compressed_size)::bigint AS b, max(row_group_num_rows) AS n, "
+        f"min(CASE WHEN path_in_schema = %(ts)s THEN {lo} END) AS tmin, "
+        f"max(CASE WHEN path_in_schema = %(ts)s THEN {hi} END) AS tmax "
+        f"FROM parquet_metadata({source_sql(rs)}) GROUP BY 1, 2, 3 ORDER BY 1, 2, 3",
+        {"ts": ts_col or ""},
+        what=f"reading the Parquet metadata of {lt.name}",
+    ).rows
+    return tuple(tuple(r) for r in rows)
+
+
+def _overlaps(tmin: datetime | None, tmax: datetime | None, tr: TimeRange) -> bool:
+    """Whether a row group may hold entries in the range, by its statistics: SQL's
+    coalesce(min < end AND max >= start, TRUE), so a missing statistic never skips a group."""
+    parts: list[bool | None] = []
+    if tr.end is not None:
+        parts.append(None if tmin is None else tmin < tr.end)
+    if tr.start is not None:
+        parts.append(None if tmax is None else tmax >= tr.start)
+    return not any(p is False for p in parts)
+
+
 def _parquet(db: Database, lt: LogTable, tr: TimeRange, has_f: bool, has_s: bool) -> ScopeStats:
     rs = resolve_source(lt.source, db.settings, "parquet")
-    meta = f"parquet_metadata({source_sql(rs)})"
-    ts_col = role_column(lt.roles.timestamp) if lt.roles.timestamp else None
-    params: dict[str, object] = {"ts": ts_col or ""}
-    what = f"reading the Parquet metadata of {lt.name}"
-    skippable = False
-    # One metadata read for the row counts, the per-column sizes and which row groups the time range
-    # overlaps (each read of a remote file's metadata costs ~0.15 s on TextBench).
-    hit_sql = "NULL::boolean"
-    if tr.bounded and ts_col is not None:
-        typ = table_columns(db, lt, rs.remote).get(ts_col, "").upper()
-        if is_temporal(typ):
-            skippable = True
-            naive = "WITH TIME ZONE" not in typ and not typ.startswith("TIMESTAMPTZ")
-            zone = sql_literal(lt.timezone)
-
-            def bound(stat: str) -> str:  # try_cast: statistics are text and may be missing
-                return f"try_cast({stat} AS timestamp) AT TIME ZONE {zone}" if naive else f"try_cast({stat} AS timestamptz)"
-
-            bounds = []
-            if tr.end is not None:
-                bounds.append(f"{bound('stats_min')} < %(hi)s::timestamptz")
-                params["hi"] = tr.end.isoformat()
-            if tr.start is not None:
-                bounds.append(f"{bound('stats_max')} >= %(lo)s::timestamptz")
-                params["lo"] = tr.start.isoformat()
-            # A group without usable statistics can't be skipped (coalesce to TRUE).
-            hit_sql = f"bool_and(CASE WHEN path_in_schema = %(ts)s THEN coalesce({' AND '.join(bounds)}, TRUE) END)"
-    per_col = db.read(
-        f"SELECT file_name, row_group_id, split_part(path_in_schema, ', ', 1) AS c, "
-        f"sum(total_compressed_size)::bigint AS b, max(row_group_num_rows) AS n, {hit_sql} AS hit "
-        f"FROM {meta} GROUP BY 1, 2, 3",
-        params,
-        what=what,
-    ).rows
+    cols = table_columns(db, lt, rs.remote)
+    held = _held(db, lt)
+    if held is not None and held.meta is not None:
+        per_col = held.meta
+        _cite(held.meta_from)
+    else:
+        start, at = evidence.mark(), datetime.now(UTC)
+        per_col = _read_meta(db, lt, cols)
+        if held is not None:
+            held.meta = per_col
+            held.meta_from = (evidence.since(start), at)
+    bounded = tr.bounded and _ts_bounds_sql(lt, cols) is not None
     rows_of: dict[tuple[str, int], int] = {}
-    hit: dict[tuple[str, int], bool] = {}
-    for f, g, _, _, n, h in per_col:
+    span: dict[tuple[str, int], tuple[datetime | None, datetime | None]] = {}
+    for f, g, _, _, n, tmin, tmax in per_col:
         rows_of[(f, g)] = max(rows_of.get((f, g), 0), int(n or 0))
-        if h is not None:
-            hit[(f, g)] = bool(h)
+        if tmin is not None or tmax is not None:
+            span[(f, g)] = (tmin, tmax)
+    hit = {k: _overlaps(*span.get(k, (None, None)), tr) if bounded else True for k in rows_of}
     groups = [(f, g, n) for (f, g), n in rows_of.items()]
     by_col: dict[str, int] = {}
     group_cols: dict[tuple[str, int], dict[str, int]] = {}
-    for f, g, c, b, _, _ in per_col:
-        if hit.get((f, g), True):
+    for f, g, c, b, _, _, _ in per_col:
+        if hit[(f, g)]:
             by_col[c] = by_col.get(c, 0) + int(b or 0)
             group_cols.setdefault((f, g), {})[c] = int(b or 0)
     for helper in HELPER_COLUMNS:
@@ -194,17 +323,18 @@ def _parquet(db: Database, lt: LogTable, tr: TimeRange, has_f: bool, has_s: bool
     for f, g, n in sorted(groups, key=lambda r: (r[0], r[1])):
         if f != files[0]:
             continue  # only a single file can be block-sampled; the others count via the totals below
-        if hit.get((f, g), True):
-            in_range_groups.append(GroupStat(first, int(n), group_cols.get((f, g), {})))
+        if hit[(f, g)]:
+            tmin, tmax = span.get((f, g), (None, None))
+            in_range_groups.append(GroupStat(first, int(n), group_cols.get((f, g), {}), tmin, tmax))
         first += int(n)
     total = sum(int(r[2]) for r in groups)
-    in_range = sum(int(r[2]) for r in groups if hit.get((r[0], r[1]), True))
+    in_range = sum(int(r[2]) for r in groups if hit[(r[0], r[1])])
     single = len(files) == 1
     return ScopeStats(
         total_rows=total,
         rows_in_range=in_range,
         bytes_by_column=by_col,
-        time_skippable=skippable,
+        time_skippable=bounded,
         remote=rs.remote,
         has_filter_index=has_f,
         has_search_index=has_s,

@@ -1,14 +1,16 @@
 """search_logs: filtered and text search for ad-hoc lookups, cost-checked before it runs."""
 
+import math
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from serenedb_extractor import format as fmt
 from serenedb_extractor.catalog.models import LogTable
 from serenedb_extractor.context import AppContext
 from serenedb_extractor.errors import UserFacingError
-from serenedb_extractor.query import cost, occurrence, sampling
+from serenedb_extractor.query import cost, occurrence, sampling, textmatch
+from serenedb_extractor.query import stats as scope_stats
 from serenedb_extractor.query.coverage import untimestamped_note
 from serenedb_extractor.query.filters import (
     instant_sql,
@@ -30,7 +32,7 @@ from serenedb_extractor.query import indexcover
 from serenedb_extractor.setup.paths import pct, sql_literal
 from serenedb_extractor.setup.roles import HELPER_COLUMNS, is_temporal, resolve_column, role_column
 from serenedb_extractor.setup.sniff import readable
-from serenedb_extractor.tools.describe import check_text, known_columns, like_pattern
+from serenedb_extractor.tools.describe import check_text, known_columns
 
 DEFAULT_LIMIT = 50
 ORDERS = ("newest", "oldest")
@@ -162,8 +164,9 @@ def search_logs(
         match_sql, params = build_where(lt, TimeRange(), f, cols)  # the filters alone
         params.update(time_params)
         if text:
-            match_sql += f" AND ({role_sql(lt, 'message')})::varchar ILIKE %(text_pattern)s ESCAPE '\\'"
-            params["text_pattern"] = like_pattern(text)
+            text_sql, text_params = textmatch.contains_sql(role_sql(lt, "message"), text)
+            match_sql += " AND " + text_sql
+            params.update(text_params)
         match_sql += pct(SEARCH_SQL_SUFFIX)
         stats, decision = cost.check(
             db, lt, tr, columns_read(lt, f, cols, text), confirmed_cost, index_hints=ctx.estimates.hints(lt)
@@ -190,7 +193,9 @@ def search_logs(
         timeout = cost.run_timeout(plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
         items = _entry_items(lt, cols)
         rows: list[dict[str, Any]] = []
-        one_scan = _count_and_top(
+        one_scan = _count_and_newest_groups(
+            db, lt, plan, stats, cols, scope_sql, match_sql, params, items, order, shown_limit, timeout, what
+        ) or _count_and_top(
             db, lt, plan, scope_sql, match_sql, params, items, order, shown_limit, timeout, what, text
         )
         if one_scan is not None:
@@ -478,6 +483,98 @@ def _count_and_top(
     if len(rows) < min(limit, n):
         return None
     return fmt.Measured(float(n), True), rows
+
+
+# How many more row groups each step of _newest_groups reads than the one before.
+_GROUP_GROWTH = 8
+# Row-group statistics and the listed timestamps are read at microsecond precision while the column may
+# hold nanoseconds: a listed entry beats a group only when it is clearly beyond the group's statistic.
+_STAT_SLACK = timedelta(microseconds=2)
+_FIXED_UTC = frozenset({"UTC", "Etc/UTC", "GMT", "Etc/GMT", "Z"})
+
+
+def _count_and_newest_groups(
+    db: Any, lt: LogTable, plan: cost.Plan, st: scope_stats.ScopeStats, cols: dict[str, str], scope_sql: str,
+    match_sql: str, params: dict[str, Any], items: list[tuple[str, str]], order: str, limit: int, timeout: float,
+    what: str,
+) -> tuple[fmt.Measured, list[dict[str, Any]]] | None:
+    """An exact search's count and its newest (or oldest) entries: count(*) over the scope, then the
+    ORDER BY ... LIMIT over the newest row groups first (_newest_groups), so the listing reads one row
+    group instead of the whole scope (S6: 1 of 55; count 0.50 s + listing 0.12 s, against 0.80 s for
+    count(*) and arg_max in one scan, which builds an entry for each of the 2.9 M matches). Run one
+    after the other: run at the same time on two connections, they slowed each other down to 0.78 s
+    and 0.53-0.67 s (one SereneDB, all its threads on the count). None when it does not apply: a
+    sample, no row groups to choose from (not a single in-place Parquet file), a timestamp that is not
+    a time column, or an order role other than the file row."""
+    if not plan.exact or plan.sampling or not st.can_sample or len(st.groups) < 2:
+        return None
+    ts_col = role_column(lt.roles.timestamp) if lt.roles.timestamp else None
+    typ = cols.get(ts_col or "", "").upper()
+    if ts_col is None or not is_temporal(typ):
+        return None
+    if "WITH TIME ZONE" not in typ and not typ.startswith("TIMESTAMPTZ") and lt.timezone not in _FIXED_UTC:
+        return None  # a local time column: ordered by its local value, which a DST change can put out of instant order
+    if lt.roles.order is not None and role_column(lt.roles.order) != sampling.POSITION:
+        return None
+
+    measured = _count(db, lt, plan, scope_sql, match_sql, params, timeout, what)
+    if not measured.value:
+        return measured, []
+    return measured, _newest_groups(
+        db, lt, st.groups, int(measured.value), scope_sql, match_sql, params, items, order, limit, timeout, what
+    )
+
+
+def _newest_groups(
+    db: Any, lt: LogTable, groups: tuple[scope_stats.GroupStat, ...], matches: int, scope_sql: str, match_sql: str,
+    params: dict[str, Any], items: list[tuple[str, str]], order: str, limit: int, timeout: float, what: str,
+) -> list[dict[str, Any]]:
+    """The first `limit` matches in `order` (the same ORDER BY as before: timestamp, then the file row,
+    NULLS LAST), reading the newest row groups first. The groups are ranked by their timestamp
+    statistics (max for newest, min for oldest; a group without them comes first). After listing the
+    first k groups, the answer is final when `limit` entries came back and the last of them is newer
+    (older) than every group not read, by its statistics; otherwise 8 times as many groups are read,
+    then the whole scope without any row-group restriction. The first step reads enough groups to hold
+    twice `limit` matches at the scope's average (`matches` of them over the groups); when that is half
+    the groups or more, the whole scope is read at once (a rare text: one query instead of three)."""
+    newest = order == "newest"
+    far = datetime.max.replace(tzinfo=UTC) if newest else datetime.min.replace(tzinfo=UTC)
+
+    def edge(g: scope_stats.GroupStat) -> datetime:
+        v = g.ts_max if newest else g.ts_min
+        return far if v is None else v
+
+    ranked = sorted(groups, key=edge, reverse=newest)
+    select = f"SELECT {', '.join(f'{e} AS {a}' for e, a in items)} FROM {lt.relation} WHERE {scope_sql} AND {match_sql}"
+    tail = f" {_order_sql(lt, order)} LIMIT %(shown_limit)s"
+    take = max(1, math.ceil(2 * limit * len(ranked) / max(matches, 1)))
+    for _ in range(2):
+        if 2 * take > len(ranked):
+            break
+        chosen, rest = ranked[:take], ranked[take:]
+        ranges = " OR ".join(
+            f"{sampling.POSITION} BETWEEN {g.first_row} AND {g.first_row + g.rows - 1}" for g in chosen
+        )
+        rows = db.read(
+            f"{select} AND ({ranges}){tail}", {**params, "shown_limit": limit},
+            timeout_s=timeout, what=what, how_to_narrow=NARROW,
+        ).dicts()
+        last = rows[-1]["occ_ts"] if len(rows) >= limit else None
+        if isinstance(last, datetime):
+            if all(_beats(last, g, newest) for g in rest):
+                return rows
+        take *= _GROUP_GROWTH
+    return db.read(
+        f"{select}{tail}", {**params, "shown_limit": limit}, timeout_s=timeout, what=what, how_to_narrow=NARROW
+    ).dicts()
+
+
+def _beats(last: datetime, g: scope_stats.GroupStat, newest: bool) -> bool:
+    """Whether a listed entry at `last` is clearly newer (older) than everything in row group `g`, by its
+    statistics; never for a group without them (it may hold anything)."""
+    if newest:
+        return g.ts_max is not None and last > g.ts_max + _STAT_SLACK
+    return g.ts_min is not None and last < g.ts_min - _STAT_SLACK
 
 
 def _count(

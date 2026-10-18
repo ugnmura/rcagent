@@ -25,6 +25,7 @@ from serenedb_extractor.catalog.models import (
 from serenedb_extractor.db import Database
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.ownership import Ownership, team_expr
+from serenedb_extractor.templating.masking import LIST_PLACEHOLDERS
 from serenedb_extractor.templating.regex import compile_template
 
 _COLUMNS = (
@@ -131,8 +132,9 @@ _PLACEHOLDER = re.compile(r"<[A-Z]+>|<\*>")
 
 
 def breadth(template: str) -> int:
-    """How much a template's text leaves open: 2 per <*> (any token), 1 per typed placeholder (<NUM>, <PATH>, ...)."""
-    return sum(2 if p == "<*>" else 1 for p in _PLACEHOLDER.findall(template))
+    """How much a template's text leaves open: 2 per <*> (any token) or list (<VALUES>, ...), 1 per typed
+    placeholder (<NUM>, <PATH>, ...)."""
+    return sum(2 if p == "<*>" or p in LIST_PLACEHOLDERS else 1 for p in _PLACEHOLDER.findall(template))
 
 
 def _narrower(candidate: CandidateTemplate, t: Template) -> bool:

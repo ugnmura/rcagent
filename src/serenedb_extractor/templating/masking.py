@@ -71,13 +71,32 @@ MASK_RULES: tuple[MaskRule, ...] = (
     MaskRule("<NUM>", rf"\b{_NUM}", "<NUM>", f"(-?{_NUM})"),
 )
 
+# Lists: runs of values whose length varies with the value, set by templating.words.collapse_lists.
+# `<VALUES>` is one or more masked values of any kind (`rows [ <VALUES> ]` for `rows [ 0 1 2 3 ]`),
+# `<LETTERS>` one or more letters, capital or signed (`wanted: <LETTERS>` for `wanted: A C X+ X-`),
+# `<LIST>` one or more tokens of any kind (where a cluster mixes the two, or a list and a word).
+VALUES = "<VALUES>"
+LETTERS = "<LETTERS>"
+LIST = "<LIST>"
+LIST_PLACEHOLDERS = (VALUES, LETTERS, LIST)
+_ANY_VALUE = "|".join(r.capture[1:-1] for r in MASK_RULES)
+
+
+def _list_capture(item: str) -> str:
+    return f"((?:{item})(?:{WHITESPACE_RUN}(?:{item}))*)"
+
+
 # Placeholder in a template -> capture regex that matches the original values.
 PLACEHOLDER_CAPTURE: dict[str, str] = {r.placeholder: r.capture for r in MASK_RULES} | {
-    "<*>": r"(\S+)"
+    "<*>": r"(\S+)",
+    VALUES: _list_capture(_ANY_VALUE),
+    LETTERS: _list_capture("[A-Za-z][+\\-]?"),
+    LIST: _list_capture(f"[^{_WS}]+"),
 }
 
+
 def placeholder_kind(placeholder: str) -> str:
-    """`<NUM>` -> `num`; Drain's `<*>` -> `any`."""
+    """`<NUM>` -> `num`; `<VALUES>` -> `values`; Drain's `<*>` -> `any`."""
     return "any" if placeholder == "<*>" else placeholder[1:-1].lower()
 
 

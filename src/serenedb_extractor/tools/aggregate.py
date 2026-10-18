@@ -15,7 +15,7 @@ from serenedb_extractor import format as fmt
 from serenedb_extractor.catalog.models import LogTable
 from serenedb_extractor.context import AppContext
 from serenedb_extractor.errors import UserFacingError
-from serenedb_extractor.query import cost, sampling
+from serenedb_extractor.query import cost, sampling, textmatch
 from serenedb_extractor.query.coverage import untimestamped_note
 from serenedb_extractor.query.filters import (
     Filters,
@@ -31,7 +31,7 @@ from serenedb_extractor.query.filters import (
 from serenedb_extractor.query.stats import role_columns
 from serenedb_extractor.setup.sniff import readable
 from serenedb_extractor.timezones import get_zone
-from serenedb_extractor.tools.describe import known_columns, like_pattern
+from serenedb_extractor.tools.describe import check_text, known_columns
 from serenedb_extractor.tools.investigate import (
     NAME_OMITTED,
     _TIME,
@@ -91,8 +91,10 @@ def _count_one(
         match_sql, params = build_where(lt, TimeRange(), f, cols)
         params.update(time_params)
         if text:
-            match_sql += f" AND ({role_sql(lt, 'message')})::varchar ILIKE %(text_pattern)s ESCAPE '\\'"
-            params["text_pattern"] = like_pattern(text)
+            check_text(text)
+            text_sql, text_params = textmatch.contains_sql(role_sql(lt, "message"), text)
+            match_sql += " AND " + text_sql
+            params.update(text_params)
         read = (
             (role_columns(lt.roles.timestamp) if tr.bounded or any(g.startswith("time:") for g in group_by) else [])
             + _filter_columns(lt, f, cols)

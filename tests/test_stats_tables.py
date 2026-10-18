@@ -94,3 +94,18 @@ def test_a_copied_table_keeps_the_catalog_count():
     db = LiveTableDb()
     s = stats.collect(db, _copied(), TimeRange())  # type: ignore[arg-type]
     assert s.total_rows == 1_000_000 and not any("pg_class" in q for q in db.sql)
+
+
+def test_row_group_overlap_follows_sql_coalesce():
+    """_overlaps is coalesce(min < end AND max >= start, TRUE): a missing statistic never skips a group,
+    but one statistic that rules the group out does."""
+    t = lambda h: datetime(2026, 1, 1, h, tzinfo=UTC)  # noqa: E731
+    tr = TimeRange(t(10), t(12))
+    assert stats._overlaps(t(9), t(10), tr)
+    assert not stats._overlaps(t(8), t(9), tr)
+    assert not stats._overlaps(t(12), t(13), tr)  # the end is exclusive
+    assert stats._overlaps(None, None, tr)
+    assert stats._overlaps(None, t(11), tr)
+    assert not stats._overlaps(None, t(9), tr)
+    assert not stats._overlaps(t(13), None, tr)
+    assert stats._overlaps(t(13), t(14), TimeRange(t(10), None))

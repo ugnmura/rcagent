@@ -3,6 +3,7 @@ from datetime import datetime
 
 from serenedb_extractor.templating.regex import compile_template
 from serenedb_extractor.templating.drain import MaskedGroup, merge_groups
+from serenedb_extractor.templating.masking import mask_py
 
 
 def g(masked, count, example=None, first_seen=None, last_seen=None, **breakdown):
@@ -183,3 +184,102 @@ def test_enum_word_keeps_events_apart():
 def test_many_distinct_words_still_merge():
     (m,) = merge_groups([g(f"login failed for user {u}", 10) for u in "abcdefghij"])
     assert m.template == "login failed for user <*>"
+
+
+def test_signed_words_stay_separate_events():
+    # `round toward zero` / `+infinity` / `-infinity` are three events, as are torus directions.
+    groups = [g(f"round toward {w}........<NUM>", 68) for w in ("zero", "+infinity", "-infinity")]
+    groups += [
+        g(f"<NUM> torus receiver {d} input pipe error(s) (dcr <HEX>) detected and corrected", 9)
+        for d in ("x+", "y-")
+    ]
+    assert len(merge_groups(groups)) == 5
+
+
+def test_hyphenated_and_versioned_words_are_wording():
+    out = merge_groups(
+        [
+            g("<NUM> L3 EDRAM error(s) (dcr <HEX>) detected and corrected", 50),
+            g("<NUM> torus non-crc error(s) (dcr <HEX>) detected and corrected", 5),
+            g("<*> open through proxy <*> HTTPS", 40),
+            g("<*> open through proxy <*> SOCKS5", 2),
+        ]
+    )
+    assert len(out) == 4
+
+
+def test_numbered_names_are_an_index():
+    # `CPU0` .. `CPU3` differ only in the number: one event about four processors.
+    (m,) = merge_groups([g(f"Processor [CPU{i}] (supports C1)", 1) for i in range(4)])
+    assert m.template == "Processor <*> (supports C1)"
+
+
+def test_capital_letter_is_a_value():
+    (m,) = merge_groups(
+        [
+            g(f"ciod: {a} coordinate <NUM> exceeds physical dimension <NUM> at line <NUM>", 10)
+            for a in "XYZT"
+        ]
+    )
+    assert m.template == "ciod: <*> coordinate <NUM> exceeds physical dimension <NUM> at line <NUM>"
+
+
+def test_time_zone_after_clock_time_is_a_value():
+    (m,) = merge_groups(
+        [
+            g(f"Ido chip status changed: <HEX> status=M <NUM>:<NUM>:<NUM> {z} <NUM>", 10)
+            for z in ("PDT", "PST")
+        ]
+    )
+    assert m.template == "Ido chip status changed: <HEX> status=M <NUM>:<NUM>:<NUM> <*> <NUM>"
+
+
+def test_lists_of_any_length_are_one_template():
+    groups = [
+        g("rts tree/torus link training failed: wanted: A B C X+ X- got: A C X+", 4),
+        g("rts tree/torus link training failed: wanted: A C X+ X- Y+ Y- got: C X+ Y+", 3),
+        g("rts tree/torus link training failed: wanted: B C got: C", 1),
+        g("Controlling BG/L rows [ <NUM> <NUM> <NUM> <NUM> ]", 5),
+        g("Controlling BG/L rows [ <NUM> <NUM> ]", 2),
+    ]
+    out = sorted((m.template, m.count) for m in merge_groups(groups))
+    assert out == [
+        ("Controlling BG/L rows [ <VALUES> ]", 7),
+        ("rts tree/torus link training failed: wanted: <LETTERS> got: <LETTERS>", 8),
+    ]
+    # the masks stay the masked texts themselves (block counts are keyed by them)
+    assert {m.masks for m in merge_groups(groups[3:])} == {
+        ("Controlling BG/L rows [ <NUM> <NUM> <NUM> <NUM> ]", "Controlling BG/L rows [ <NUM> <NUM> ]")
+    }
+
+
+def test_list_template_matches_every_length():
+    examples = ["wanted: A B C X+ X- got: A C X+", "wanted: B C got: C"]
+    groups = [g(mask_py(e), 1, e) for e in examples]
+    (m,) = merge_groups(groups)
+    rx = compile_template(m.template).regex
+    assert all(re.fullmatch(rx, e) for e in examples)
+    assert not re.fullmatch(rx, "wanted: A B got: nothing here")
+
+
+def test_level_after_clock_time_stays_wording():
+    out = merge_groups(
+        [g(f"<NUM>:<NUM>:<NUM> {lv} connection reset by peer", 10) for lv in ("ERROR", "INFO")]
+    )
+    assert sorted(m.template for m in out) == [
+        "<NUM>:<NUM>:<NUM> ERROR connection reset by peer",
+        "<NUM>:<NUM>:<NUM> INFO connection reset by peer",
+    ]
+
+
+def test_fixed_arity_values_keep_their_types():
+    # `<IP> <NUM>` is two typed values, not a list: extract_params needs the IP and the number apart.
+    (m,) = merge_groups([g("conn <IP> <NUM> ok", 10)])
+    assert m.template == "conn <IP> <NUM> ok"
+    (m,) = merge_groups([g("conn <IP> <NUM> ok to <IP>", 10), g("conn <IP> <NUM> ok to <HOST>", 3)])
+    assert m.template == "conn <IP> <NUM> ok to <*>"
+
+
+def test_varying_length_lists_still_collapse():
+    (m,) = merge_groups([g("conn <IP> <NUM> ok", 10), g("conn <IP> <NUM> <NUM> ok", 3)])
+    assert m.template == "conn <VALUES> ok"
