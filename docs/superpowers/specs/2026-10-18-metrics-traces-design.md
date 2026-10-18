@@ -121,7 +121,7 @@ spread = 1.4826 * MAD_before, or stddev_before if MAD is 0, floored at 1% of |me
 Coordinated through one GitHub issue with claimable units (draft: `docs/coordination/issue-track-b.md`); any Claude can join with the generic prompt (`docs/coordination/track-b-prompt.md`).
 
 - **B1** Test set: the 48 cases of issue #23 (RE2-OB rep 1, RE3-OB rep 1, RE3-TT rep 1) from the Hugging Face copy (`phamquiluan/RCAEval`, pinned revision as in v2), converted to the contract. v2's `scripts/_rcaeval.py` / `load_rcaeval.py` may be ported for masking, but with a **new id seed**: v2's seed gives v2's ids, whose answers are readable in v2's repo.
-- **B2** Held-out set (primary): RE2 rep 2 for OB, SS, TT (90) + RE3-SS (30) = 120 cases, ids `rch-NN`.
+- **B2** Held-out set (primary): RE2 rep 2 for OB, SS, TT (90) + RE3-SS (30), minus v2's 4 practice cases (answers readable in v2) = 116 cases, ids `rch-NN`.
 - **B6** Dev set: Eadro SocialNetwork (Zenodo 7615394), ids `dev-NN`. No licence: internal use only, never redistributed.
 - **B3** Arms and preseed:
   - L: extractor at `b022894` (current `main`), log tools only by construction.
