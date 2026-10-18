@@ -36,18 +36,18 @@ A single compute node, **R30-M0-N9-C:J16-U01** (owned by **Node OS**, component 
 
 > `data TLB error interrupt`: **152,182 entries** (exact) [step 3], every one on this node [step 12]
 
-These arrived as one continuous run on **11 June 2005, from 10:17:44 to 16:39:32 PDT** (17:17:44 to 23:39:32 UTC),
+These arrived as one continuous run on **11 June 2005, from 17:17:44 to 23:39:32 PDT** (00:17:44 to 06:39:32 UTC on 12 June),
 at about 24,000 entries per hour [step 4].
 
 ### What happened just before and after
 
 - On the node itself (±60 min, same host), only one entry precedes the run, in the same second [step 5]:
-  `machine check interrupt (bit=0x10): L2 DCU read error`. Then the TLB errors start at 10:17:44.
+  `machine check interrupt (bit=0x10): L2 DCU read error`. Then the TLB errors start at 17:17:44.
 - Across the whole machine (±10 min, all nodes), nothing else was logged before it [step 6]. The run
   starts on this node alone.
 - "L2 DCU read error" is rare. It appears **3 times in the whole corpus**: twice on this node (11 June
-  10:17:44 and 12 June 21:47:27 PDT, i.e. 13 June 04:47:27 UTC) and once on another node on 6 August [step 7].
-- After the second L2 error, late on 12 June, the node logged **46 more FATAL entries**. It logged no other
+  17:17:44 and 13 June 04:47:27 PDT) and once on another node on 6 August [step 7].
+- On 13 June, after the second L2 error, the node logged **46 more FATAL entries**. It logged no other
   severe entries in the whole period [step 8].
 
 ### Possible cause (hypothesis, not established by the logs)
@@ -59,10 +59,10 @@ node or event is involved. The logs do **not** show the hardware state, so this 
 
 ### Next check
 
-Pull the RAS and hardware-diagnostic history for **R30-M0-N9-C:J16-U01** (and its node card) for 11-12 June (Pacific),
+Pull the RAS and hardware-diagnostic history for **R30-M0-N9-C:J16-U01** (and its node card) for 11-13 June,
 and run the processor/L2 diagnostics on it.
 - If the diagnostics fail or show cache errors, take the node out of the scheduler and replace the card.
-- If they pass, look at the job that ran on the node at 10:17 PDT on 11 June. A software fault that corrupts page
+- If they pass, look at the job that ran on the node at 17:17 PDT on 11 June. A software fault that corrupts page
   tables would point to the application instead.
 
 ### What the logs do not establish
@@ -93,13 +93,14 @@ OpenStack UTC). Counts are per log table and are reported together, not merged.
 
 1. **Application launch and I/O-daemon failures on BGL (HPC Applications).** These recur throughout the period.
    In December, "Error reading message prefix on CioStream socket … Link has been severed" appeared on
-   **24 of 31 days** (14,608 entries, +4% against November). "Error loading … invalid or missing program image,
+   **22 of 31 days** (14,616 entries, +4% against November). "Error loading … invalid or missing program image,
    Permission denied" rose **+91%** (7,296 → 13,952), but appeared on only 3 days [step 21]. Together
-   they make up most of December's FATAL entries: 36,056 of 44,878 come from the APP component [step 22].
+   they make up most of December's FATAL entries: 36,064 of 44,888 come from the APP component [step 22].
 2. **Kernel fault storms on BGL (Node OS).** These are rare but huge. 62% of all BGL FATAL entries
-   (531,058 of 855,501) fall in the single week from 9 June [step 10]. Two different shapes:
+   (531,058 of 855,501) fall in the seven days from 9 to 15 June [step 11]; by calendar week (Monday to Sunday),
+   the week of 13 June alone holds 380,987, 45% [step 10]. Two different shapes:
    - a **single node** on 11 June: 152,182 data TLB errors on R30-M0-N9-C:J16-U01 [step 12];
-   - a **machine-wide event** on 14 June between 02:00 and 05:00 PDT (09:00-12:00 UTC), with 344,064 FATAL
+   - a **machine-wide event** on 14 June between 09:00 and 12:00 PDT (16:00-19:00 UTC), with 344,064 FATAL
      entries in those three hours [step 13]. "data storage interrupt" (63,488) and "instruction address" (47,110) are each spread
      over about **22,500 different nodes**, a few entries per node [step 12].
 3. **The image-cache warning on OpenStack (Virtualization).** "Unknown base file: <path>" makes up 3,059 of the
@@ -112,7 +113,7 @@ OpenStack UTC). Counts are per log table and are reported together, not merged.
 ### Investigate first
 
 **HPC Applications: the CioStream "Link has been severed" failures.** It is the most persistent FATAL
-problem (24 of 31 days in December) and is not falling (+4%) [step 21]. The kernel storms are larger, but
+problem (22 of 31 days in December) and is not falling (+4%) [step 21]. The kernel storms are larger, but
 they are two concentrated incidents with a clear owner and next step (see the engineer answer and the
 manager list). Second: **Node OS** to confirm the 14 June event was a planned or machine-wide restart,
 since it touched about 22,500 nodes in three hours [step 12, step 13]. Third: **Virtualization** to decide
@@ -135,14 +136,14 @@ and scored on measured severity, change against November, persistence (days pres
 share of December's severe entries. The score orders what to look at first; it is not a risk or cost figure.
 
 1. **Persistent broken links between compute and I/O nodes** (owner: **HPC Applications**). Ranked 1st
-   (16 of 18). It is FATAL, on 24 of 31 days in December, on 1,024 nodes, and holds 31% of December's severe
-   entries (14,608). It is not falling (+4% against November) [step 23, step 21]. **Next action:** HPC
+   (15 of 18, tied with the next three and first by entries). It is FATAL, on 22 of 31 days in December, on
+   1,024 nodes, and holds 31% of December's severe entries (14,616). It is not falling (+4% against November) [step 23, step 21]. **Next action:** HPC
    Applications with Interconnect to trace which I/O-node links drop, since this is the most persistent fatal
    problem.
 2. **Failing job launches, rising** (owner: **HPC Applications**). Ranked 2nd (15 of 18). FATAL, up 91% for
    one cause: "permission denied" when loading a program, 7,296 → 13,952 entries, on 1,024 nodes, but on only
-   3 days [step 23, step 21]. The applications team accounts for 80% of December's fatal entries (36,056 of
-   44,878) [step 22]. **Next action:** HPC Applications to review program-image permissions and job-submission
+   3 days [step 23, step 21]. The applications team accounts for 80% of December's fatal entries (36,064 of
+   44,888) [step 22]. **Next action:** HPC Applications to review program-image permissions and job-submission
    checks for the paths in these errors.
 3. **Lustre file-system mounts failing on compute nodes, sharply up** (owner: **Node OS**). Ranked 4th
    (15 of 18, after a related "program image not found" error of the applications team). FATAL, 230 → 1,877
@@ -155,7 +156,7 @@ share of December's severe entries. The score orders what to look at first; it i
    **Next action:** Node OS to run hardware diagnostics on node R30-M0-N9-C:J16-U01 and keep it out of service
    until it passes.
 5. **A machine-wide fault burst on 14 June** (owner: **Node OS**). FATAL, 344,064 entries in three hours
-   (02:00-05:00 PDT) across about 22,500 nodes [step 12, step 13]. It is a single burst, not a trend.
+   (09:00-12:00 PDT) across about 22,500 nodes [step 12, step 13]. It is a single burst, not a trend.
    **Next action:** Node OS to confirm whether it was a planned restart. If it was not, run a post-incident review.
 
 Lower priority: on OpenStack, warnings only. An image-cache warning repeats every hour (3,059 entries) and 3.9%
