@@ -17,15 +17,15 @@ def g(masked, count, example=None, first_seen=None, last_seen=None, **breakdown)
 
 
 def test_word_variation_merges():
-    (m,) = merge_groups(
-        [
-            g("login failed for user alice", 5),
-            g("login failed for user bob", 3),
-            g("login failed for user carol", 2),
-        ]
-    )
-    assert (m.template, m.count) == ("login failed for user <*>", 10)
-    assert m.members == 3
+    users = ("alice", "bob", "carol", "dave", "erin", "frank", "grace")  # more words than an enum has
+    (m,) = merge_groups([g(f"login failed for user {u}", 1) for u in users])
+    assert (m.template, m.count) == ("login failed for user <*>", 7)
+    assert m.members == 7
+
+
+def test_few_words_stay_separate_events():
+    out = merge_groups([g("login failed for user alice", 5), g("login failed for user bob", 3)])
+    assert [m.template for m in out] == ["login failed for user alice", "login failed for user bob"]
 
 
 def test_masked_tokens_survive():
@@ -36,8 +36,8 @@ def test_masked_tokens_survive():
 def test_breakdowns_summed():
     (m,) = merge_groups(
         [
-            g("x a", 2, service={"checkout": 2}),
-            g("x b", 1, service={"payments": 1}, component={"db": 1}),
+            g("x a1", 2, service={"checkout": 2}),
+            g("x b2", 1, service={"payments": 1}, component={"db": 1}),
         ]
     )
     assert m.breakdown["service"] == {"checkout": 2, "payments": 1}

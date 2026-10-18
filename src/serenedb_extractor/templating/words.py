@@ -14,7 +14,8 @@ import re
 # `key...`), or one dot before a number (`touch.<NUM>`, `core.<NUM>`); never `file.map`
 _PADDED = re.compile(r"(.*?[^.])(?:\.{2,}(?:<[A-Z]+>|[0-9]+)?|\.(?:<[A-Z]+>|[0-9]+))")
 # a plain word, optionally signed like a torus direction (`x+`, `z-`), with edge punctuation
-_WORD = re.compile(r"[(\[]?([A-Za-z][A-Za-z_]*[+\-]?)[)\],;:]?")
+# (a leading quote too: the `"GET` of a quoted request line is the word GET)
+_WORD = re.compile(r"[\"'(\[]?([A-Za-z][A-Za-z_]*[+\-]?)[)\],;:.\"']?")
 # Calendar names inside messages (`status=M Sat Sep 17 ...`) are timestamp parts, not wording.
 _CALENDAR = frozenset(
     "Mon Tue Wed Thu Fri Sat Sun Monday Tuesday Wednesday Thursday Friday Saturday Sunday "

@@ -44,3 +44,8 @@ def test_word_core_strips_dot_padding_and_value(token: str, core: str) -> None:
 )
 def test_constant_word(token: str, word: str | None) -> None:
     assert constant_word(token) == word
+
+
+def test_quoted_and_sentence_end_words_are_words():
+    assert constant_word('"GET') == "GET"
+    assert constant_word("successfully.") == "successfully"

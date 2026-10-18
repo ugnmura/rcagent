@@ -7,12 +7,12 @@ masked string is fed to Drain once; counts are carried by us, not by Drain.
 """
 
 import logging
-import re
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from serenedb_extractor.templating.words import constant_word
 from drain3 import TemplateMiner  # type: ignore[import-untyped]
 from drain3.template_miner_config import TemplateMinerConfig  # type: ignore[import-untyped]
 
@@ -59,14 +59,11 @@ def _miner(sim_th: float, depth: int) -> TemplateMiner:
     return TemplateMiner(persistence_handler=None, config=config)
 
 
-# A plain word, possibly ending in punctuation (`Paused`, `disk:`, `GB,`): no digits, no placeholder.
-_WORD = re.compile(r"[\"'(\[]?[A-Za-z][A-Za-z_'\-]*[:,.;!?)\]]?")
-# A word position is an enum (part of the event's wording) rather than a variable when it takes few
-# distinct values, each repeated: distinct values <= MAX_ENUM_VALUES and the entries per value
-# >= MIN_ENTRIES_PER_VALUE on average. `VM Paused` / `VM Resumed` stay apart; a user name that
-# varies from entry to entry still becomes `<*>`.
-MAX_ENUM_VALUES = 8
-MIN_ENTRIES_PER_VALUE = 4
+# A word position is an enum (part of the event's wording) rather than a variable when all its
+# values are constant words (templating.words), at most MAX_ENUM_VALUES distinct ones. `VM Paused` /
+# `VM Resumed` and `"GET` / `"POST` stay apart; a position with many different words (user names)
+# or with ids, numbers or placeholders still becomes `<*>`.
+MAX_ENUM_VALUES = 6
 
 
 def _split_enums(
@@ -81,23 +78,19 @@ def _split_enums(
     member_tokens = [i.masked.split() for i in items]
     if any(len(t) != len(tokens) for t in member_tokens):
         return [(tokens, items)]
-    total = sum(i.count for i in items)
     enum_positions = []
     for pos, token in enumerate(tokens):
         if token != "<*>":
             continue
-        values = {t[pos] for t in member_tokens}
-        if (
-            all(_WORD.fullmatch(v) for v in values)
-            and len(values) <= MAX_ENUM_VALUES
-            and total >= MIN_ENTRIES_PER_VALUE * len(values)
-        ):
+        values = {constant_word(t[pos]) for t in member_tokens}
+        if None not in values and len(values) <= MAX_ENUM_VALUES:
             enum_positions.append(pos)
     if not enum_positions:
         return [(tokens, items)]
     by_key: dict[tuple[str, ...], list[tuple[list[str], MaskedGroup]]] = {}
     for toks, item in zip(member_tokens, items, strict=True):
-        by_key.setdefault(tuple(toks[p] for p in enum_positions), []).append((toks, item))
+        key = tuple(constant_word(toks[p]) or "" for p in enum_positions)
+        by_key.setdefault(key, []).append((toks, item))
     out = []
     for members in by_key.values():
         template = [
