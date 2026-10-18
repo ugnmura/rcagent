@@ -1,0 +1,28 @@
+{
+  "name": "serenedb-extractor-presentation",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Demo video and slides for Making Sense of Logs (Remotion)",
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "node scripts/check.mjs && remotion render src/index.ts Talk out/video.mp4",
+    "slides": "node scripts/slides.mjs",
+    "check": "tsc --noEmit && node scripts/check.mjs"
+  },
+  "dependencies": {
+    "@remotion/bundler": "4.0.536",
+    "@remotion/cli": "4.0.536",
+    "@remotion/google-fonts": "4.0.536",
+    "@remotion/renderer": "4.0.536",
+    "mediabunny": "1.61.3",
+    "pdf-lib": "1.17.1",
+    "react": "19.2.9",
+    "react-dom": "19.2.9",
+    "remotion": "4.0.536"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.18",
+    "typescript": "5.9.3"
+  }
+}
