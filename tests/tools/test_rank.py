@@ -80,6 +80,7 @@ def test_breadth_weighs_wildcards_above_typed_placeholders():
     from serenedb_extractor.catalog.store import breadth
 
     assert breadth("x <*> <*>") == 4 and breadth("x <PATH>") == 1 and breadth("plain text") == 0
+    assert breadth("rows [ <VALUES> ]") == 2 and breadth("wanted: <LETTERS> got: <LIST>") == 4
 
 
 async def test_unknown_team_is_named_not_reported_as_an_empty_period(mcp, corpus):
