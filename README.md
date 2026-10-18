@@ -32,13 +32,37 @@ You need Docker, [uv](https://docs.astral.sh/uv/) and Claude Code.
 
 ```sh
 git clone https://github.com/ugnmura/serenedb-extractor && cd serenedb-extractor
+./scripts/up.sh            # or ./scripts/up.sh --sample: the first 50,000 lines of each log, in seconds
+```
+
+`scripts/up.sh` starts SereneDB in Docker (or reuses the container `serenedb`), loads the base corpus, checks
+that both log tables answer and prints the next step. Running it again changes nothing. Claude Code picks the
+server up from [`.mcp.json`](.mcp.json) when you start `claude` in this folder (approve it once); no
+`claude mcp add` is needed. `./scripts/up.sh --help` lists the settings (container name, port, logs folder). A `--sample` load covers only
+the first two days of each log (BGL 3–5 June 2005), so the example questions below need the full corpus; switch
+with `./scripts/up.sh --replace`.
+
+**Which SereneDB image.** On an x86-64 Docker host, the script runs 26.10.1, the version this project was
+verified against. On Apple Silicon (arm64), 26.10.1 crashes under amd64 emulation before it accepts
+connections, so the script runs 26.09.2 natively instead. To use 26.10.1 from a Mac, run it on an x86-64 host
+and point `SERENEDB_READER_URL` at that server (the manual steps below, with the Parquet files readable by that
+server).
+
+### The same steps by hand
+
+```sh
 uv sync
 
-# 1. SereneDB, with a folder for logs mounted read-only (drop --platform on an x86-64 host)
+# 1. SereneDB, with a folder for logs mounted read-only, on 127.0.0.1 only
 mkdir -p ~/logs
-docker run -d --name serenedb --platform linux/amd64 -e SERENEDB_HOST_AUTH_METHOD=trust \
+#    x86-64 host: 26.10.1
+docker run -d --name serenedb -e SERENEDB_HOST_AUTH_METHOD=trust \
   -p 127.0.0.1:7890:7890 -v ~/logs:/logs:ro \
   serenedb/serenedb@sha256:6d41ac6577e797289158786a2015ba8fbd6875feadb5c491518e166c011058c9
+#    arm64 host (Apple Silicon): 26.09.2, native (26.10.1 crashes under --platform linux/amd64)
+docker run -d --name serenedb -e SERENEDB_HOST_AUTH_METHOD=trust \
+  -p 127.0.0.1:7890:7890 -v ~/logs:/logs:ro \
+  serenedb/serenedb@sha256:f9681a19f7f1290836e8ab200f0b1907dbe2c8380102a09f043a5c44e3ffa2b2
 
 # 2. the base corpus: downloads BGL + OpenStack from Zenodo (~60 MB), converts to Parquet (~30 s),
 #    sets up the log tables `bgl` and `openstack` read in place (~1 s)
@@ -46,7 +70,8 @@ export SERENEDB_READER_URL=postgresql://postgres@localhost:7890/postgres
 export LOGS_HOST_DIR=~/logs LOGS_CONTAINER_DIR=/logs
 uv run python scripts/load_base_corpus.py
 
-# 3. connect Claude Code to the server
+# 3. connect Claude Code to the server: in this folder .mcp.json already does it (it reads the
+#    variables above, with these values as defaults); from anywhere else:
 claude mcp add serenedb-extractor \
   -e SERENEDB_READER_URL=$SERENEDB_READER_URL -e SERENEDB_ALLOW_SQL=1 \
   -e LOGS_HOST_DIR=$HOME/logs -e LOGS_CONTAINER_DIR=/logs \
