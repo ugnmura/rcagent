@@ -80,6 +80,51 @@ _Avoid_: Surrounding lines, neighbourhood
 **Context scope**:
 Which entries count as neighbours of an occurrence: those sharing the occurrence's values on a chosen set of columns (e.g. the same trace, or the same service and host), or everything. Only scopes whose columns exist in the log table are available; "everything" always is.
 
+### Metrics and traces
+
+**Metric table**:
+The SereneDB relation holding one system's metrics in long form: one row per time, service, metric name and value. Read in place like a structured log. Wide files (one column per series) are converted by the data owner first.
+_Avoid_: Metrics dataset, time series table
+
+**Series**:
+All values of one metric for one service in a metric table, e.g. `cartservice` / `cpu`.
+_Avoid_: Signal, column
+
+**Trace table**:
+The SereneDB table holding one system's spans, one row per span, copied in once at setup so each span's self time can be stored with it.
+_Avoid_: Trace dataset, span log
+
+**Span**:
+One timed unit of work inside a trace: which service did which operation, when, for how long, with which parent span and status.
+_Avoid_: Event, call
+
+**Operation**:
+The name of what a span did within its service (e.g. `/GetCart`). Operations are to spans what templates are to entries: the unit the tools count and compare.
+_Avoid_: Endpoint, method
+
+**Self time**:
+A span's duration minus the time covered by its child spans: the time the service spent itself rather than waiting on others. Change tools rank trace latency by self time so a caller is not blamed for its callee.
+_Avoid_: Exclusive time, own time
+
+**Edge**:
+A caller → callee pair of services seen in parent and child spans, with the latency and errors of those calls.
+_Avoid_: Link, dependency
+
+**Pivot**:
+The time an investigation compares around: the window before it is the baseline, the window after it is the incident. Given in the question when the detect time is known.
+_Avoid_: Detect time (in tool names), anchor
+
+**Change**:
+How far a series, operation or log rate moved from before the pivot to after it, as a robust z-score: the shift of the median in units of the baseline's typical deviation (1.4826 × MAD). A change says what moved, never what caused it.
+_Avoid_: Anomaly score, root cause score
+
+**Coverage**:
+Which of logs, metrics and traces exist for a service. Tools report it so that "no data" is never read as "no change".
+
+**Table prefix**:
+The shared start of the names of one system's log, metric and trace tables (`rca_07_`), which is how tools find the tables that belong together.
+_Avoid_: Group, case (outside the benchmark)
+
 ### Indexes
 
 **Filter index**:
