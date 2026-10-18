@@ -180,3 +180,15 @@ async def test_no_truncation_when_the_data_starts_late(mcp, trend_lt):
     # The preceding period of 03-01..03-08 lies before the data: no comparison, nothing called new.
     out = await call(mcp, "trend", log_table="tr", templates=[trend_lt["daily"]], start="2026-03-01", end="2026-03-31", exact=True)
     assert "limited comparison" in out and "compared over" not in out
+
+
+async def test_minute_buckets_on_a_telemetry_log_table(mcp, db_url):
+    from tests.telemetry import fixtures as fx
+
+    ids = await _setup(mcp, db_url, "shop_logs", fx.logs_sql(), {"oom": "OutOfMemoryError"})
+    out = await call(
+        mcp, "trend", log_table="shop_logs", templates=[ids["oom"]], start="2026-03-01T10:10:00Z",
+        end="2026-03-01T10:20:00Z", bucket="minute", exact=True,
+    )
+    assert "split into minutes: this period has 10" in out and "Minutes are real minutes" in out
+    assert "this period by minute: 12 12 12 12 12 12 12 12 12 12" in out
