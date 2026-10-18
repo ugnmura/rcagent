@@ -197,7 +197,7 @@ footer** (see below).
 | `show_team_ownership` | who owns what, and whether the teams are official | `log_table`, `coverage` | rules by team, their source, recent changes, entries per team and components without a team |
 | `edit_team_ownership` | import the supplied ownership CSV, fix a team, export the rules | `action` import\|set\|remove\|export\|reset, `csv_path`/`csv_text`, `mode`, `rules`, `team`, `dry_run` | the rules added, changed and removed, then coverage |
 | `inspect_source` | look at a new source before setting it up | `source` | columns, samples, size, proposed roles |
-| `setup_log_table` | register a source (Parquet/JSON read in place, raw text copied) | `name`, `source` (several files: `part_{000..009}.parquet`), `roles` | roles, entries, files, size, setup time, index estimates |
+| `setup_log_table` | register a source (Parquet/JSON/CSV read in place, raw text copied) | `name`, `source` (several files: `part_{000..009}.parquet`), `roles` | roles, entries, files, size, setup time, index estimates |
 | `create_index` / `drop_index` | build an index for repeated questions; remove it after the investigation | `log_table`, `kind` filter\|search, `dry_run` | size and build time (estimated with `dry_run`) |
 | `rename_parameter` | a clearer name for a template parameter | `template`, `old_name`, `new_name` | the template |
 | `run_sql` | last resort: one read-only SQL statement (e.g. latency percentiles) | `sql`, `limit` | rows, cut to 50; cost-checked first |
@@ -446,8 +446,9 @@ unencrypted. Other types (`http`, `gcs`, `r2`, `azure`) work the same way; see S
 **No index is ever built unless you ask for one.** Big sources show an estimated size and build time (from a trial
 build on a sample) before anything is built; you can also ask for just the estimate.
 
-- **Filter index** — the timestamp, level, service, component and trace fields. Lists each field's distinct values
-  exactly and answers filters (level = ERROR, service = payments) almost for free.
+- **Filter index** — the timestamp, level, service, component and trace fields. `describe_logs` then lists each
+  field's distinct values (and `find_values` lookups) exactly and instantly from the index. Counts, surveys, trends
+  and rankings still read the entries.
 - **Search index** — the message text plus the same fields and the host. Makes text search fast and enables fuzzy
   search (finding misspellings). It matches **whole words only**: a fragment like `disk` inside `diskfull` is not found.
   When a plain scan is affordable, the scan is used instead (exact substring matching); every answer that came from the
