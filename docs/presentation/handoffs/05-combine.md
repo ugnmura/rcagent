@@ -18,7 +18,7 @@ with every number checked.
 3. **Apply live numbers.** For every row in `NUMBERS.md` where the live number differs, update
    `docs/presentation/script.md`, the Claude Doc, and `presentation/src/content.ts` together. Re-record the
    affected facecam take if the spoken number changed.
-   The evidence handle is a live value too: the script and slide 5 say `[Q46]`, but each session numbers its
+   The evidence handle is a live value too: the script and slide 3 say `[Q46]`, but each session numbers its
    own queries. Use the handle the engineer recording shows (in `content.ts` `handle`, the script and the doc).
 4. **Drop in the assets** and run `npm run check`. Tune `SPLIT_HOLD_SECONDS` / `PROOF_RATE` in `presentation/src/timeline.ts`
    per scene so each recording gets its full length; `npm run check` warns when a recording is cut.
