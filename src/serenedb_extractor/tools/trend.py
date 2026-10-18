@@ -1,5 +1,5 @@
 """trend: chosen templates (or the catalog's top ones) over a period against the preceding period of
-equal length, per hour or day. Estimated from a block sample by default, exact on request; both go
+equal length, per minute, hour or day. Estimated from a block sample by default, exact on request; both go
 through the cost check. A comparison is only made where the data covers both periods (R69: when the
 current period runs past the data's end, both are cut to the same whole buckets the data covers), and
 nothing is called new, or risen without limit, because data is missing."""
@@ -38,9 +38,11 @@ from serenedb_extractor.timezones import get_zone
 from serenedb_extractor.query.coverage import untimestamped_note
 from serenedb_extractor.tools.describe import known_columns
 
-Bucket = Literal["hour", "day"]
+Bucket = Literal["minute", "hour", "day"]
 Status = Literal["full", "partial", "none", "unknown"]
 HOUR = timedelta(hours=1)
+MINUTE = timedelta(minutes=1)
+STEP = {"minute": MINUTE, "hour": HOUR}  # buckets of a fixed real length, UTC-aligned
 DEFAULT_TOP_N = 10
 # The sampler takes ONE block sample over both periods and re-slices it by bucket (R46); it does not
 # sample each bucket on its own. Its size is max(sample_size, MIN_BUCKET_SAMPLE * buckets): the server's
@@ -65,21 +67,30 @@ class Coverage:
 
 
 def _as_bucket(bucket: str) -> Bucket:
+    if bucket == "minute":
+        return "minute"
     if bucket == "hour":
         return "hour"
     if bucket == "day":
         return "day"
-    raise UserFacingError(f"bucket must be 'hour' or 'day', not '{bucket}'.")
+    raise UserFacingError(f"bucket must be 'minute', 'hour' or 'day', not '{bucket}'.")
 
 
 def _first_hour(start: datetime) -> datetime:
     return start.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
 
 
+def _first(start: datetime, bucket: Bucket) -> datetime:
+    """The start of the fixed-length (minute or hour) bucket holding `start`, in UTC."""
+    if bucket == "minute":
+        return start.astimezone(UTC).replace(second=0, microsecond=0)
+    return _first_hour(start)
+
+
 def _count_buckets(start: datetime, end: datetime, zone: tzinfo, bucket: Bucket) -> int:
     """How many buckets overlap [start, end), by arithmetic (no list is built)."""
-    if bucket == "hour":
-        whole, rest = divmod(end - _first_hour(start), HOUR)
+    if bucket in STEP:
+        whole, rest = divmod(end - _first(start, bucket), STEP[bucket])
         return whole + (1 if rest else 0)
     first = start.astimezone(zone).date()
     last = (end - timedelta(microseconds=1)).astimezone(zone).date()
@@ -87,15 +98,15 @@ def _count_buckets(start: datetime, end: datetime, zone: tzinfo, bucket: Bucket)
 
 
 def _buckets(start: datetime, end: datetime, zone: tzinfo, bucket: Bucket) -> list[datetime]:
-    """The buckets overlapping [start, end), in time order. An hour is a real hour, a UTC-aligned
+    """The buckets overlapping [start, end), in time order. An hour (or minute) is a real hour, a UTC-aligned
     instant (aware, UTC), so each instant is in exactly one bucket whatever the zone does with its
     clocks. A day is a local calendar day in `zone` (naive midnight), 23 or 25 hours across a clock change."""
     out: list[datetime] = []
-    if bucket == "hour":
-        cur = _first_hour(start)
+    if bucket in STEP:
+        cur = _first(start, bucket)
         while cur < end:
             out.append(cur)
-            cur += HOUR
+            cur += STEP[bucket]
         return out
     day = start.astimezone(zone).replace(tzinfo=None, hour=0, minute=0, second=0, microsecond=0)
     last = end.astimezone(zone).replace(tzinfo=None)
@@ -107,19 +118,19 @@ def _buckets(start: datetime, end: datetime, zone: tzinfo, bucket: Bucket) -> li
 
 def _bounds(b: datetime, zone: tzinfo, bucket: Bucket) -> tuple[datetime, datetime]:
     """The real (UTC) interval a bucket covers."""
-    if bucket == "hour":
-        return b, b + HOUR
+    if bucket in STEP:
+        return b, b + STEP[bucket]
     lo = b.replace(tzinfo=zone).astimezone(UTC)
     return lo, (b + timedelta(days=1)).replace(tzinfo=zone).astimezone(UTC)
 
 
 def _key(raw: datetime, bucket: Bucket) -> datetime:
     """A bucket as SereneDB returns it (a naive datetime) in the form `_buckets` uses."""
-    return raw.replace(tzinfo=UTC) if bucket == "hour" else raw
+    return raw.replace(tzinfo=UTC) if bucket in STEP else raw
 
 
 def _label(b: datetime, zone: tzinfo, bucket: Bucket) -> str:
-    """A bucket for people: the date for a day; for an hour its start in `zone` with the UTC offset."""
+    """A bucket for people: the date for a day; for an hour or minute its start in `zone` with the UTC offset."""
     if bucket == "day":
         return b.strftime("%Y-%m-%d")
     local = b.astimezone(zone)
@@ -172,7 +183,7 @@ def _seen_buckets(
     where, params = time_clause(lt, tr_all, cols)
     cur_sql, cur_params = time_clause(lt, TimeRange(start=cur_start), cols, prefix="c")
     rows = db.read(
-        f"SELECT DISTINCT date_trunc({sql_literal(unit)}, {_ts_local(lt, cols, 'UTC' if unit == 'hour' else tz)}) AS bucket, "
+        f"SELECT DISTINCT date_trunc({sql_literal(unit)}, {_ts_local(lt, cols, 'UTC' if unit in STEP else tz)}) AS bucket, "
         f"CASE WHEN {cur_sql} THEN 1 ELSE 0 END AS p FROM {lt.relation} WHERE {where}",
         {**params, **cur_params},
         timeout_s=timeout,
@@ -263,7 +274,7 @@ def _build_sql(
     elif prefilter:  # a sample keeps every entry: the ratio needs the entries that match nothing too
         where += " AND " + prefilter
     inner = (
-        f"SELECT date_trunc({sql_literal(bucket)}, {_ts_local(lt, cols, 'UTC' if bucket == 'hour' else tz)}) AS bucket, "
+        f"SELECT date_trunc({sql_literal(bucket)}, {_ts_local(lt, cols, 'UTC' if bucket in STEP else tz)}) AS bucket, "
         f"CASE WHEN {cur_sql} THEN 1 ELSE 0 END AS p, {block}{comp} AS comp, {msg} AS msg "
         f"FROM {lt.relation} WHERE {where}"
     )
@@ -515,13 +526,15 @@ def trend(
     )
     if unit == "hour":
         out.append(f"Hours are real hours (every instant is in exactly one), labelled in {timezone} with the UTC offset in force.")
+    elif unit == "minute":
+        out.append(f"Minutes are real minutes (every instant is in exactly one), labelled in {timezone} with the UTC offset in force.")
     else:
         out.append(f"Days are calendar days in {timezone}.")
     changes = _clock_change([*prev_buckets, *cur_buckets], zone, unit)
     if changes:
         effect = (
             "so the local day of the change has 23 or 25 hours, with no hour skipped or merged"
-            if unit == "hour"
+            if unit in STEP
             else "so those days have 23 or 25 hours"
         )
         out.append(f"clock change in {timezone} on {', '.join(changes)}: {effect}.")

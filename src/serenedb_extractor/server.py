@@ -290,7 +290,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
     ) -> str:
         """Is a problem rising, falling, new or persistent? Compares templates over a period with the preceding period of equal length.
         Use when: a team lead or manager asks what recurs, what got worse, or what to prioritise; run after survey.
-        Inputs: start and end (required); templates = T<n> IDs (default: the catalog's largest top_n); bucket hour|day; exact=True counts every entry (default estimates).
+        Inputs: start and end (required); templates = T<n> IDs (default: the catalog's largest top_n); bucket minute|hour|day; exact=True counts every entry (default estimates).
         Returns: per template the count per bucket, change against the preceding period, on how many buckets it was present (persistence), and the components and teams affected. Marks the comparison limited when the data does not cover the earlier period — then nothing may be called new."""
         return await runner.run_tool(
             trend_tool.trend,
