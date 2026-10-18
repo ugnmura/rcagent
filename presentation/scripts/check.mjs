@@ -9,6 +9,11 @@ try {
 	console.log(`Scene lengths (${comp.fps} fps):\n${comp.props.report}`);
 	console.log(`OK: ${comp.durationInFrames} frames = ${(comp.durationInFrames / comp.fps).toFixed(2)} s`);
 } catch (e) {
-	console.error(`\nCHECK FAILED\n${e.message}`);
+	// The multi-line message (with per-scene lengths) survives only in the stack.
+	const text = String(e.stack ?? e.message)
+		.split('\n')
+		.filter((l) => !/^\s+at /.test(l))
+		.join('\n');
+	console.error(`\nCHECK FAILED\n${text}`);
 	process.exit(1);
 }

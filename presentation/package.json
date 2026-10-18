@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "studio": "remotion studio src/index.ts",
-    "render": "remotion render src/index.ts Talk out/video.mp4",
+    "render": "node scripts/check.mjs && remotion render src/index.ts Talk out/video.mp4",
     "slides": "node scripts/slides.mjs",
     "check": "tsc --noEmit && node scripts/check.mjs"
   },

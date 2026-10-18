@@ -15,13 +15,13 @@ export const SlideFrame: React.FC<{title?: string; mode: Mode; children: React.R
 			backgroundColor: color.bg,
 			color: color.text,
 			fontFamily: font.sans,
-			padding: `72px 96px ${mode === 'video' ? VIDEO_BOTTOM_RESERVE : 96}px`,
+			padding: `56px 96px ${mode === 'video' ? VIDEO_BOTTOM_RESERVE : 96}px`,
 			display: 'flex',
 			flexDirection: 'column',
 		}}
 	>
 		{title ? (
-			<div style={{fontSize: size.title, fontWeight: 800, letterSpacing: -1, marginBottom: 44}}>{title}</div>
+			<div style={{fontSize: size.title, fontWeight: 800, letterSpacing: -1, marginBottom: 28}}>{title}</div>
 		) : null}
 		<div style={{flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0}}>{children}</div>
 	</AbsoluteFill>
@@ -57,7 +57,7 @@ export const Placeholder: React.FC<{
 			<div style={{fontSize: compact ? 20 : 30, fontWeight: 800, color: color.placeholder, letterSpacing: 2}}>
 				PLACEHOLDER
 			</div>
-			<div style={{fontSize: compact ? 22 : 44, fontWeight: 600, fontFamily: font.mono}}>{a.file}</div>
+			<div style={{fontSize: compact ? 17 : 44, fontWeight: 600, fontFamily: font.mono}}>{a.file}</div>
 			<div style={{fontSize: compact ? 18 : 32, color: color.muted}}>
 				{note ?? a.kind} · target {a.target}
 			</div>
