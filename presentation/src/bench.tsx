@@ -1,6 +1,6 @@
 // Scene 3 benchmarks, calm enough to talk over: long shots with plain fades and no sound effects. Simple style: flat
 // bars on the dark background, gold only for ours, per shot one short label plus the numbers. First the score of each
-// step; then its cost and the cost multiple; then the RCAEval root-cause result. Numbers come only from public/assets/benchmarks.json.
+// step; then its cost; then the RCAEval root-cause result. Numbers come only from public/assets/benchmarks.json.
 import React from 'react';
 import {AbsoluteFill, useCurrentFrame} from 'remotion';
 import type {Benchmarks, Design} from './benchmarks';
@@ -26,7 +26,6 @@ const GROW = 24;
 
 const pct = (v: number) => `${v.toFixed(1)}%`;
 const usd = (v: number) => `$${v.toFixed(2)}`;
-const ours = (b: Benchmarks) => b.designs.find((d) => d.ours) ?? b.designs[0];
 
 /** Pink corner tag while benchmarks.json is not final, so placeholder numbers never pass for real ones. */
 export const PlaceholderTag: React.FC = () => (
@@ -56,7 +55,7 @@ export const DesignLabel: React.FC<{d: Design; width: number; size?: number}> = 
 );
 
 /** A flat bar on the shared baseline with its value above and the design name below; fades in, then the bar rises. */
-const Column: React.FC<{d: Design; k: number; h: number; value: string; t: number}> = ({d, k, h, value, t}) => {
+const Column: React.FC<{d: Design; k: number; h: number; value: string; t: number; label?: string}> = ({d, k, h, value, t, label = d.name}) => {
 	const grow = ramp(t, FADE, FADE + GROW, ease);
 	return (
 		<div style={{position: 'absolute', left: colX(k), top: 0, width: COL_W, height: 1080, opacity: ramp(t, 0, FADE)}}>
@@ -87,7 +86,7 @@ const Column: React.FC<{d: Design; k: number; h: number; value: string; t: numbe
 				{value}
 			</div>
 			<div style={{position: 'absolute', top: BASE + 20, width: '100%', textAlign: 'center', fontSize: 36, fontWeight: d.ours ? 800 : 600, color: d.ours ? color.accent : color.muted}}>
-				{d.name}
+				{label}
 			</div>
 		</div>
 	);
@@ -139,17 +138,13 @@ export const BenchStepsShot: React.FC<{frames: number; benchmarks: Benchmarks}> 
 	);
 };
 
-// ------------------------------------------------------------------ shot 2: cost per answer, then the multiple
+// ------------------------------------------------------------------ shot 2: cost per answer
 
-/** Cost bars start at zero, so their heights compare honestly; then one caption with the multiple. */
-export const BenchCostShot: React.FC<{frames: number; benchmarks: Benchmarks}> = ({frames, benchmarks: b}) => {
+/** Cost bars start at zero, so their heights compare honestly; names go without the "(ours)" tag here. */
+export const BenchCostShot: React.FC<{frames: number; benchmarks: Benchmarks}> = ({benchmarks: b}) => {
 	const frame = useCurrentFrame();
 	const ds = b.designs.slice(0, 3);
-	const d = ours(b);
 	const top = Math.max(...ds.map((x) => x.usd_per_answer ?? 0), 1e-9);
-	const priciest = ds.reduce<Design>((a, x) => ((x.usd_per_answer ?? 0) > (a.usd_per_answer ?? 0) ? x : a), d);
-	const times = (priciest.usd_per_answer ?? 0) / Math.max(1e-9, d.usd_per_answer ?? 1);
-	const captionAt = Math.round(frames * 0.4);
 	return (
 		<AbsoluteFill style={{fontFamily: font.sans}}>
 			{b.final ? null : <PlaceholderTag />}
@@ -160,14 +155,8 @@ export const BenchCostShot: React.FC<{frames: number; benchmarks: Benchmarks}> =
 			{ds.map((x, k) => {
 				const t = frame - (6 + k * 12);
 				const c = x.usd_per_answer ?? 0;
-				return <Column key={x.name} d={x} k={k} h={(c / top) * BAR_MAX} value={usd(c)} t={t} />;
+				return <Column key={x.name} d={x} k={k} h={(c / top) * BAR_MAX} value={usd(c)} t={t} label={x.short ?? x.name} />;
 			})}
-			<Footer opacity={ramp(frame, captionAt, captionAt + FADE)} size={48}>
-				<span style={{color: color.accent, fontWeight: 800}}>{Number(times.toFixed(1))}×</span>{' '}
-				<span style={{color: color.text}}>
-					{benchContent.cheaper} {priciest.short ?? priciest.name}
-				</span>
-			</Footer>
 		</AbsoluteFill>
 	);
 };

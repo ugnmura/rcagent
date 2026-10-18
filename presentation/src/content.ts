@@ -323,7 +323,6 @@ export const benchmarks = {
 	andTop: 'with the top score:',
 	perAnswer: 'per answer',
 	rca: {ac1: 'right root cause, first guess', ac3: 'in the top three', logsOnly: 'logs only', withMetrics: 'with metric + trace tools'},
-	cheaper: 'cheaper than',
 	cues: [
 		'How did we get here? Same sealed questions, graded blind, at every step.',
 		'We started small: seven fixed tools.',
