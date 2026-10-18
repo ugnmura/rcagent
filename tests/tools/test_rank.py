@@ -53,10 +53,12 @@ async def test_a_gap_makes_the_change_not_comparable(mcp, corpus):
 
 async def test_whole_corpus_and_levels(mcp, corpus):
     out = await call(mcp, "rank_problems", start="2005-06-09", end="2005-06-15", min_level="fatal")
-    assert "Log table openstack: no entries at fatal level or above in this period" in out
+    assert "Log table openstack: no entries at all in this period; the data covers 2017-05-16" in out
     assert _items(out)
     warn = await call(mcp, "rank_problems", log_tables=["openstack"], start="2017-05-16", end="2017-05-17")
     assert "WARNING" in warn and _items(warn)
+    fatal = await call(mcp, "rank_problems", log_tables=["openstack"], start="2017-05-16", end="2017-05-17", min_level="fatal")
+    assert "no entries at fatal level or above in this period (levels seen: INFO, WARNING)" in fatal
 
 
 async def test_bad_input_is_explained(mcp, corpus):

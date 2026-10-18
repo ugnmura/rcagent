@@ -124,6 +124,8 @@ def _label(b: datetime, zone: tzinfo, bucket: Bucket) -> str:
         return b.strftime("%Y-%m-%d")
     local = b.astimezone(zone)
     off = local.strftime("%z")
+    if off == "+0000" and local.tzname() == "UTC":
+        return f"{local:%Y-%m-%d %H:%M} UTC"
     return f"{local:%Y-%m-%d %H:%M} UTC{off[:3]}:{off[3:]}"
 
 

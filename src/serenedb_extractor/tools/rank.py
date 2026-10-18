@@ -178,6 +178,14 @@ def _rank_one(
             run.asked = levels
             return run
         severe = {v: n for v, n in levels.items() if SEVERITY.get(v.upper(), 0) >= floor}
+        if not levels:
+            try:
+                rng = data_range(db, lt, cols)
+            except ScanTooExpensive:
+                rng = None
+            where = f"; the data covers {cur.fmt(rng.first)} to {cur.fmt(rng.last)} {tz}" if rng else ""
+            run.note = f"no entries at all in this period{where}"
+            return run
         if not severe:
             names = ", ".join(sorted(levels)) or "none"
             run.note = f"no entries at {_floor_name(floor)} level or above in this period (levels seen: {names})"
