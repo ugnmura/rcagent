@@ -25,7 +25,7 @@ below as well.
       redacted before grading.
     - "Exact" checks the answer's objective values against the golden values.
     - Confidence intervals are bootstrap over questions (rubric) and Wilson (exact).
-- **Designs compared.** This server ("Drain3 + 12 tools": Drain3 templates at question time, 12 tools at `6cad141`
+- **Designs compared.** This server ("Drain3 + 18 tools": Drain3 templates at question time, 12 tools at `6cad141`
   including `run_sql` and setup, 18 now) and two earlier designs by the same team, each in the setup its own README documents:
   - **18 fixed tools** (`OrFrederick/serenedb-log-mcp`, called v1 in the benchmark repo): an MCP server with 18
     specialised tools; templates are fixed at load time.
@@ -36,7 +36,7 @@ below as well.
 
 Finals, Opus 5.5 high effort, k=5, sealed set of 30 questions:
 
-| Measure | **Drain3 + 12 tools** (`6cad141`) | 18 fixed tools | 7 fixed tools |
+| Measure | **Drain3 + 18 tools** (`6cad141`) | 18 fixed tools | 7 fixed tools |
 |---|---|---|---|
 | Blind rubric | **96.9%** [94.6–98.7] | 92.9% [87.6–96.8] | 93.5% [88.8–96.8] |
 | Paired rubric difference against the extractor | – | −4.0 pts [−8.8, −0.3] | −3.4 pts [−8.1, +0.1] |
@@ -48,7 +48,7 @@ Finals, Opus 5.5 high effort, k=5, sealed set of 30 questions:
 
 Other suites at the same commit:
 
-| Measure | Drain3 + 12 tools | 18 fixed tools | 7 fixed tools |
+| Measure | Drain3 + 18 tools | 18 fixed tools | 7 fixed tools |
 |---|---|---|---|
 | Localisation: right node and time at the first answer (Sonnet, k=3, 42 trials) | **100%** [92–100] | 100% | 86% |
 | Templating accuracy, BGL (GA / FGA) | 0.929 / **0.745** | 0.939 / 0.694 | 0.939 / 0.694 |
@@ -74,7 +74,7 @@ results are 2.6 times longer, and there are 15 tools instead of 12. There is no 
 
 The three designs are three MCP servers over the same SereneDB data. The team built all three:
 
-| | **Drain3 + 12 tools** (this server) | **18 fixed tools** ([serenedb-log-mcp](https://github.com/OrFrederick/serenedb-log-mcp)) | **7 fixed tools** ([serenedb-log-mcp-v2](https://github.com/OrFrederick/serenedb-log-mcp-v2)) |
+| | **Drain3 + 18 tools** (this server) | **18 fixed tools** ([serenedb-log-mcp](https://github.com/OrFrederick/serenedb-log-mcp)) | **7 fixed tools** ([serenedb-log-mcp-v2](https://github.com/OrFrederick/serenedb-log-mcp-v2)) |
 |---|---|---|---|
 | Data | Parquet/JSON read in place, also from S3; raw text copied once | copied into tables at load | copied into tables at load; TextBench read in place |
 | Templates | at question time: SQL masking, then Drain, kept as stable IDs `T1, T2, …` | at load time: Loghub template regexes, then a regex mask chain | at load time: the regex mask chain only |
@@ -90,7 +90,7 @@ is the F1 score over groups, so it punishes splitting one template into many. Hi
 
 | Approach | BGL GA | BGL FGA | OpenStack GA | OpenStack FGA |
 |---|---|---|---|---|
-| **Drain3 + 12 tools** (this server, `6cad141`) | 0.929 | **0.745** | 0.355 | 0.682 |
+| **Drain3 + 18 tools** (this server, `6cad141`) | 0.929 | **0.745** | 0.355 | 0.682 |
 | 18 / 7 fixed tools (regex mask chain¹) | **0.939** | 0.694 | **1.000** | **1.000** |
 | Drain (the standard parser), Loghub-2.0's tuned settings | 0.919 | 0.624 | 0.752 | 0.007 |
 | *AEL (published)* | *0.915* | *0.587* | *0.743* | *0.682* |

@@ -21,10 +21,10 @@
   </style>
 
   <text x="20" y="28" class="t1 title">Answer quality on 30 sealed held-out questions</text>
-  <text x="20" y="48" class="t2">Claude Opus 5.5 · 5 trials per question · blind grader · ours: Drain3 templates + 12 tools · others: the team's earlier fixed-tool servers</text>
+  <text x="20" y="48" class="t2">Claude Opus 5.5 · 5 trials per question · blind grader · ours: Drain3 templates + 18 tools · others: the team's earlier fixed-tool servers</text>
 
   <!-- row labels -->
-  <text x="20" y="115" class="t1" font-weight="600" style="font-size:11.5px">Drain3 + 12 tools</text>
+  <text x="20" y="115" class="t1" font-weight="600" style="font-size:11.5px">Drain3 + 18 tools</text>
   <text x="20" y="145" class="t2">18 fixed tools</text>
   <text x="20" y="175" class="t2">7 fixed tools</text>
 
