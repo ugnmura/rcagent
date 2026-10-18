@@ -281,6 +281,13 @@ export const evidence = {
 export const benchmarks = {
 	title: 'Same questions, graded blind',
 	todo: 'Numbers pending: final benchmark run',
+	placeholder: 'PLACEHOLDER NUMBERS · benchmarks still running',
+	setup: {designs: 'designs', questions: 'sealed questions', runs: 'runs each · graded blind'},
+	race: 'Blind rubric score',
+	winner: 'Top score',
+	graded: 'answers, graded blind',
+	hero: 'blind rubric score',
+	cheaper: 'cheaper per answer than',
 	cues: [
 		'We did not guess which design works.',
 		'We built three, gave them the same sealed questions for all three roles,',

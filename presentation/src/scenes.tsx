@@ -2,7 +2,8 @@
 import React from 'react';
 import {AbsoluteFill, Audio, Freeze, Sequence, spring, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
 import {ASSETS, type AssetKey, type ResolvedAssets} from './assets';
-import type {Benchmarks} from './benchmarks';
+import {BenchCostShot, BenchHeroShot, BenchRaceShot, BenchSetupShot, PlaceholderTag} from './bench';
+import {hasNumbers, type Benchmarks} from './benchmarks';
 import {DialogAudio} from './components';
 import {coldOpen, DRAMATIZATION_LABEL, reveal} from './content';
 import {BarSubtitles, BlackFades, FilmFacecam, Grain, Letterbox, LETTERBOX, NameTag, PushIn, ramp, Vignette} from './film';
@@ -199,9 +200,25 @@ const ActScene: React.FC<SceneProps & {facecam: AssetKey; shots: ShotSpec[]}> = 
 	</AbsoluteFill>
 );
 
-export const BenchmarksScene: React.FC<SceneProps & {benchmarks: Benchmarks | null}> = ({benchmarks, ...p}) => (
-	<ActScene {...p} facecam="s6" shots={[{name: 'bars', weight: 1, render: () => <BenchShot benchmarks={benchmarks} />}]} />
-);
+/** With numbers: setup slams, the bar race, every graded answer under the score, the cost multiple. Without: the TODO bars. */
+export const BenchmarksScene: React.FC<SceneProps & {benchmarks: Benchmarks | null}> = ({benchmarks: b, ...p}) =>
+	b !== null && hasNumbers(b) ? (
+		<AbsoluteFill>
+			<ActScene
+				{...p}
+				facecam="s6"
+				shots={[
+					{name: 'setup', weight: 3, render: (f) => <BenchSetupShot frames={f} benchmarks={b} />},
+					{name: 'race', weight: 5, render: (f) => <BenchRaceShot frames={f} benchmarks={b} />},
+					{name: 'score', weight: 4, render: (f) => <BenchHeroShot frames={f} benchmarks={b} />},
+					{name: 'cost', weight: 3, render: (f) => <BenchCostShot frames={f} benchmarks={b} />},
+				]}
+			/>
+			{b.final ? null : <PlaceholderTag />}
+		</AbsoluteFill>
+	) : (
+		<ActScene {...p} facecam="s6" shots={[{name: 'bars', weight: 1, render: () => <BenchShot benchmarks={b} />}]} />
+	);
 
 /**
  * The close. With the joint take s7-close.mp4: facecam full screen, then it shrinks to the corner and the end

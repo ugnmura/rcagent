@@ -25,7 +25,7 @@ Drop files into `public/assets/` under the exact names of the asset contract
 | `s1-reveal.mp4` … `s7-close.mp4` | facecam + narration audio | scenes 1b–7 |
 | `s7-close-a.mp4`, `s7-close-b.mp4`, `s7-close-c.mp4` | one close clip per presenter (≤ 8 s each), used only while the joint take `s7-close.mp4` is missing; played back to back with hard cuts | scene 7 (their sum) |
 | `roles.mp4` | one screen recording (muted), the three role prompts | nothing; played ~3× as the split's proof clip |
-| `benchmarks.json` | slide 6 numbers | – |
+| `benchmarks.json` | benchmark scene and slide 6 numbers; `questions` and `runs` drive the setup slams and the answer grid, `short` names a design in running text; `final: false` shows a pink PLACEHOLDER tag | – |
 | `music.mp3` (optional) | music bed under the whole talk: loops, low, ducked under every voice, fades in and out | nothing |
 
 A missing file shows a pink, labelled **PLACEHOLDER** of its target length, so everything renders with no assets.
