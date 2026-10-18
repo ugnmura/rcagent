@@ -2,7 +2,7 @@
 
 import re
 from datetime import datetime, timedelta, timezone
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from serenedb_extractor import format as fmt
@@ -119,6 +119,52 @@ def _largest(items: list[Any], limit: int) -> list[Any]:
         return items
     keep = {id(it) for it in sorted(items, key=lambda it: -it[1].value)[:limit]}
     return [it for it in items if id(it) in keep]
+
+
+NAME_OMITTED = 10  # left-out time buckets are named when there are at most this many
+LABEL_CHARS = 160  # a template shown as a heading: a long one (a whole traceback) is cut
+
+
+def tpl_label(t: Template) -> str:
+    """A template's text as a one-line heading, cut like rank_problems cuts it."""
+    return fmt.entry_text(fmt.template_text(t.template), LABEL_CHARS)
+
+
+def _bucket_noun(labels: list[str], n: int) -> str:
+    """What one group is called: days, hours or minutes for a single time bucket of one unit, else groups."""
+    m = _TIME.fullmatch(labels[0]) if len(labels) == 1 else None
+    if m is None:
+        return "group" if n == 1 else "groups"
+    unit = _UNIT_NAME[m.group(2)]
+    if int(m.group(1)) == 1:
+        return unit if n == 1 else unit + "s"
+    return f"{m.group(1)}-{unit} bucket" + ("" if n == 1 else "s")
+
+
+def _short(value: float, exact: bool) -> str:
+    return f"{round(value):,}" if exact else f"≈{round(value):,}"
+
+
+def omitted_line(
+    labels: list[str],
+    n_groups: int,
+    entries: float,
+    exact: bool,
+    named: list[tuple[tuple[str, ...], fmt.Measured]] | None = None,
+    sep: str = ", ",
+) -> str:
+    """The line that says what a cut grouping left out, so a left-out time bucket never reads as zero: how many
+    groups and entries (the smallest ones) and, for time buckets, which ones when they are few (`named`, in
+    reading order, all of the left-out groups or None when they are not known)."""
+    one = exact and round(entries) == 1
+    text = (
+        f"not shown: {n_groups:,} smaller {_bucket_noun(labels, n_groups)}, "
+        f"{_short(entries, exact)} {'entry' if one else 'entries'} in all"
+    )
+    timed = any(lbl.startswith("time:") for lbl in labels)
+    if timed and named is not None and 0 < len(named) <= NAME_OMITTED and len(named) == n_groups:
+        text += " (" + ", ".join(f"{sep.join(k)}: {_short(m.value, m.exact)}" for k, m in named) + ")"
+    return text
 
 
 def ordered(keys: list[tuple[str, ...]], labels: list[str], value: dict[tuple[str, ...], float]) -> list[tuple[str, ...]]:
@@ -486,7 +532,7 @@ def _render_locate(
         out.append("Example occurrences come from the sampled blocks.")
     for ti, t in enumerate(sc.templates):
         out.append("")
-        out.append(f"{t.template_id}  {fmt.template_text(t.template)}")
+        out.append(f"{t.template_id}  {tpl_label(t)}")
         items = cut_groups.get(ti, [])
         if not items:
             out.append("    no matching entries" + ("" if plan.exact else " in the sample (some may exist outside it)"))
@@ -500,6 +546,13 @@ def _render_locate(
                 out.append(f"    {'    ' if groups else ''}examples: {', '.join(ex)}")
         if len(shown[ti]) > len(items):
             out.append(f"    showing the {len(items):,} largest of {len(shown[ti]):,} groups{cap}")
+            kept = {key for key, _ in items}
+            left = [(key, m) for key, m in shown[ti] if key not in kept]
+            out.append(
+                "    " + omitted_line(
+                    [g for g, _ in groups], len(left), sum(m.value for _, m in left), all(m.exact for _, m in left), left
+                )
+            )
     if not any(cut_groups.values()):
         out += empty_why
     return "\n".join(out)
@@ -531,7 +584,16 @@ def extract_params(
     tpls, notes = _resolve_templates(ctx, lt.name, [template])
     t = tpls[0]
     if not t.params:
-        raise UserFacingError(f"{t.template_id} ({t.template}) has no parameters to extract.")
+        head = fmt.how_measured(
+            "catalog only: the template's pattern has no parameters; no entries were read",
+            tr.describe() if tr.bounded else None, _filters_text(f, tpls), tz=timezone,
+        )
+        body = [fmt.sentence(n) for n in notes] + [
+            f"{t.template_id}  {tpl_label(t)}",
+            "    this template has no parameters to extract: every entry it matches has the same text. "
+            "Use locate_occurrences for where and when it occurs.",
+        ]
+        return "\n".join([head, *body])
     shown_limit, cap_note = fmt.limit_and_note(limit, DEFAULT_VALUES, DEFAULT_VALUES * ctx.settings.limit_cap)
     db = ctx.db
     with readable(f"the source of log table '{lt.name}'"):
@@ -573,6 +635,8 @@ class ParamResult:
     by_distinct: int
     by_top: dict[tuple[str, str], list[tuple[str, int]]]
     by_stats: dict[tuple[str, str], Stats]
+    by_left: list[tuple[str, int]] = field(default_factory=list)  # the groups after the shown ones, up to NAME_OMITTED
+    by_entries: int = 0  # matching entries over all groups of `by`
 
 
 class _ParamRun:
@@ -645,13 +709,18 @@ class _ParamRun:
         return res
 
     def _by(self, res: ParamResult) -> None:
+        # The next few groups too, so a few left-out time buckets can be named.
         rows = self.q(
-            f"SELECT b, count(*) AS c, count(*) OVER () AS g FROM ({self.matched}) GROUP BY b ORDER BY c DESC, b LIMIT {_int(BY_GROUPS)}"
+            f"SELECT b, count(*) AS c, count(*) OVER () AS g, sum(count(*)) OVER () AS tot FROM ({self.matched}) "
+            f"GROUP BY b ORDER BY c DESC, b LIMIT {_int(BY_GROUPS + NAME_OMITTED)}"
         )
-        res.by_total = [(str(r[0]), int(r[1])) for r in rows]
+        res.by_total = [(str(r[0]), int(r[1])) for r in rows[:BY_GROUPS]]
+        res.by_left = [(str(r[0]), int(r[1])) for r in rows[BY_GROUPS:]]
         if self.by_time:  # the largest BY_GROUPS buckets, listed in time order like the other tools
             res.by_total.sort(key=lambda bc: (bc[0] == NONE_LABEL, bc[0]))
+            res.by_left.sort(key=lambda bc: (bc[0] == NONE_LABEL, bc[0]))
         res.by_distinct = int(rows[0][2]) if rows else 0
+        res.by_entries = int(rows[0][3]) if rows else 0
         if not rows:
             return
         p = dict(self.params)
@@ -694,7 +763,7 @@ def _render_params(
         )
     ]
     out += [fmt.sentence(n) for n in [*notes, *plan.notes]]
-    out.append(f"{t.template_id}  {fmt.template_text(t.template)}")
+    out.append(f"{t.template_id}  {tpl_label(t)}")
     out.append(f"    matching entries: {_num(r.matched)}{sampled}")
     if plan.exact and r.matched.value == 0:
         out.append("    no entry matches this template in this scope.")
@@ -728,5 +797,13 @@ def _render_params(
             out.append(
                 f"    showing {len(r.by_total):,} of {r.by_distinct:,} {by} values"
                 + (" (the largest ones, listed in time order)" if by_time else "")
+            )
+            n_left = r.by_distinct - len(r.by_total)
+            named: list[tuple[tuple[str, ...], fmt.Measured]] = [((b,), fmt.Measured(float(n), True)) for b, n in r.by_left]
+            out.append(
+                "    " + omitted_line(
+                    [by], n_left, r.by_entries - sum(n for _, n in r.by_total), True,
+                    named if len(named) == n_left else None,
+                ) + sampled
             )
     return "\n".join(out)

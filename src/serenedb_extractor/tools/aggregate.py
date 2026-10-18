@@ -30,7 +30,16 @@ from serenedb_extractor.query.filters import (
 from serenedb_extractor.query.stats import role_columns
 from serenedb_extractor.setup.sniff import readable
 from serenedb_extractor.tools.describe import known_columns, like_pattern
-from serenedb_extractor.tools.investigate import _filter_columns, _group_columns, _one, ordered, parse_group_by, real_keys
+from serenedb_extractor.tools.investigate import (
+    NAME_OMITTED,
+    _filter_columns,
+    _group_columns,
+    _one,
+    omitted_line,
+    ordered,
+    parse_group_by,
+    real_keys,
+)
 
 DEFAULT_GROUPS = 25
 NARROW = "narrow it: a shorter period (start/end), filters such as level or team, or fewer log tables."
@@ -144,12 +153,14 @@ def _top_groups(
     db: Any, lt: LogTable, plan: cost.Plan, labels: list[str], key_names: list[str], inner: str,
     params: dict[str, Any], timeout: float, what: str, keep: int, note: str | None, tz: str,
 ) -> TableCount:
-    """The first `keep` groups in the order `ordered` gives, ordered and cut inside SereneDB."""
+    """The first `keep` groups in the order `ordered` gives, ordered and cut inside SereneDB, plus the next
+    NAME_OMITTED ones, so a few left-out time buckets can be named."""
     # The largest `keep` groups (ties by key), then put in reading order here, so a cut never hides the peaks.
     gcols = ", ".join(key_names)
     sql = (
         f"SELECT {gcols}, n, count(*) OVER () AS all_groups, sum(n) OVER () AS all_n "
-        f"FROM (SELECT {gcols}, count(*) AS n FROM ({inner}) GROUP BY {gcols}) ORDER BY n DESC, {gcols} LIMIT {int(keep)}"
+        f"FROM (SELECT {gcols}, count(*) AS n FROM ({inner}) GROUP BY {gcols}) ORDER BY n DESC, {gcols} "
+        f"LIMIT {int(keep) + NAME_OMITTED}"
     )
     rows = db.read(sql, params, timeout_s=timeout, what=what, how_to_narrow=NARROW).rows
     k = len(key_names)
@@ -166,6 +177,20 @@ def _largest(groups: list[tuple[tuple[str, ...], fmt.Measured]], limit: int) -> 
         return groups
     keep = {k for k, _ in sorted(groups, key=lambda g: (-g[1].value, g[0]))[:limit]}
     return [g for g in groups if g[0] in keep]
+
+
+def _left_out(t: TableCount, cut: list[tuple[tuple[str, ...], fmt.Measured]], n_all: int) -> str:
+    """What the cut left out: the groups fetched but not shown, and, when only the first groups were fetched,
+    the rest from the totals (all groups and all entries are known)."""
+    kept = {k for k, _ in cut}
+    left = [(k, m) for k, m in t.groups if k not in kept]
+    assert t.total is not None
+    if len(t.groups) == n_all:
+        entries, exact = sum(m.value for _, m in left), all(m.exact for _, m in left)
+    else:
+        entries, exact = t.total.value - sum(m.value for _, m in cut), t.total.exact
+    n_left = n_all - len(cut)
+    return omitted_line(t.labels, n_left, entries, exact, left if len(left) == n_left else None, sep=" · ")
 
 
 def _share(part: fmt.Measured, whole: fmt.Measured | None) -> str:
@@ -295,6 +320,8 @@ def _render(
                 lines.append(f"  showing the {len(cut):,} largest of {n_all:,} groups ({more})")
             for key, m in cut:
                 lines.append(f"  {_key_text(t.labels, key)}: {_num(m)}{_share(m, t.total)}")
+            if len(cut) < n_all:
+                lines.append("  " + _left_out(t, cut, n_all))
         for why in t.empty_why or []:
             lines.append(f"  {why}")
     # Time buckets of tables in different zones are different hours: no combined line for them.
