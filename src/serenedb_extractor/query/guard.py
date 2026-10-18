@@ -10,7 +10,7 @@ from sqlglot import exp
 from sqlglot.dialects.dialect import Dialect
 from sqlglot.errors import SqlglotError
 from sqlglot.optimizer.scope import Scope, traverse_scope
-from sqlglot.tokens import TokenType
+from sqlglot.tokens import Token, TokenType
 
 from serenedb_extractor.errors import UserFacingError
 
@@ -38,7 +38,7 @@ ALLOWED_FUNCTIONS = frozenset(
     count sum avg min max median mode stddev stddev_pop stddev_samp variance var_pop var_samp quantile quantile_cont
     quantile_disc percentile_cont percentile_disc approx_count_distinct approx_quantile any_value arbitrary first last
     list array_agg string_agg group_concat bool_and bool_or count_if sum_if arg_min arg_max min_by max_by histogram
-    row_number rank dense_rank percent_rank cume_dist ntile lag lead first_value last_value nth_value
+    grouping row_number rank dense_rank percent_rank cume_dist ntile lag lead first_value last_value nth_value
     array_length cardinality array_to_string list_aggr list_contains list_distinct list_sort len array row
     varchar char text integer int bigint smallint tinyint double float real numeric decimal boolean
     timestamp timestamptz time timetz date interval bit
@@ -49,13 +49,23 @@ MAX_GROWING_CALLS = 2
 MAX_GROWING_OPS = 6
 MAX_GROWING_LITERAL = 100
 MAX_LITERAL = 1000
-GROWING_FUNCTIONS = frozenset("replace regexp_replace overlay translate concat concat_ws string_agg group_concat".split())
+# Aggregates (and the calls that turn their lists into text) that collect a whole column into one value:
+# one such value is as big as the table, so it may not feed another size-growing operation, nor run as a
+# window function (OVER), where every row gets a value as big as all the rows before it.
+COLLECTING_FUNCTIONS = frozenset(
+    "string_agg group_concat array_agg list array histogram array_to_string list_aggr list_string_agg".split()
+)
+GROWING_FUNCTIONS = frozenset("replace regexp_replace overlay translate concat concat_ws".split()) | COLLECTING_FUNCTIONS
+# Calls that build one value out of several: in a recursive CTE each round could double a value.
+_RECURSIVE_BUILDERS = frozenset("json_array json_object to_json row".split())
+# Words after which "(" or "[" opens a value of its own (a tuple, a list literal), not a call or an index.
+_EXPR_START_WORDS = frozenset("select distinct then else when and or not all any some case".split())
 # Keywords that may be followed by "(" without being a function call.
 SYNTAX_WORDS = frozenset(
     """
     in not and or as on over from where select union intersect except all any some exists filter using by group
     order partition within values when then else case end join lateral distinct between like ilike is having
-    limit offset with materialized similar escape rows window recursive
+    limit offset with materialized similar escape rows window recursive cube rollup grouping
     """.split()
 )
 MAX_PAREN_DEPTH = 100
@@ -100,6 +110,52 @@ def _source_name(node: exp.Expr | None) -> str:
 COMPLEX = "the query is too complex or couldn't be read"
 
 
+def _matching_parens(tokens: list[Token]) -> dict[int, int]:
+    """Index of each "(" -> index of its ")" (unbalanced ones are left out; the parser refuses them)."""
+    out: dict[int, int] = {}
+    stack: list[int] = []
+    for i, tok in enumerate(tokens):
+        if tok.token_type == TokenType.L_PAREN:
+            stack.append(i)
+        elif tok.token_type == TokenType.R_PAREN and stack:
+            out[stack.pop()] = i
+    return out
+
+
+def _is_string(tok: Token) -> bool:
+    return "STRING" in tok.token_type.name
+
+
+def _starts_value(prev: Token | None) -> bool:
+    """Whether a "(" or "[" right after `prev` opens a value (a tuple, a list literal) rather than a call or an index."""
+    if prev is None:
+        return True
+    if _is_string(prev):
+        return False
+    text = prev.text.lower()
+    if re.fullmatch(r"[a-z_][a-z0-9_$ ]*", text):
+        return text in _EXPR_START_WORDS
+    return prev.token_type not in (TokenType.R_PAREN, TokenType.R_BRACKET)
+
+
+def _has_top_level_comma(tokens: list[Token], start: int, stop: int) -> bool:
+    depth = 0
+    for tok in tokens[start + 1 : stop]:
+        if tok.token_type in (TokenType.L_PAREN, TokenType.L_BRACKET, TokenType.L_BRACE):
+            depth += 1
+        elif tok.token_type in (TokenType.R_PAREN, TokenType.R_BRACKET, TokenType.R_BRACE):
+            depth -= 1
+        elif tok.token_type == TokenType.COMMA and depth == 0:
+            return True
+    return False
+
+
+RECURSIVE_GROWTH = (
+    "a recursive query (WITH RECURSIVE) may not build text or values ({what}): each round could double a "
+    "value until it fills the server's memory"
+)
+
+
 def _check_tokens(text: str) -> None:
     """Checks on the raw tokens, which see what the server will see: TABLE in any form, unicode-escaped
     names, runaway nesting, and every function name against the allowlist."""
@@ -109,14 +165,20 @@ def _check_tokens(text: str) -> None:
         raise SqlRejected(COMPLEX) from None
     if any(tok.token_type == TokenType.SEMICOLON for tok in tokens):
         raise SqlRejected("run_sql runs one statement at a time; send each query on its own")
+    closing = _matching_parens(tokens)
+    # In a recursive CTE every round can double a value (s || s): no value building at all there.
+    recursive = any(tok.token_type == TokenType.RECURSIVE for tok in tokens)
     depth = 0
     # Paren depths at which a size-growing string function's arguments are open: one inside another (replace of a
     # replace ...) can multiply a value's size in a single row, which the time-based cost check can't see.
     growing_open: list[int] = []
     growing_calls = 0
     growing_ops = 0  # growing calls plus || concatenations
+    collecting: list[str] = []  # whole-column aggregates used
+    literal_run = 0  # adjacent string literals ('a' 'b') are one text: their lengths add up
     for i, tok in enumerate(tokens):
-        word = tok.text.lower() if "STRING" not in tok.token_type.name else ""
+        word = tok.text.lower() if not _is_string(tok) else ""
+        prev = tokens[i - 1] if i > 0 else None
         if word.lstrip("_") in REG_TYPES:  # _regclass is the array type of regclass
             raise SqlRejected(f"casts to {word.lstrip('_')} look up catalog objects and are not allowed in run_sql")
         if tok.token_type == TokenType.TABLE:
@@ -125,19 +187,35 @@ def _check_tokens(text: str) -> None:
             depth += 1
             if depth > MAX_PAREN_DEPTH:
                 raise SqlRejected(COMPLEX)
+            stop = closing.get(i)
+            if (
+                recursive
+                and stop is not None
+                and _starts_value(prev)
+                and tokens[i + 1].token_type not in (TokenType.SELECT, TokenType.WITH, TokenType.VALUES)
+                and _has_top_level_comma(tokens, i, stop)
+            ):
+                raise SqlRejected(RECURSIVE_GROWTH.format(what="a tuple of values"))
         elif tok.token_type == TokenType.R_PAREN:
             if growing_open and growing_open[-1] == depth:
                 growing_open.pop()
             depth -= 1
-        if "STRING" in tok.token_type.name:
+        if recursive and tok.token_type == TokenType.L_BRACE:
+            raise SqlRejected(RECURSIVE_GROWTH.format(what="a struct literal"))
+        if recursive and tok.token_type == TokenType.L_BRACKET and _starts_value(prev):
+            raise SqlRejected(RECURSIVE_GROWTH.format(what="a list literal"))
+        if _is_string(tok):
+            literal_run = literal_run + len(tok.text) if prev is not None and _is_string(prev) else len(tok.text)
             limit = MAX_GROWING_LITERAL if growing_open else MAX_LITERAL
-            if len(tok.text) > limit:
+            if literal_run > limit:
                 raise SqlRejected(
                     f"a text longer than {limit} characters"
                     + (" inside a replace/concat-style function" if growing_open else "")
                     + " is not allowed in run_sql (it can build huge values)"
                 )
         if tok.token_type == TokenType.DPIPE:  # || concatenates: it grows values too
+            if recursive:
+                raise SqlRejected(RECURSIVE_GROWTH.format(what="||"))
             growing_ops += 1
             if growing_ops > MAX_GROWING_OPS:
                 raise SqlRejected(f"at most {MAX_GROWING_OPS} || concatenations and replace/concat-style calls per query")
@@ -147,11 +225,16 @@ def _check_tokens(text: str) -> None:
         if nxt is None or nxt.token_type != TokenType.L_PAREN or not re.fullmatch(r"[a-z_][a-z0-9_$ ]*", word):
             continue
         quoted_or_plain = tok.token_type in (TokenType.VAR, TokenType.IDENTIFIER)
+        if recursive and (word in GROWING_FUNCTIONS or word in _RECURSIVE_BUILDERS):
+            raise SqlRejected(RECURSIVE_GROWTH.format(what=f"{word}()"))
+        if word in COLLECTING_FUNCTIONS:
+            collecting.append(word)
+            _refuse_window(tokens, closing, i + 1, word)
         if word in GROWING_FUNCTIONS:
             if growing_open:
                 raise SqlRejected(
-                    f"{word}() inside another replace/concat-style function can build huge values; "
-                    "nest at most one of them"
+                    f"{word}() inside another replace/concat-style function or string aggregate can build huge "
+                    "values; nest at most one of them"
                 )
             growing_calls += 1
             growing_ops += 1
@@ -165,7 +248,32 @@ def _check_tokens(text: str) -> None:
             continue
         if not quoted_or_plain and word.split()[0] in SYNTAX_WORDS:
             continue
+        if word == "group" and tok.token_type == TokenType.VAR and prev is not None and prev.text.lower() == "within":
+            continue  # percentile_cont(0.95) WITHIN GROUP (ORDER BY x)
         raise SqlRejected(f"function {word} isn't allowed in run_sql")
+    if collecting and growing_ops > 1:
+        raise SqlRejected(
+            f"{collecting[0]}() gathers a whole column into one value, so it can't be combined with another "
+            "replace/concat-style function, string aggregate or || in the same query (together they build huge values)"
+        )
+
+
+def _refuse_window(tokens: list[Token], closing: dict[int, int], open_at: int, word: str) -> None:
+    """A whole-column aggregate run as a window function (its call, any FILTER (...), then OVER)."""
+    stop = closing.get(open_at)
+    j = stop + 1 if stop is not None else len(tokens)
+    while (
+        j + 1 < len(tokens)
+        and tokens[j].text.lower() == "filter"
+        and tokens[j + 1].token_type == TokenType.L_PAREN
+        and (j + 1) in closing
+    ):
+        j = closing[j + 1] + 1
+    if j < len(tokens) and tokens[j].token_type == TokenType.OVER:
+        raise SqlRejected(
+            f"{word}() as a window function (OVER) builds, for every row, a value as large as all the rows "
+            "before it; use it as a plain aggregate with GROUP BY"
+        )
 
 
 def _cte_references(root: exp.Expr) -> set[int]:
