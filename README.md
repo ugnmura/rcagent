@@ -24,6 +24,7 @@ It is a prototype built for the *Making Sense of Logs* challenge (National AI Ha
 - **Worked investigation:** [docs/worked-investigation.md](docs/worked-investigation.md) answers one question
   per role on the base corpus, citing every number. The full tool calls, results and queries are in
   [docs/worked-investigation-transcript.md](docs/worked-investigation-transcript.md).
+- **Requirements checklist:** [every requirement of the brief, with where it is met](#requirements-checklist).
 - **How the parts fit:** [CONTEXT.md](CONTEXT.md) (glossary) and [docs/adr/](docs/adr/) (decisions).
 
 ## Quick start (from a clean checkout)
@@ -71,6 +72,35 @@ mode"). For anything shared, use a reader and a writer role and keep passwords o
 
 No mount? Pass `--docker-cp serenedb` to the loader: it copies the two Parquet files into the container
 (`/data/loghub`) and sets the tables up from there.
+
+**Why a local SereneDB and our own loader, schema and ownership table:** the organisers' technical guidance for
+this challenge (*Getting started with SereneDB, Making Sense of Logs*, section 1 "What you need to build") says:
+"There is no pre-built loader, schema or ownership table, and there are no shared connection details. You run
+SereneDB locally and build these three pieces yourselves". So the quick start runs SereneDB in Docker,
+`scripts/load_base_corpus.py` is the loader, and [Team ownership](#team-ownership) documents the ownership table.
+
+## Requirements checklist
+
+Each requirement of the challenge brief, in its own words, and where this repository meets it.
+
+| Brief requirement | Where it is met |
+|---|---|
+| An agent answers at least one question for each of the three roles, with relevant evidence, an appropriate level of detail and a next step suited to that role | [docs/worked-investigation.md](docs/worked-investigation.md) sections 1 to 3 (engineer, team lead, manager); role workflows in [src/serenedb_extractor/prompts.py](src/serenedb_extractor/prompts.py), served as MCP prompts and as `/engineer`, `/team-lead`, `/manager` |
+| Uses both retrieval and aggregation on BGL and OpenStack; at least one answer uses full-text search | `search_logs` (text search with time and field filters) and `get_context` (nearby events) in the engineer answer; see [Tools](#tools) |
+| At least one aggregation over the whole base corpus, such as counts by dataset or mapped team; state the data scope and any filters | `count_logs` with no `log_tables` counts every log table, grouped by team, component or level, in the team-lead and manager answers. Every result starts with "How this was measured" (period, filters, exact or sampled) |
+| Practical recommendations supported by the findings: what to check or fix first and why | "Next check" (engineer), "Investigate first" (team lead) and the ranked risks with owner and action (manager) in [docs/worked-investigation.md](docs/worked-investigation.md) |
+| Exposes search and summary capabilities as tools whose descriptions explain purpose, inputs and outputs | [Tools](#tools); the docstrings in [src/serenedb_extractor/server.py](src/serenedb_extractor/server.py) follow "Use when / Inputs / Returns" |
+| Shows its work: executed queries and results behind every claim; hypotheses and limitations labelled | [Evidence](#evidence-every-number-traceable-to-a-query) (`[Qn]` handles, `show_evidence`); the full queries and results are in [docs/worked-investigation-transcript.md](docs/worked-investigation-transcript.md); "Possible cause (hypothesis, not established by the logs)" and "What the data does and does not establish" in the worked investigation |
+| Search returns a limited set of entries, aggregation returns calculated counts or trends, and truncation is indicated | Default limits per tool, exact totals with "showing N of M" and a "cut" marker; `trend` per period; see [Tools](#tools) |
+| Runs from a clean checkout: connect to SereneDB, load the base data, start the agent workflow | [Quick start](#quick-start-from-a-clean-checkout) and [The base corpus and the loader](#the-base-corpus-and-the-loader) |
+| A public repository with a README explaining the workflow, setup, how to run it and known limitations | This README; [Known limits](#known-limits) |
+| One worked investigation of a real issue, with questions, tool calls, executed queries, results, and each role's answer and action | [docs/worked-investigation.md](docs/worked-investigation.md) and its transcript |
+| A presentation or demo of no more than 5 minutes, and slides | [docs/presentation/](docs/presentation/) |
+| Optional: the agent manages its own workspace (create an index for an investigation and remove it after) | `create_index` (with a `dry_run` size and time estimate) and `drop_index`; see [Indexes](#indexes) |
+| Optional: larger datasets, such as the remote OpenTelemetry Parquet data | [Large datasets: TextBench](#large-datasets-textbench-remote-parquet-1-billion-rows-per-file) |
+| Optional: phrase and fuzzy matching | `search_logs` with `fuzzy`, through the search index |
+| Optional: row-level security per role | Not implemented. There is a reader/writer split of database roles ([Reader and writer roles](#reader-and-writer-roles)), not per-role row access |
+| Optional: correlate logs with traces or metrics | Not implemented. `get_context` can scope nearby events to one request or trace ID |
 
 ## The base corpus and the loader
 
@@ -224,6 +254,7 @@ and use libpq's own mechanisms instead:
 ```sh
 docker run -d --name serenedb \
   --platform linux/amd64 \
+  -e SERENEDB_HOST_AUTH_METHOD=trust \
   -p 127.0.0.1:7890:7890 \
   -v ~/logs:/logs:ro \
   serenedb/serenedb@sha256:6d41ac6577e797289158786a2015ba8fbd6875feadb5c491518e166c011058c9
@@ -232,8 +263,11 @@ docker run -d --name serenedb \
 - **Image:** the digest above is the `serenedb/serenedb:latest` of 2026-10-18 that the extractor was built and tested
   against (the same one `scripts/test-db.sh` uses). Newer images may behave differently.
 
-- **Apple Silicon / arm64:** the image has no arm64 build. `--platform linux/amd64` runs it under emulation, which
-  works but is noticeably slower (slow start, slower queries). Leave the flag out on an x86-64 host.
+- **Apple Silicon / arm64:** the pinned image has no arm64 build, and under emulation (`--platform linux/amd64`) it
+  is slow and may crash. On an arm64 machine use `serenedb/serenedb:26.09.2` instead, which has a native arm64 build
+  (multi-arch digest `sha256:f9681a19f7f1290836e8ab200f0b1907dbe2c8380102a09f043a5c44e3ffa2b2`), and leave out
+  `--platform`. The team's benchmark reruns of this version of the extractor ran on that image. Leave the flag out on an
+  x86-64 host as well.
 - **Bind to localhost** (`-p 127.0.0.1:7890:7890`) unless you have set up passwords and network access on purpose.
   SereneDB speaks the Postgres wire protocol on port 7890.
 - **Logs mount:** mount your logs folder **read-only** (`:ro`). Tell the extractor about the mapping with
