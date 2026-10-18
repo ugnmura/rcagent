@@ -1,7 +1,9 @@
 # Logo sources (fetched 2026-10-18)
 
-- `serenedb.svg`: the SereneDB logo from https://serenedb.com (`/assets/logo-dark-BnddcYli.svg`, the version the
-  site shows on its dark theme). Mark colours `#895AF8` and `#80BEFF`, wordmark white.
+- `serenedb-on-dark.svg`: the SereneDB logo for dark backgrounds, from https://serenedb.com
+  (`/assets/logo-light-CbJjn_VN.svg`; light wordmark `#FAFAFA`). Used in the video and PDF.
+- `serenedb.svg`: the same logo for light backgrounds (`/assets/logo-dark-BnddcYli.svg`; black wordmark). Kept for
+  reference. Mark colours in both: `#895AF8` and `#80BEFF`.
 - `schubki-icon.png`: the SchubKI app icon from https://schubki.com/apple-touch-icon.png (180×180, white "S",
   gold "KI" on black).
 - SchubKI has no logo image file: its site renders the wordmark as text, "Schub" followed by "KI" in the accent

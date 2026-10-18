@@ -10,7 +10,7 @@ export const intro = {
 	event: 'National AI Hackathon 2026',
 	// Logos: public/assets/logos/SOURCES.md. SchubKI has no logo file; its wordmark is text.
 	schubki: {first: 'Schub', accent: 'KI', gold: '#D3A43F'},
-	sereneLogo: 'assets/logos/serenedb.svg',
+	sereneLogo: 'assets/logos/serenedb-on-dark.svg',
 	schubkiIcon: 'assets/logos/schubki-icon.png',
 };
 

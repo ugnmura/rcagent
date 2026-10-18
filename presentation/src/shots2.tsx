@@ -26,14 +26,9 @@ export const SchubKI: React.FC<{size: number}> = ({size}) => (
 	</span>
 );
 
-/**
- * The SereneDB logo as published (123×32); only scaled, never recoloured. The file's wordmark is filled black
- * (despite SOURCES.md calling it the dark-theme version), so it sits on a light plate to stay visible.
- */
+/** The SereneDB logo as published for dark backgrounds (123×32); only scaled, never recoloured. */
 export const SereneLogo: React.FC<{height: number}> = ({height}) => (
-	<div style={{background: '#f4f5f7', borderRadius: height * 0.28, padding: `${height * 0.22}px ${height * 0.34}px`}}>
-		<Img src={staticFile(intro.sereneLogo)} style={{height, width: (height * 123) / 32, display: 'block'}} />
-	</div>
+	<Img src={staticFile(intro.sereneLogo)} style={{height, width: (height * 123) / 32, display: 'block'}} />
 );
 
 export const LogoPair: React.FC<{height: number; gap?: number}> = ({height, gap = height * 0.7}) => (
