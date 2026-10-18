@@ -1,5 +1,6 @@
 """Time ranges and role filters as SQL, plus the plain-language diagnosis of an empty result."""
 
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, NamedTuple
@@ -161,16 +162,31 @@ def _ts_type(lt: LogTable, known_columns: dict[str, str]) -> str:
     return known_columns.get(col or "", "TIMESTAMP WITH TIME ZONE")
 
 
+_NUMERIC = re.compile(r"^(U?(TINY|SMALL|BIG|HUGE)?INT(EGER)?\d*|DOUBLE|FLOAT\d*|REAL|DECIMAL.*|NUMERIC.*)$")
+# Epoch numbers this large are milliseconds (seconds would be after the year 5000).
+_EPOCH_MS = 100_000_000_000
+
+
+def instant_sql(expr: str, typ: str, zone: str) -> str:
+    """A timestamp expression of column type `typ` as a timestamptz: a zoned time as is, a naive time read in
+    `zone`, an epoch number (seconds, or milliseconds when that large) converted, and text read leniently,
+    so a value that is not a time is NULL (an entry without a time) instead of an error for the whole query."""
+    t = typ.upper()
+    if is_temporal(t):
+        if "WITH TIME ZONE" in t or t.startswith("TIMESTAMPTZ"):
+            return f"({expr})::timestamptz"
+        return f"(({expr}) AT TIME ZONE {sql_literal(zone)})"
+    if _NUMERIC.match(t):
+        return f"to_timestamp(CASE WHEN abs({expr}) >= {_EPOCH_MS} THEN ({expr}) / 1000.0 ELSE ({expr}) END)"
+    return f"TRY_CAST(({expr}) AS TIMESTAMPTZ)"
+
+
 def ts_tz_sql(lt: LogTable, cols: dict[str, str]) -> str:
     """The timestamp role as a timestamptz expression. Also what to aggregate: min/max of a
     nanosecond column come back as text psycopg cannot parse (spike section 5)."""
     expr = role_sql(lt, "timestamp")
-    typ = cols.get(role_column(role_expr(lt, "timestamp")) or "", "").upper()
-    if not is_temporal(typ):
-        return f"({expr})::timestamptz"
-    if "WITH TIME ZONE" in typ or typ.startswith("TIMESTAMPTZ"):
-        return f"({expr})::timestamptz"
-    return f"(({expr}) AT TIME ZONE {sql_literal(lt.timezone)})"
+    typ = cols.get(role_column(role_expr(lt, "timestamp")) or "", "")
+    return instant_sql(expr, typ, lt.timezone)
 
 
 def ts_compare(lt: LogTable, op: str, dt: datetime, key: str, known_columns: dict[str, str]) -> tuple[str, dict[str, Any]]:
@@ -179,7 +195,7 @@ def ts_compare(lt: LogTable, op: str, dt: datetime, key: str, known_columns: dic
     expr = role_sql(lt, "timestamp")
     typ = _ts_type(lt, known_columns).upper()
     if not is_temporal(typ):
-        return f"({expr})::timestamptz {op} %({key})s::timestamptz", {key: dt.isoformat()}
+        return f"{instant_sql(expr, typ, lt.timezone)} {op} %({key})s::timestamptz", {key: dt.isoformat()}
     if "WITH TIME ZONE" in typ or typ.startswith("TIMESTAMPTZ"):
         cast = "timestamptz_ns" if typ.endswith("_NS") else "timestamptz"
         return f"{expr} {op} %({key})s::{cast}", {key: dt.isoformat()}
@@ -278,7 +294,7 @@ def data_range(db: Database, lt: LogTable, known_columns: dict[str, str]) -> Dat
     if decision.status != "run" or not decision.plan.exact:
         raise ScanTooExpensive("a scan of the timestamp column", cost.cost_text(cost.exact_plan(stats, ts_cols)))
     e = pct(expr)
-    cast_e = f"e AT TIME ZONE {zone}" if naive else "e::timestamptz"
+    cast_e = instant_sql("e", typ, lt.timezone)
     row = db.read(f"SELECT min({cast_e})::timestamptz, max({cast_e})::timestamptz FROM (SELECT {e} AS e FROM {lt.relation})", {}).rows[0]
     return DataRange(row[0], row[1], False, note) if row[0] is not None else None
 

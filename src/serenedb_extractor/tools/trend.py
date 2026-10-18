@@ -16,6 +16,7 @@ from serenedb_extractor.ownership import team_of
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.query import cost, sampling
 from serenedb_extractor.query.filters import (
+    instant_sql,
     FILTER_ROLES,
     DataRange,
     Filters,
@@ -244,7 +245,7 @@ def _ts_local(lt: LogTable, cols: dict[str, str], tz: str) -> str:
     zone = sql_literal(tz)
     if naive:
         return f"((({expr}) AT TIME ZONE {sql_literal(lt.timezone)}) AT TIME ZONE {zone})"
-    return f"((({expr})::timestamptz) AT TIME ZONE {zone})"
+    return f"({instant_sql(expr, typ, lt.timezone)} AT TIME ZONE {zone})"
 
 
 def _columns_read(lt: LogTable, f: Filters, cols: dict[str, str]) -> list[str]:

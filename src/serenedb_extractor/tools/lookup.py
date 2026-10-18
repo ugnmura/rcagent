@@ -11,6 +11,7 @@ from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.query import cost, occurrence, sampling
 from serenedb_extractor.query.coverage import untimestamped_note
 from serenedb_extractor.query.filters import (
+    instant_sql,
     FILTER_ROLES,
     Filters,
     TimeRange,
@@ -55,7 +56,7 @@ def ts_select(lt: LogTable, cols: dict[str, str]) -> str:
     expr = role_sql(lt, "timestamp")
     typ = cols.get(role_column(lt.roles.timestamp) or "", "").upper()
     if not is_temporal(typ):
-        return f"({expr})::varchar AS occ_ts"
+        return f"{instant_sql(expr, typ, lt.timezone)} AS occ_ts"
     if "WITH TIME ZONE" in typ or typ.startswith("TIMESTAMPTZ"):
         return f"({expr})::timestamptz AS occ_ts"
     return f"({expr})::timestamp AT TIME ZONE {sql_literal(lt.timezone)} AS occ_ts"

@@ -12,6 +12,7 @@ import psycopg
 
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.setup import indexes, localfiles, rawcopy, structcopy
+from serenedb_extractor.query.filters import instant_sql
 from serenedb_extractor.setup.paths import ResolvedSource, pct, resolve_source, source_sql
 from serenedb_extractor.setup.rawlog import LINE_FORMATS, detect_line_format, line_format_named, parse_entries
 from serenedb_extractor.setup.roles import (
@@ -274,21 +275,29 @@ def setup_zone(given: str | None, line_format: str | None) -> tuple[str, str]:
 
 
 def _check_timestamp(ctx: AppContext, relation: str, ts_expr: str | None, cols: dict[str, str]) -> None:
-    """Refuse a timestamp role whose values are not times: every later query casts it, and one bad value fails
-    them all. Columns of a time type pass; anything else must hold text SereneDB reads as a time."""
-    if ts_expr is None or is_temporal(cols.get(role_column(ts_expr) or "", "")):
+    """Refuse a timestamp role that mostly does not hold times. Columns of a time type pass; epoch numbers must be
+    plausible Unix times (seconds or milliseconds); text must mostly read as times. Odd values are tolerated:
+    queries read them leniently, as entries without a time."""
+    if ts_expr is None:
+        return
+    typ = cols.get(role_column(ts_expr) or "", "")
+    if is_temporal(typ):
         return
     expr = pct(ts_expr)
+    instant = instant_sql(expr, typ, "UTC")
     n, ok, bad = ctx.db.read(
-        f"SELECT count(v), count(TRY_CAST(v AS TIMESTAMPTZ)), any_value(CASE WHEN TRY_CAST(v AS TIMESTAMPTZ) IS NULL "
-        f"THEN v END) FROM (SELECT ({expr})::varchar AS v FROM {relation} WHERE ({expr}) IS NOT NULL LIMIT 200)",
+        f"SELECT count(v), count(t) FILTER (WHERE t BETWEEN TIMESTAMPTZ '1971-01-01' AND TIMESTAMPTZ '2100-01-01'), "
+        f"any_value(CASE WHEN t IS NULL OR t NOT BETWEEN TIMESTAMPTZ '1971-01-01' AND TIMESTAMPTZ '2100-01-01' "
+        f"THEN v END) FROM (SELECT ({expr})::varchar AS v, {instant} AS t FROM {relation} "
+        f"WHERE ({expr}) IS NOT NULL LIMIT 1000)",
         {},
     ).rows[0]
-    if n and ok < n:
+    if n and ok * 2 < n:
         raise UserFacingError(
             f"The timestamp role {display_role(ts_expr)} holds values that are not times (e.g. "
-            f"{fmt.shorten(str(bad), 80)!r}), so the log table can't be read by time. Give the column that holds the "
-            "times (roles={\"timestamp\": ...}), or leave the role out."
+            f"{fmt.shorten(str(bad), 80)!r}): {n - ok} of the first {n} values. Give the column that holds the times "
+            "(text such as 2026-03-15T09:30:00, a time type, or Unix seconds or milliseconds; roles={\"timestamp\": "
+            "...}), or leave the role out."
         )
 
 
@@ -418,6 +427,8 @@ def _register_copied(
         roles_updated_at=now,
     )
     try:
+        cols = dict(relation_columns(ctx.db, relation, source))
+        _check_timestamp(ctx, relation, roles.timestamp, cols)
         ctx.store.create_log_table(lt)
     except BaseException:
         drop_table(ctx, relation)

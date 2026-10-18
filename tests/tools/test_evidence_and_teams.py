@@ -270,3 +270,20 @@ async def test_several_local_files_are_explained(mcp, tmp_path):
     for src in (f"{tmp_path}/part_*.csv", f"{tmp_path}/part_{{000..001}}.csv"):
         out = await call(mcp, "setup_log_table", name="multi", source=src)
         assert "names several files on this machine" in out, out
+
+
+async def test_copied_files_check_the_timestamp_and_epochs_are_times(mcp, tmp_path):
+    p = tmp_path / "msgs.csv"
+    p.write_text("when,msg\nlater today,hello\nsoon,world\n", encoding="utf-8")
+    assert "holds values that are not times" in await call(mcp, "setup_log_table", name="cbad", source=str(p), roles={"timestamp": "when"})
+    e = tmp_path / "epoch.csv"
+    e.write_text("epoch,msg\n1709287200,a\n1709287260123,b\n", encoding="utf-8")
+    out = await call(mcp, "setup_log_table", name="cep", source=str(e), roles={"timestamp": "epoch", "message": "msg"})
+    assert "Set up log table 'cep'" in out
+    found = await call(mcp, "search_logs", log_table="cep", order="oldest")
+    assert "2024-03-01 10:00:00" in found and "2024-03-01 10:01:00" in found
+    one_bad = tmp_path / "late.csv"
+    one_bad.write_text("when,msg\n" + "".join(f"2024-03-01T00:00:{i:02d}Z,m{i}\n" for i in range(50)) + "n/a,odd\n", encoding="utf-8")
+    await call(mcp, "setup_log_table", name="clate", source=str(one_bad), roles={"timestamp": "when", "message": "msg"})
+    counted = await call(mcp, "count_logs", log_tables=["clate"], start="2024-03-01", end="2024-03-02")
+    assert "50 matching entries" in counted  # the odd value is an entry without a time, not an error
