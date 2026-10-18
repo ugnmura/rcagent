@@ -317,3 +317,10 @@ async def test_a_file_with_its_own_entry_id_keeps_unique_ids(mcp, tmp_path):
     await call(mcp, "setup_log_table", name="ids", source=str(p))
     out = await call(mcp, "search_logs", log_table="ids", order="oldest")
     assert "e:1 " in out and "e:2 " in out
+
+
+async def test_setup_takes_a_format_hint(mcp, tmp_path):
+    p = tmp_path / "semi.log"
+    p.write_text("ts;level;msg\n2026-03-01T00:00:00Z;ERROR;boom\n", encoding="utf-8")
+    out = await call(mcp, "setup_log_table", name="semi", source=str(p), format_hint="csv")
+    assert "Set up log table 'semi'" in out and "level: level" in out

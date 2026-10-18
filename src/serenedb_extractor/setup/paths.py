@@ -34,7 +34,7 @@ class RemoteRawTextUnsupported(UserFacingError):
     def __init__(self, source: str) -> None:
         super().__init__(
             f"{source} looks like a remote raw text log. Raw text logs must be local files because "
-            "they are parsed here and copied in; remote sources must be Parquet or JSON. "
+            "they are parsed here and copied in; remote sources must be Parquet, JSON or CSV. "
             "Download or mount the file locally, or point at a Parquet/JSON version of it."
         )
 

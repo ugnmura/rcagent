@@ -390,10 +390,11 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         timezone: str | None = None,
         build_filter_index: bool = False,
         build_search_index: bool = False,
+        format_hint: str | None = None,
     ) -> str:
-        """Register a log source as a log table so the other tools can query it. Parquet/JSON/CSV (local or remote URL) is read in place — nothing is downloaded; raw text logs are parsed and copied.
+        """Register a log source as a log table so the other tools can query it. A Parquet/JSON/CSV file SereneDB can reach (a remote URL, the mounted logs folder, or its own disk) is read in place, nothing downloaded; a file only on this machine is copied in, and raw text logs are parsed and copied.
         Use when: the user wants new logs analysed. Re-running on an existing name only corrects roles or the time zone.
-        Inputs: name (lowercase); source as for inspect_source (several remote files: part_{000..009}.parquet); roles = {"timestamp": col, "message": col, "level": col, "component": col, "service": col, "host": col, "trace": col} to confirm or correct the proposal; timezone (IANA) for timestamps without a zone: default the line format's own zone where it has one (bgl: America/Los_Angeles), else UTC; build_filter_index / build_search_index only when the user asks.
+        Inputs: name (lowercase); source as for inspect_source (several remote files: part_{000..009}.parquet); roles = {"timestamp": col, "message": col, "level": col, "component": col, "service": col, "host": col, "trace": col} to confirm or correct the proposal; timezone (IANA) for timestamps without a zone: default the line format's own zone where it has one (bgl: America/Los_Angeles), else UTC; build_filter_index / build_search_index only when the user asks; format_hint (parquet, json, csv, table, raw_text) when the file name does not say.
         Returns: the field roles, entry count, files, size, how long setup took and index estimates. Teams come from the ownership table automatically when it covers the table."""
         return await runner.run_tool(
             setup_tools.setup_log_table,
@@ -404,6 +405,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
             timezone=timezone,
             build_filter_index=build_filter_index,
             build_search_index=build_search_index,
+            format_hint=format_hint,
         )
 
     @mcp.tool(annotations=ToolAnnotations(destructiveHint=True))

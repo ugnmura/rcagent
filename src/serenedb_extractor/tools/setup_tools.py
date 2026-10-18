@@ -177,6 +177,7 @@ def setup_log_table(
     timezone: str | None = None,
     build_filter_index: bool = False,
     build_search_index: bool = False,
+    format_hint: str | None = None,
 ) -> str:
     validate_name(name)
     ctx.estimates.clear(source)
@@ -186,12 +187,19 @@ def setup_log_table(
     if timezone is not None:
         get_zone(timezone)
     zone = timezone or "UTC"
-    rs = resolve_source(source, ctx.settings, None)
-    if rs.kind == "raw_text":
-        return _setup_raw(ctx, name, rs, source, roles, line_format, timezone, (build_filter_index, build_search_index))
-    if localfiles.copy_needed(rs):
-        return _setup_outside(ctx, name, rs, source, roles, zone, (build_filter_index, build_search_index))
+    rs = resolve_source(source, ctx.settings, format_hint)
     began = time.perf_counter()
+    if rs.kind == "raw_text" or localfiles.copy_needed(rs):
+        build = (build_filter_index, build_search_index)
+        out = (
+            _setup_raw(ctx, name, rs, source, roles, line_format, timezone, build)
+            if rs.kind == "raw_text"
+            else _setup_outside(ctx, name, rs, source, roles, zone, build)
+        )
+        took = f"setup took {fmt.duration(time.perf_counter() - began)}"
+        lines = out.split("\n")
+        at = next((i + 1 for i, ln in enumerate(lines) if ln.startswith("The copy is ")), len(lines))
+        return "\n".join(lines[:at] + [took] + lines[at:])
     info = sniff(ctx.db, rs, source, for_setup=True)
     given = validate_roles(roles, dict(info.columns)) if roles else None
     final, _ = propose_roles(info.columns, sample_values(info), given)
