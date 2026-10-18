@@ -140,3 +140,40 @@ async def test_upgrade_adds_the_source_column_to_an_old_table(mcp, corpus, datab
     database.write("INSERT INTO extractor.ownership VALUES ('bgl%', 'component', 'KERNEL', 'Node OS', NULL)")
     ownership.upgrade(database)
     assert database.read("SELECT source FROM extractor.ownership", {}).rows == [(ownership.STAND_IN,)]
+
+
+async def test_underscore_is_literal_and_an_exact_name_wins(mcp, corpus):
+    # KERN_L must not match KERNEL (only % is a wildcard), and an exact name beats a pattern of equal length
+    await call(mcp, "edit_team_ownership", action="set", rules=[
+        {"log_table": "bgl%", "component": "KERN_L", "team": "Underscore Team"},
+        {"log_table": "bgl%", "component": "KERNE%", "team": "Pattern Team"},
+    ])
+    out = await call(mcp, "count_logs", log_tables=["bgl"], group_by=["team"])
+    assert "Node OS: 197" in out and "Underscore Team" not in out and "Pattern Team" not in out
+
+
+def test_precedence_in_python_matches_sql_rules():
+    rules = [
+        ownership.Rule("x", "component", "a_i", "U"),
+        ownership.Rule("x", "component", "api", "Exact"),
+        ownership.Rule("x", "component", "ap%", "P"),
+    ]
+    assert ownership.team_of("api", rules) == "Exact"
+    assert ownership.team_of("aXi", rules) == ownership.UNASSIGNED
+    assert ownership.team_of("a_i", rules) == "U"
+    assert ownership.team_of("apple", rules) == "P"
+
+
+async def test_export_dry_run_writes_nothing_and_relative_paths_are_refused(mcp, corpus, tmp_path):
+    target = tmp_path / "dry.csv"
+    out = await call(mcp, "edit_team_ownership", action="export", csv_path=str(target), dry_run=True)
+    assert out.startswith("Dry run: nothing was written") and not target.exists()
+    assert "full path" in await call(mcp, "edit_team_ownership", action="export", csv_path="relative.csv")
+    await call(mcp, "edit_team_ownership", action="export", csv_path=str(target))
+    again = await call(mcp, "edit_team_ownership", action="export", csv_path=str(target))
+    assert "replaced the file that was there" in again
+
+
+async def test_rules_on_a_role_the_table_lacks_are_flagged(mcp, corpus):
+    out = await call(mcp, "edit_team_ownership", action="set", rules=[{"log_table": "bgl", "service": "x", "team": "T"}])
+    assert "log table bgl has no service field, so its rules on service match nothing; it has a component field" in out

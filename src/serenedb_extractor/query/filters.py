@@ -32,7 +32,7 @@ class MissingRole(UserFacingError):
         if role == "team":
             super().__init__(
                 "No team ownership rule covers this log table's components or services, so it can't be filtered "
-                f"or grouped by team.{have} Rules live in extractor.ownership (see the README's ownership section)."
+                f"or grouped by team.{have} show_team_ownership lists the rules; edit_team_ownership adds rules for it."
             )
             return
         super().__init__(

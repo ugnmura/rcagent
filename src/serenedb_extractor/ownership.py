@@ -71,11 +71,20 @@ class Rule:
 
 
 def _like(value: str, pattern: str) -> bool:
-    """SQL LIKE (case-insensitive) in Python: % any run, _ one character."""
-    import re
-
-    rx = "".join(".*" if c == "%" else "." if c == "_" else re.escape(c) for c in pattern)
+    """A rule's pattern, case-insensitive: % matches any run of characters; everything else, `_` included, is
+    literal (component names such as SERV_NET and oslo_service contain underscores)."""
+    rx = "".join(".*" if c == "%" else re.escape(c) for c in pattern)
     return re.fullmatch(rx, value, re.IGNORECASE | re.DOTALL) is not None
+
+
+def _precedence(r: "Rule") -> tuple[bool, int, str]:
+    """Most specific first: an exact name before any pattern, then the longer fixed text."""
+    return ("%" in r.pattern, -len(r.pattern.replace("%", "")), r.pattern.lower())
+
+
+def _like_sql(pattern: str) -> str:
+    """The pattern as an ILIKE literal with only % as a wildcard (_ and \\ escaped)."""
+    return _literal(pattern.replace("\\", "\\\\").replace("_", "\\_"))
 
 
 def packaged_rules() -> list[Rule]:
@@ -315,9 +324,10 @@ def _literal(text: str) -> str:
 def team_expr(role_expression: str, rules: list[Rule]) -> str:
     """CASE over the role's value: the most specific matching pattern's team, else Unassigned.
     Built from literals only, so it can be used anywhere a role expression can."""
-    ordered = sorted(rules, key=lambda r: (-len(r.pattern.replace("%", "")), r.pattern))
+    ordered = sorted(rules, key=_precedence)
     whens = " ".join(
-        f"WHEN ({role_expression})::varchar ILIKE {_literal(r.pattern)} THEN {_literal(r.team)}" for r in ordered
+        f"WHEN ({role_expression})::varchar ILIKE {_like_sql(r.pattern)} ESCAPE '\\' THEN {_literal(r.team)}"
+        for r in ordered
     )
     return f"(CASE {whens} ELSE {_literal(UNASSIGNED)} END)"
 
@@ -326,7 +336,7 @@ def team_of(value: str | None, rules: list[Rule]) -> str:
     """The team owning one component or service value, by the same precedence as team_expr."""
     if value is None:
         return UNASSIGNED
-    for r in sorted(rules, key=lambda r: (-len(r.pattern.replace("%", "")), r.pattern)):
+    for r in sorted(rules, key=_precedence):
         if _like(value, r.pattern):
             return r.team
     return UNASSIGNED
