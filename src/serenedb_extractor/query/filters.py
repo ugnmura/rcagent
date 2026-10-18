@@ -18,6 +18,7 @@ from serenedb_extractor.setup.roles import is_temporal, resolve_column, role_col
 FILTER_ROLES = ("level", "service", "host", "component", "trace", "team")
 # More wanted values than this in one filter is not a filter any more; it would only make a huge query.
 MAX_FILTER_VALUES = 1_000
+MAX_FILTER_VALUE_CHARS = 1_000  # one wanted value: field values (levels, hosts, ids) are far shorter
 _FMT = "%Y-%m-%d %H:%M:%S"
 
 
@@ -149,6 +150,19 @@ class Filters:
                     "Split the values over several calls, or group by that field with count_logs instead."
                 )
         wanted = {k: _wanted(v) for k, v in d.items()}
+        for key, w in wanted.items():
+            for v in [w] if isinstance(w, str) else w:
+                if "\x00" in v:
+                    raise UserFacingError(
+                        f"A value in the filter on '{key}' contains a NUL character (\\x00), which no field value "
+                        "can hold; remove it and try again."
+                    )
+                if len(v) > MAX_FILTER_VALUE_CHARS:
+                    raise UserFacingError(
+                        f"A value in the filter on '{key}' is {len(v):,} characters long; at most "
+                        f"{MAX_FILTER_VALUE_CHARS:,} fit in one value. Filters match whole field values; "
+                        "to find words inside messages, use text='...' instead."
+                    )
         roles = {r: wanted.pop(r) for r in FILTER_ROLES if r in wanted}
         return cls(**roles, columns=wanted)
 
