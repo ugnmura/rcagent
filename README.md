@@ -36,7 +36,7 @@ The team built three MCP server designs over the same data and kept the best. Th
 seeing this repository, and a blind grader scored the answers. These finals ran at commit `6cad141`. The current
 version, rerun on the screening set with Sonnet 5.5, scored 94.4% on the rubric and 99% on exact values.
 
-<img src="docs/img/bench-textbench.svg" alt="TextBench, 1 billion rows read in place on S3: search of the whole file with the index 4.18 s, exact search of a 60-second window without an index 2.88 s, survey 7.8 s, registering the S3 file 1.97 s, building the search index 69.9 s." width="100%">
+<img src="docs/img/bench-textbench.svg" alt="TextBench, 1 billion rows read in place on S3: search of the whole file with the index 4.18 s, search of one minute without an index 2.88 s, survey of message types 7.8 s. The index was built once in 69.9 s." width="100%">
 
 
 ## How it works
