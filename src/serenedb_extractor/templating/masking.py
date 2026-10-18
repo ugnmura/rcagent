@@ -44,7 +44,9 @@ def _mixed_hex() -> str:
 _URL = rf"""[A-Za-z][A-Za-z0-9+.\-]*://[^{_WS}'"<>)\]]+"""
 _EMAIL = r"[A-Za-z0-9._+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}"
 _UUID = rf"{_HEX}{{8}}-{_HEX}{{4}}-{_HEX}{{4}}-{_HEX}{{4}}-{_HEX}{{12}}"
-_IP = r"\d{1,3}(?:\.\d{1,3}){3}(?::\d{1,5})?"
+_IP_ONE = r"\d{1,3}(?:\.\d{1,3}){3}(?::\d{1,5})?"
+# A comma-separated list of addresses (a forwarded-for chain) is one value, whatever its length.
+_IP = rf"{_IP_ONE}(?:,{_IP_ONE})*"
 _PATH = r"(?:/[A-Za-z0-9_.@~:+\-]+)+/?"
 _PATH_PREFIX = rf"""(^|[{_WS}'"=(\[,])"""
 _HEXVAL = rf"0[xX]{_HEX}+|{_mixed_hex()}"
@@ -55,9 +57,10 @@ _NUM = r"\d+(?:\.\d+)?"
 MASK_RULES: tuple[MaskRule, ...] = (
     MaskRule("<URL>", rf"\b{_URL}", "<URL>", f"({_URL})"),
     MaskRule("<EMAIL>", _EMAIL, "<EMAIL>", f"({_EMAIL})"),
+    # A path before UUIDs and IPs, so an id inside a path stays part of the one path value.
+    MaskRule("<PATH>", _PATH_PREFIX + _PATH, r"\1<PATH>", f"({_PATH})"),
     MaskRule("<UUID>", rf"\b{_UUID}\b", "<UUID>", f"({_UUID})"),
     MaskRule("<IP>", rf"\b{_IP}\b", "<IP>", f"({_IP})"),
-    MaskRule("<PATH>", _PATH_PREFIX + _PATH, r"\1<PATH>", f"({_PATH})"),
     MaskRule("<HEX>", rf"\b(?:{_HEXVAL})\b", "<HEX>", f"({_HEXVAL})"),
     MaskRule("<STR>", rf"\B(?:{_STR})\B", "<STR>", f"({_STR})"),
     MaskRule("<NUM>", rf"\b{_NUM}", "<NUM>", f"(-?{_NUM})"),

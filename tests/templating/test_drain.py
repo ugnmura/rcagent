@@ -52,9 +52,9 @@ def test_seen_range_and_example_from_largest():
     d = datetime
     (m,) = merge_groups(
         [
-            g("login failed for user alice", 2, "ex-small", d(2026, 3, 2), d(2026, 3, 3)),
-            g("login failed for user bob", 9, "ex-big", d(2026, 3, 1), None),
-            g("login failed for user carol", 1, "ex-none"),
+            g("login failed for user u17", 2, "ex-small", d(2026, 3, 2), d(2026, 3, 3)),
+            g("login failed for user u42", 9, "ex-big", d(2026, 3, 1), None),
+            g("login failed for user u99", 1, "ex-none"),
         ]
     )
     assert m.example == "ex-big"
@@ -88,3 +88,19 @@ def test_merged_template_round_trips_through_compiler():
     example = "disk  full on\t/dev/sda1"
     (m,) = merge_groups([g("disk  full on\t<PATH>", 1, example)])
     assert re.fullmatch(compile_template(m.template).regex, example)
+
+
+def test_enum_word_keeps_events_apart():
+    # A word with few values, each repeated, names the event: the templates stay apart.
+    groups = [g(f"[instance: <UUID>] VM {w} (Lifecycle Event)", 20) for w in ("Paused", "Resumed", "Stopped")]
+    groups += [g(f'<IP> "{m} <PATH> HTTP/<NUM>" status: <NUM>', 30) for m in ("GET", "POST", "DELETE")]
+    templates = sorted(m.template for m in merge_groups(groups))
+    assert templates == sorted(
+        [f"[instance: <UUID>] VM {w} (Lifecycle Event)" for w in ("Paused", "Resumed", "Stopped")]
+        + [f'<IP> "{m} <PATH> HTTP/<NUM>" status: <NUM>' for m in ("GET", "POST", "DELETE")]
+    )
+
+
+def test_many_distinct_words_still_merge():
+    (m,) = merge_groups([g(f"login failed for user {u}", 10) for u in "abcdefghij"])
+    assert m.template == "login failed for user <*>"

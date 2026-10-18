@@ -23,6 +23,8 @@ CASES = [
     ("epoch 1117838570 took 0.25s", "epoch <NUM> took <NUM>s"),
     ('"GET /v2/a/servers/detail HTTP/1.1" status: 200', '"GET <PATH> HTTP/<NUM>" status: <NUM>'),
     ("HTTP/1.1 ok", "HTTP/<NUM> ok"),
+    ("10.11.10.1,10.11.21.140 \"GET /v2 HTTP/1.1\"", '<IP> "GET <PATH> HTTP/<NUM>"'),
+    ('"DELETE /v2/servers/b9000564-fe1a-409b-b8cc-1e88b294cd1d HTTP/1.1"', '"DELETE <PATH> HTTP/<NUM>"'),
     ("user's thing and user's other", "user's thing and user's other"),
 ]
 
@@ -47,7 +49,7 @@ def test_mask_py(raw: str, masked: str) -> None:
 
 def test_rule_order_and_placeholders() -> None:
     assert [r.placeholder for r in MASK_RULES] == [
-        "<URL>", "<EMAIL>", "<UUID>", "<IP>", "<PATH>", "<HEX>", "<STR>", "<NUM>",
+        "<URL>", "<EMAIL>", "<PATH>", "<UUID>", "<IP>", "<HEX>", "<STR>", "<NUM>",
     ]
 
 
