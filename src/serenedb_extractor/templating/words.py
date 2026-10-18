@@ -40,3 +40,34 @@ def constant_word(token: str) -> str | None:
     if m is None or m.group(1).rstrip("+-") in _CALENDAR:
         return None
     return m.group(1)
+
+
+# Units of measure: after a number they say how big the value is (`<NUM> KB` / `<NUM> MB`,
+# `took <NUM> sec.` / `secs.`), so the unit varies with the value and is part of it, not the event.
+_UNITS = frozenset(
+    "b kb mb gb tb pb kib mib gib tib byte bytes bit bits kbit mbit gbit "
+    "ns us ms s sec secs second seconds min mins minute minutes h hr hrs hour hours day days "
+    "hz khz mhz ghz".split()
+)
+# The word naming the value that follows it: `session opened for user cyrus`, `Name: StateSnapshots`.
+# A few different words after such a label are different users / hosts / names, not different events.
+_LABELS = frozenset(
+    "user users username login account owner name host hostname node process".split()
+)
+_ENDS_IN_NUMBER = re.compile(r".*(?:<NUM>|[0-9])[(\[]?$")
+
+
+def unit_after_number(previous: str, token: str) -> bool:
+    """`token` is a unit of measure right after a number (`<NUM> KB)`, `took <NUM> secs.`)."""
+    word = constant_word(token)
+    return (
+        word is not None
+        and word.lower() in _UNITS
+        and _ENDS_IN_NUMBER.fullmatch(previous) is not None
+    )
+
+
+def names_a_value(previous: str) -> bool:
+    """`previous` is a label word (`user`, `Name:`) whose next token is the labelled value."""
+    word = constant_word(previous)
+    return word is not None and word.lower() in _LABELS
