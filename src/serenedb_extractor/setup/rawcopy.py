@@ -13,7 +13,7 @@ from serenedb_extractor.db import quote_ident
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.setup.localfiles import head_lines, host_lines, require_file, split_lines, under_mount
 from serenedb_extractor.setup.paths import ResolvedSource, sql_literal
-from serenedb_extractor.setup.rawlog import RawEntry, line_format_named, parse_entries
+from serenedb_extractor.setup.rawlog import LINE_FORMATS, RawEntry, line_format_named, parse_entries
 from serenedb_extractor.setup.sniff import readable
 from serenedb_extractor.setup.tablewrite import Writer, create_table, drop_table
 from serenedb_extractor.timezones import get_zone
@@ -101,6 +101,7 @@ def copy_raw(
     source: str,
     line_format: str,
     tz: str,
+    explicit: bool = False,
 ) -> RawCopy:
     """Parse a raw log and copy its entries into extractor.lt_<name>, sorted by timestamp
     (NULLs first), entry_id numbered in that order. Raises with the table dropped on failure."""
@@ -118,7 +119,7 @@ def copy_raw(
 
     # Pass 1: count, see which fields exist, and find out whether the file is already in order.
     count = no_ts = 0
-    seen = {"level": False, "component": False, "host": False}
+    seen = {"level": False, "component": False, "host": False, "service": False, "trace": False}
     in_order = True
     last = _sort_key(RawEntry(0, 0, None, None, None, None, "", {}))
     for e in parse_entries(counted(), line_format, tz):
@@ -127,11 +128,23 @@ def copy_raw(
         seen["level"] |= e.level is not None
         seen["component"] |= e.component is not None
         seen["host"] |= e.host is not None
+        seen["service"] |= "service" in e.attrs
+        seen["trace"] |= "trace" in e.attrs
         key = _sort_key(e)
         in_order &= key >= last
         last = key
     if count == 0:
         raise UserFacingError(f"{source} has no lines to copy.")
+    if no_ts == count and line_format != "lines":  # no line matched: everything would collapse into one entry
+        fmt_ = line_format_named(line_format)
+        if explicit:
+            others = ", ".join(n for n in LINE_FORMATS if n != fmt_.name)
+            raise UserFacingError(
+                f"No line of {source} matches the {fmt_.name} line format ({fmt_.describes}), so it can't be split "
+                f"into entries. Try another line_format ({others}); the generic one needs an ISO time "
+                "(2026-03-15T09:30:00) at the start of each line. inspect_source shows the first lines."
+            )
+        return copy_raw(ctx, name, rs, source, "lines", tz, explicit=True)
     relation = f"extractor.lt_{name}"
     create_table(ctx, relation, RAW_COLUMNS)
     try:
@@ -152,6 +165,8 @@ def copy_raw(
         level=quote_ident("level") if seen["level"] else None,
         component=quote_ident("component") if seen["component"] else None,
         host=quote_ident("host") if seen["host"] else None,
+        service="attrs ->> 'service'" if seen["service"] else None,
+        trace="attrs ->> 'trace'" if seen["trace"] else None,
         order=quote_ident("entry_id"),
     )
     return RawCopy(relation, count, no_ts, line_format, roles, bad_lines)

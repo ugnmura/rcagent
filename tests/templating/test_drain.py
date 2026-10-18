@@ -17,15 +17,15 @@ def g(masked, count, example=None, first_seen=None, last_seen=None, **breakdown)
 
 
 def test_word_variation_merges():
-    (m,) = merge_groups(
-        [
-            g("login failed for user alice", 5),
-            g("login failed for user bob", 3),
-            g("login failed for user carol", 2),
-        ]
-    )
-    assert (m.template, m.count) == ("login failed for user <*>", 10)
-    assert m.members == 3
+    users = ("alice", "bob", "carol", "dave", "erin", "frank", "grace")  # more words than an enum has
+    (m,) = merge_groups([g(f"login failed for user {u}", 1) for u in users])
+    assert (m.template, m.count) == ("login failed for user <*>", 7)
+    assert m.members == 7
+
+
+def test_few_words_stay_separate_events():
+    out = merge_groups([g("login failed for user alice", 5), g("login failed for user bob", 3)])
+    assert [m.template for m in out] == ["login failed for user alice", "login failed for user bob"]
 
 
 def test_masked_tokens_survive():
@@ -36,8 +36,8 @@ def test_masked_tokens_survive():
 def test_breakdowns_summed():
     (m,) = merge_groups(
         [
-            g("x a", 2, service={"checkout": 2}),
-            g("x b", 1, service={"payments": 1}, component={"db": 1}),
+            g("x a1", 2, service={"checkout": 2}),
+            g("x b2", 1, service={"payments": 1}, component={"db": 1}),
         ]
     )
     assert m.breakdown["service"] == {"checkout": 2, "payments": 1}
@@ -52,9 +52,9 @@ def test_seen_range_and_example_from_largest():
     d = datetime
     (m,) = merge_groups(
         [
-            g("login failed for user alice", 2, "ex-small", d(2026, 3, 2), d(2026, 3, 3)),
-            g("login failed for user bob", 9, "ex-big", d(2026, 3, 1), None),
-            g("login failed for user carol", 1, "ex-none"),
+            g("login failed for user u17", 2, "ex-small", d(2026, 3, 2), d(2026, 3, 3)),
+            g("login failed for user u42", 9, "ex-big", d(2026, 3, 1), None),
+            g("login failed for user u99", 1, "ex-none"),
         ]
     )
     assert m.example == "ex-big"
@@ -88,3 +88,19 @@ def test_merged_template_round_trips_through_compiler():
     example = "disk  full on\t/dev/sda1"
     (m,) = merge_groups([g("disk  full on\t<PATH>", 1, example)])
     assert re.fullmatch(compile_template(m.template).regex, example)
+
+
+def test_enum_word_keeps_events_apart():
+    # A word with few values, each repeated, names the event: the templates stay apart.
+    groups = [g(f"[instance: <UUID>] VM {w} (Lifecycle Event)", 20) for w in ("Paused", "Resumed", "Stopped")]
+    groups += [g(f'<IP> "{m} <PATH> HTTP/<NUM>" status: <NUM>', 30) for m in ("GET", "POST", "DELETE")]
+    templates = sorted(m.template for m in merge_groups(groups))
+    assert templates == sorted(
+        [f"[instance: <UUID>] VM {w} (Lifecycle Event)" for w in ("Paused", "Resumed", "Stopped")]
+        + [f'<IP> "{m} <PATH> HTTP/<NUM>" status: <NUM>' for m in ("GET", "POST", "DELETE")]
+    )
+
+
+def test_many_distinct_words_still_merge():
+    (m,) = merge_groups([g(f"login failed for user {u}", 10) for u in "abcdefghij"])
+    assert m.template == "login failed for user <*>"

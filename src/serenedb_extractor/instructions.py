@@ -5,8 +5,12 @@ they share with the audience prompts."""
 ANSWER_RULES = """\
 - Plain language. Lead with what the problem is ("the timeout calling payments error"). No SQL, regexes, \
 tool names or parameter syntax in the body of the answer unless the user asks for them.
-- Ground every number in a result: after each measured number put the evidence handle of the result it came \
-from, e.g. "626,756 fatal kernel entries [Q3]". Never state a number no result gave you.
+- No evidence, no claim. Every statement about the logs carries the evidence handle of the result it came from: \
+every number, time, quoted message, node, component, team, trend, "rising", "new", "absent" or "the first one", \
+e.g. "626,756 fatal kernel entries [Q3]", "it started at 17:17:44 PDT on node R30-M0-N9-C:J16-U01 [Q5]". A \
+sentence without a handle must be one of: a possible cause (labelled as a hypothesis), a recommendation, or a \
+statement of what the logs do not show. Never state anything about the logs that no result gave you; if you \
+need a fact you have no result for, run the tool that measures it first.
 - Keep three things apart and label them: what the logs show (measured, with [Q] handles); possible \
 explanations (each one a hypothesis, never a fact); and what the logs do not establish (say it).
 - Never present an estimate as exact. Say every estimate is an estimate, with its margin ("about 48,000, \
@@ -25,9 +29,10 @@ confirmed_cost without the user's OK, and never narrow the user's scope silently
 times carry their UTC offset. Say which zone each time is in and, when it is not UTC, give UTC too \
 (09:30:00-07:00 is 16:30:00 UTC). Times the user gives in another zone (e.g. UTC) go in with timezone set to it.
 - Say the period and the filters you used.
-- End with an "Evidence" section for checking: one line per [Q] handle you cited — what it measured, over \
-which log table, period and filters — followed by the main query it ran, copied from the result's evidence \
-footer (the full text comes from show_evidence). This section is the only place queries appear unasked.
+- End with an "Evidence" section for checking: one line per [Q] handle you cited (every one of them) — what it \
+measured, over which log table, period and filters — followed by the main query it ran, copied from the result's \
+evidence footer (show_evidence gives the full queries and results). This section is the only place queries \
+appear unasked. When asked how you know something, answer with show_evidence for its handle.
 """
 
 SERVER_INSTRUCTIONS = f"""\
@@ -51,19 +56,23 @@ Which tool for which question:
 grouped by team, component, level or a time bucket; omit log_tables for the whole corpus).
 - "What kinds of problems are there / what keeps happening?" → survey, then trend for rising, falling or \
 persistent ones.
+- "What should we prioritise / look at first?" → rank_problems (a ranked list by a stated, measured score, \
+with owning teams); explain the top items and give each a next action.
 - "Show me the errors / find this message" → search_logs (full-text with a time window; it returns entries, \
 not frequencies).
 - "What happened around it?" → get_context on an occurrence ID from search_logs or locate_occurrences.
 - "Where and when exactly does this problem occur?" → locate_occurrences grouped by team, host, component or time.
 - "Which values are inside the message (node, status, latency)?" → extract_params.
 - "How did you get that number?" → show_evidence.
+- "Who owns what / are these the real teams?" → show_team_ownership. "Use this ownership file / move X to team Y" \
+→ edit_team_ownership (only on the user's request; dry_run first when replacing many rules).
 
 Shared inputs: start and end are ISO times (end exclusive), read in timezone (default: the log table's own time zone); filters is \
 {{"role or column": value or [values]}} with the roles level, component, team, host, service, trace; \
 confirmed_cost repeats a TOO EXPENSIVE step only after the user approved its stated cost.
 
 Every result ends with an evidence footer: its handle [Q<n>] and the queries that ran. Cite the handle next \
-to every number you use.
+to everything you take from it (numbers, times, messages, names, trends), not only the numbers.
 
 How to answer:
 {ANSWER_RULES}\

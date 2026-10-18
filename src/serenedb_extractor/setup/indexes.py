@@ -107,6 +107,14 @@ def spec(roles: FieldRoles, kind: str) -> list[tuple[str, bool]]:
                 "Set the message role to a column with setup_log_table (roles={...})."
             )
         out.append((msg, True))
+        if (role_column(roles.timestamp) if roles.timestamp else None) is None:
+            # search_logs reads each match's time from the index relation itself, so without a plain
+            # timestamp column the index could never answer a search: refuse rather than build it unused.
+            raise UserFacingError(
+                "The timestamp field is not a plain column, so a search index would not help: a search reads each "
+                "match's time from the index, and it can only hold plain columns. Set the timestamp role to a column "
+                "with setup_log_table (roles={...}) to build one."
+            )
     names = _FILTER_ROLES + (("host",) if kind == "search" else ())
     for role in names:
         expr = getattr(roles, role)
@@ -333,8 +341,8 @@ def offer_lines(
 
 _OFFER_FOOTER = (
     "No index is built unless you ask for it (build_filter_index / build_search_index at setup, or create_index). "
-    "A filter index lists values exactly and makes filters nearly free; a search index also speeds up text "
-    "search and allows fuzzy search."
+    "A filter index makes describe_logs' value lists exact and instant; a search index speeds up text search "
+    "(search_logs) and allows fuzzy search. Counts, surveys and trends read the entries either way."
 )
 
 

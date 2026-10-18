@@ -17,9 +17,11 @@ from typing import Any, Literal
 
 from serenedb_extractor import format as fmt
 from serenedb_extractor.catalog.models import CandidateTemplate, LogTable, Template, UpsertResult
+from serenedb_extractor.catalog.store import covering
 from serenedb_extractor.context import AppContext
 from serenedb_extractor.ownership import Rule, team_of
 from serenedb_extractor.db import Rows
+from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.query import cost, sampling
 from serenedb_extractor.query.filters import (
     FILTER_ROLES,
@@ -39,7 +41,7 @@ from serenedb_extractor.setup.roles import resolve_column
 from serenedb_extractor.setup.sniff import human_bytes, readable
 from serenedb_extractor.templating.drain import Breakdown, MaskedGroup, MergedTemplate, merge_groups
 from serenedb_extractor.templating.masking import mask_sql
-from serenedb_extractor.templating.regex import compile_template
+from serenedb_extractor.templating.regex import compile_template, without_nul
 from serenedb_extractor.query.templatematch import template_match_sql
 from serenedb_extractor.query.coverage import untimestamped_note
 from serenedb_extractor.tools.describe import known_columns
@@ -101,7 +103,8 @@ def _scan_groups(
     rows = _read(ctx, lt, sql, run_params, timeout).dicts()
     by_mask: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
-        by_mask.setdefault(row["m"], []).append(row)
+        row["example"] = without_nul(row["example"] or "")
+        by_mask.setdefault(without_nul(row["m"] or ""), []).append(row)
     groups: list[MaskedGroup] = []
     per_block: BlockCounts = {}
     sampled = 0
@@ -259,7 +262,10 @@ def survey(
     limit: int | None = None,
     timezone: str | None = None,
     confirmed_cost: str | None = None,
+    found: list[tuple[Template, fmt.Measured]] | None = None,
 ) -> str:
+    """`found`, when given, receives every template of the result (largest first) with its measured count,
+    for tools that build on a survey (rank_problems)."""
     lt = ctx.store.get_log_table(log_table)
     timezone = shown_zone(lt, timezone)
     tr: TimeRange = parse_time_range(start, end, timezone)
@@ -267,7 +273,7 @@ def survey(
     hidden, exclusion_notes = resolve_exclusions(ctx, lt.name, exclude)
     hidden_ids = [t.template_id for t in hidden]
     s = ctx.settings
-    n_target = fmt.clamp_limit(sample_size, s.sample_size, s.sample_size * s.limit_cap)
+    n_target, size_cut = _sample_target(sample_size, s.sample_size, s.sample_size * s.limit_cap)
     shown_limit = fmt.clamp_limit(limit, DEFAULT_LIMIT, DEFAULT_LIMIT * s.limit_cap)
     period = tr.describe() if tr.bounded else None
     scope_text = _filters_text(f, hidden_ids)
@@ -302,6 +308,8 @@ def survey(
             run = _blocks(ctx, lt, stats, plan, time_sql, match_sql, params, count_cols, n_target, timeout, ts_sql)
         else:
             run = _full(ctx, lt, time_sql + " AND " + match_sql, params, n_target, timeout, ts_sql)
+        if (size_note := _size_note(sample_size, n_target, size_cut, run)) is not None:
+            notes.append(size_note)
         if run.sampled == 0:
             if plan.sampling == "blocks":
                 lines = ["No matching entries in the sampled blocks; matching entries may still exist outside them."]
@@ -311,7 +319,40 @@ def survey(
                 ]
             head = fmt.how_measured(_kind(run, plan), period, scope_text, _method(run, plan), tz=timezone)
             return "\n".join([head, *notes, *lines])
-    return _render(ctx, lt, run, plan, period, scope_text, timezone, notes, shown_limit)
+    return _render(ctx, lt, run, plan, period, scope_text, timezone, notes, shown_limit, found)
+
+
+def _sample_target(requested: int | None, default: int, cap: int) -> tuple[int, bool]:
+    """(entries to aim the sample at, whether the requested size was cut to the cap)."""
+    if requested is None:
+        return default, False
+    if isinstance(requested, bool) or not isinstance(requested, int) or requested < 1:
+        raise UserFacingError(
+            f"sample_size is how many entries the survey looks at: give 1 or more (got {requested}), "
+            f"or leave it out for {default:,}."
+        )
+    return min(requested, cap), requested > cap
+
+
+def _size_note(requested: int | None, target: int, cut: bool, run: "_Run") -> str | None:
+    """Says which sample was used when it is not the sample_size asked for."""
+    if requested is None or run.method == "every":
+        if requested is not None and cut:
+            return f"sample_size {requested:,} is more than one survey looks at (at most {target:,}); every matching entry was read instead."
+        return None
+    looked = sum(run.looked_at) if run.method == "blocks" else run.sampled
+    how = "in whole blocks of entries (row groups)" if run.method == "blocks" else "in a random sample"
+    if cut:
+        return (
+            f"sample_size {requested:,} is more than one survey looks at (at most {target:,}), so it was not used: "
+            f"{looked:,} entries were looked at {how} instead (the sample is described above)."
+        )
+    if run.method == "blocks" and looked < requested / 2:
+        return (
+            f"sample_size {requested:,} was not used exactly: {looked:,} entries were looked at in whole blocks of "
+            "entries (row groups) instead (the sample is described above)."
+        )
+    return None
 
 
 @dataclass
@@ -488,6 +529,7 @@ def _render(
     tz: str,
     notes: list[str],
     shown_limit: int,
+    found: list[tuple[Template, fmt.Measured]] | None = None,
 ) -> str:
     merged = merge_groups(run.groups)
     exact = run.method == "every"
@@ -496,31 +538,50 @@ def _render(
     candidates = [_candidate(m, measures[m.template]) for m in merged]
     result = ctx.store.upsert_survey_templates(lt.name, candidates, datetime.now(UTC))
     saved: dict[str, tuple[Template, str]] = {t.template: (t, status) for t, status in result.items}
+    if found is not None:
+        found += [(saved[m.template][0], measures[m.template]) for m in merged if m.template in saved]
     head = fmt.how_measured(_kind(run, plan), period, scope_text, _method(run, plan), tz=tz)
     shown, note = fmt.cut(merged, shown_limit, "templates")
     covered = sum(m.count for m in shown)
-    found = f"{len(merged)} templates found" + ("" if exact else " in the sample")
+    n_found = f"{len(merged)} template{'' if len(merged) == 1 else 's'} found" + ("" if exact else " in the sample")
     if run.population.exact:
-        population = f"Log table {lt.name}: {round(run.population.value):,} entries match; {found}."
+        n_pop = round(run.population.value)
+        population = f"Log table {lt.name}: {n_pop:,} {'entry matches' if n_pop == 1 else 'entries match'}; {n_found}."
     else:
-        population = f"Log table {lt.name}: population estimated: {fmt.render(run.population)} matching entries; {found}."
+        population = f"Log table {lt.name}: population estimated: {fmt.render(run.population)} matching entries; {n_found}."
     out = [
         head,
         *notes,
         *_merge_notes(result),
         population,
         *([fmt.sentence(run.population_note)] if run.population_note else []),
-        f"These {len(shown)} cover {100 * covered / run.sampled:.0f}% of the {'matching entries' if exact else 'sample'}.",
+        ("This one covers" if len(shown) == 1 else f"These {len(shown)} cover")
+        + f" {100 * covered / run.sampled:.0f}% of the {'matching entries' if exact else 'sample'}.",
     ]
     if note:
         out.append(note)
+    if any(saved[m.template][1] == "new" for m in shown):
+        out.append(
+            "NEW TO CATALOG marks a template this server sees for the first time, not a problem that started now; "
+            "trend tells whether a problem is new."
+        )
+    catalog = ctx.store.templates(lt.name)
     for m in shown:
         template, status = saved[m.template]
         measured = measures[m.template]
-        flag = {"new": "  NEW", "generalized": "  GENERALIZED"}.get(status, "")
+        flag = {"new": "  NEW TO CATALOG", "generalized": "  GENERALIZED"}.get(status, "")
+        wider = covering(template, catalog)
+        part_of = f"  (a narrower form of {wider.template_id}, which trend and rank_problems count)" if wider is not template else ""
         out.append("")
-        out.append(f"{template.template_id}  {fmt.template_text(m.template)}{flag}")
-        out.append(f"    {fmt.render(measured)}, {_share(m.count, run.sampled, exact)} of matching entries")
+        out.append(f"{template.template_id}  {fmt.template_text(m.template)}{flag}{part_of}")
+        # The share follows the count shown: from the estimate when sampled (a sample's raw hit ratio can disagree
+        # with a block estimate), so the two never contradict each other.
+        share = (
+            _share(m.count, run.sampled, exact)
+            if exact or not run.population.value
+            else _share(round(measured.value), round(run.population.value))
+        )
+        out.append(f"    {fmt.render(measured)}, {share} of matching entries")
         for role in ("service", "component"):
             line = _breakdown_line(role, m.breakdown.get(role, {}), m.count, exact)
             if line:

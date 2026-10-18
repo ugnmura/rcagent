@@ -1,6 +1,7 @@
 """run_sql: the read-only escape hatch. One guarded statement on the reader connection, limited,
 timed out, and cost-checked from its query plan before it runs."""
 
+import math
 import re
 from dataclasses import replace
 
@@ -145,6 +146,20 @@ SINGLE_ROLE_REFUSAL = (
 )
 
 
+def _timeout(ctx: AppContext, timeout_s: float | None) -> tuple[float, str]:
+    """The timeout the query runs with, and a note when the one asked for was cut to the server's maximum.
+    Not a number, infinite, zero or negative is refused: none of them is a time to wait."""
+    if timeout_s is not None:
+        if isinstance(timeout_s, bool) or not isinstance(timeout_s, (int, float)) or not math.isfinite(timeout_s):
+            raise UserFacingError("timeout_s must be a number of seconds, e.g. 30 (or leave it out for the default).")
+        if timeout_s <= 0:
+            raise UserFacingError("timeout_s must be more than 0 seconds, e.g. 30 (or leave it out for the default).")
+    most = ctx.settings.max_timeout_s
+    if timeout_s is not None and timeout_s > most:
+        return most, f"timeout cut to {most:g} s, the server's maximum (asked for {timeout_s:g} s)"
+    return ctx.db.effective_timeout(timeout_s), ""
+
+
 def run_sql(
     ctx: AppContext,
     sql: str,
@@ -155,7 +170,7 @@ def run_sql(
     if ctx.settings.single_role and not ctx.settings.allow_sql:
         raise UserFacingError(SINGLE_ROLE_REFUSAL)
     checked = check_read_only(sql)
-    timeout = ctx.db.effective_timeout(timeout_s)
+    timeout, cut = _timeout(ctx, timeout_s)
     if checked.explain:
         rows = _read(ctx, f"EXPLAIN {checked.sql}", timeout, "explaining the query")
         return fmt.PREFIX + "EXPLAIN only; the query was not run.\n" + "\n".join(str(r[0]) for r in rows.rows)
@@ -177,11 +192,11 @@ def run_sql(
     result = _read(ctx, wrapped, run_for, "running the query", zone)
     rows_out = result.rows[:shown]
     note = " ".join(decision.plan.notes)
-    times = ""
+    times = f"; {cut}" if cut else ""
     if zone is not None and is_utc(zone):
-        times = f"; times in {zone}, {zone_why}"
+        times += f"; times in {zone}, {zone_why}"
     elif zone is not None:
-        times = (
+        times += (
             f"; times in {zone} (not UTC), {zone_why}: timestamps print with their UTC offset, and dates, "
             "date_trunc and time literals are in it too (ts AT TIME ZONE 'UTC' gives UTC)"
         )

@@ -59,3 +59,16 @@ def test_openstack_fields_and_joined_traceback(tmp_path):
     assert err["level"] == "ERROR" and "Traceback" in err["message"] and err["message"].count("\n") == 2
     assert inst["instance_id"] == "544fd51c-4edc-4780-baae-ba1d80a0acfc" and inst["anomaly_instance"] is True
     assert api["anomaly_instance"] is False
+
+
+def test_bgl_times_are_real_instants_from_the_epoch():
+    from datetime import UTC, datetime
+
+    # 15:42:50 Pacific daylight time is 22:42:50 UTC; the local fraction of a second is kept
+    assert loader._bgl_ts("2005-06-03-15.42.50.363779", "1117838570") == datetime(2005, 6, 3, 22, 42, 50, 363779, UTC)
+    # the repeated hour when daylight saving ends: the epoch says which 01:30 it was
+    first = loader._bgl_ts("2005-10-30-01.30.00.000000", "1130661000")
+    second = loader._bgl_ts("2005-10-30-01.30.00.000000", "1130664600")
+    assert (second - first).total_seconds() == 3600
+    # no epoch: the local time is read as US Pacific
+    assert loader._bgl_ts("2005-12-01-00.00.00.000000") == datetime(2005, 12, 1, 8, 0, 0, tzinfo=UTC)

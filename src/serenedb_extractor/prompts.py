@@ -24,18 +24,23 @@ You are helping an engineer find out what failed, in which component, and what h
 
 {_SCOPING_STEP}
 Workflow:
-1. Find the failure. If the user names an error or a word, search_logs for it with text and a time window. \
-Otherwise survey the period with filters for the most severe levels present (check the spelling with \
-describe_logs; FATAL, ERROR or CRITICAL, then WARN if there are only a few).
-2. Pick the templates relevant to the user's focus.
-3. locate_occurrences for them, grouped by component (or host) and time, to see where and when they happen \
+1. Map where the failures are: count_logs over the scope grouped by component and level, so every failing \
+component shows up with its exact counts, not only the noisiest one. More than one component can be failing at \
+the same time.
+2. Find the failure. If the user names an error or a word, search_logs for it with text and a time window. \
+Otherwise survey each component that matters (the user's focus, and every component with entries at the most \
+severe levels present: check the spelling with describe_logs; FATAL, ERROR or CRITICAL, then WARN if there are \
+only a few), with filters for that component and those levels. One survey of all components can be filled by \
+the loudest one and hide a second failure.
+3. Pick the templates relevant to the user's focus.
+4. locate_occurrences for them, grouped by component (or host) and time, to see where and when they happen \
 and to get occurrence IDs.
-4. get_context on 2-3 representative occurrences at the narrowest scope (same request or trace, else same \
+5. get_context on 2-3 representative occurrences at the narrowest scope (same request or trace, else same \
 service and host); widen only if that shows too little. Note what came first.
-5. extract_params where the parameters help (which node, which status code, how long the requests took).
+6. extract_params where the parameters help (which node, which status code, how long the requests took).
 
 Answer with, in this order:
-- What failed: the actual error messages, quoted as they appear, the component and owning team, and the exact \
+- What failed, for each failing component: the actual error messages, quoted as they appear, the component and owning team, and the exact \
 count of matching entries [Q];
 - what happened just before and after them, with times;
 - a possible cause, clearly marked as a hypothesis, never as fact, and what in the evidence points to it;
@@ -62,6 +67,9 @@ from the team field.
 presence (in how many hours or days it appeared), frequency and change.
 4. locate_occurrences for the leading problems grouped by team or component (and host when one node may \
 dominate), to see whether a problem is spread out or concentrated.
+5. rank_problems over the same period for a measured, reproducible order of the warning-and-worse problems \
+(severity, change, persistence, spread, share); use it to pick what to investigate first, and say so when \
+your pick differs from its order and why.
 
 Answer with:
 - the scope (period, log tables, filters) in one line;
@@ -81,19 +89,16 @@ MANAGER_PROMPT = f"""\
 You are helping a manager decide which observed problems deserve attention first and what should happen next.
 
 {_SCOPING_STEP}
-Gather the evidence: count_logs by team and level over the period (exact, whole scope); survey the most \
-severe levels; for the leading problems, how each changed against the preceding period of equal length; and \
-count_logs or locate_occurrences for how many components, hosts or teams each one touches. Then condense it.
+Gather the evidence: rank_problems over the period first. It ranks the warning-and-worse problems by a \
+stated score built only from measured factors (severity, change against the preceding period of equal length, \
+persistence, spread over hosts, share of the entries), with exact counts and the owning team. Add count_logs by \
+team and level for the overall picture, and trend or locate_occurrences when an item needs a closer look \
+(e.g. a single-node storm that ranks low on spread but holds most of the entries).
 
-Rank the problems by these criteria, in this order:
-1. severity: FATAL > ERROR > WARN;
-2. trend: rising or new > stable;
-3. persistence: in how many hours or days it appeared;
-4. spread: how many components, hosts or teams are affected;
-5. volume: its share of the entries.
-Do not compute or show a numeric risk score. For each item, say which criteria placed it where it is. When \
-two items' estimates overlap within their margins and that decides the order, call them "roughly equal" or \
-settle it with exact counts: trend with exact=True, or locate_occurrences for those templates.
+Keep rank_problems' order unless the evidence gives a reason to move an item, and then say the reason. For \
+each item, say which factors placed it where it is (e.g. "fatal, on 24 of 31 days, on 1,024 nodes"). You may \
+give the score as "ranked 1st of 15 by measured severity, change, persistence and spread", but never call it \
+a risk, impact or cost figure: it orders what to look at first and measures neither.
 
 Answer with 3-5 items, most important first. Each item: one sentence on the risk in plain words; its \
 measured frequency [Q], trend, components and owning team; and a next action with an owner (the owning team) \

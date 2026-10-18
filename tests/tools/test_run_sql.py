@@ -292,3 +292,70 @@ def test_reg_casts_rejected(bad):
 
 def test_reg_prefix_names_that_are_not_types_still_work():
     check_read_only("SELECT regexp_extract(name, 'a') AS region FROM extractor.log_tables")
+
+
+def test_refusals_name_the_real_reason():
+    import pytest
+
+    from serenedb_extractor.query.guard import SqlRejected, check_read_only
+
+    with pytest.raises(SqlRejected, match="one statement at a time"):
+        check_read_only("SELECT 1; DROP TABLE extractor.lt_x")
+    with pytest.raises(SqlRejected, match="changes data"):
+        check_read_only("WITH x AS (DELETE FROM extractor.lt_x RETURNING *) SELECT * FROM x")
+    check_read_only("SELECT timezone('UTC', ts) FROM extractor.lt_x")  # read-only: allowed
+    check_read_only("SELECT 'a;b' FROM extractor.lt_x;")  # a ; inside a string, and a trailing one, are fine
+
+
+def test_nested_growing_string_functions_are_refused():
+    import pytest
+
+    from serenedb_extractor.query.guard import SqlRejected, check_read_only
+
+    with pytest.raises(SqlRejected, match="nest at most one"):
+        check_read_only("SELECT replace(replace(message, 'a', 'aaaa'), 'a', 'aaaa') FROM extractor.lt_x")
+    with pytest.raises(SqlRejected, match="nest at most one"):
+        check_read_only("SELECT regexp_replace(concat(message, message), 'a', 'bb') FROM extractor.lt_x")
+    check_read_only("SELECT replace(message, 'a', 'b'), concat(level, '-', component) FROM extractor.lt_x")
+    check_read_only("SELECT lower(replace(message, 'a', 'b')) FROM extractor.lt_x")
+
+
+def test_growing_functions_are_limited_across_the_statement():
+    import pytest
+
+    from serenedb_extractor.query.guard import SqlRejected, check_read_only
+
+    with pytest.raises(SqlRejected, match="at most 2"):
+        check_read_only(
+            "WITH a AS (SELECT replace(message, 'a', 'bb') AS m FROM extractor.lt_x), "
+            "b AS (SELECT replace(m, 'b', 'cc') AS m FROM a) SELECT replace(m, 'c', 'dd') FROM b"
+        )
+    with pytest.raises(SqlRejected, match="longer than 100"):
+        check_read_only("SELECT replace(message, 'a', '" + "x" * 200 + "') FROM extractor.lt_x")
+
+
+def test_concatenation_and_literal_limits():
+    import pytest
+
+    from serenedb_extractor.query.guard import SqlRejected, check_read_only
+
+    check_read_only("SELECT level || ' ' || component || ': ' || message FROM extractor.lt_x")
+    with pytest.raises(SqlRejected, match="at most 6"):
+        check_read_only("SELECT " + " || ".join(["message"] * 8) + " FROM extractor.lt_x")
+    with pytest.raises(SqlRejected, match="longer than 1000"):
+        check_read_only("SELECT '" + "x" * 1200 + "' FROM extractor.lt_x")
+
+
+def test_explain_is_checked_like_its_query():
+    import pytest
+
+    from serenedb_extractor.query.guard import SqlRejected, check_read_only
+
+    for q in (
+        "EXPLAIN SELECT 1 AS x WHERE length(repeat('x', 200000000)) = 0",
+        "EXPLAIN SELECT 1 AS x WHERE current_setting('threads')::int > 1000",
+        "EXPLAIN SELECT replace(replace(message, 'a', 'b'), 'b', 'c') FROM extractor.lt_x",
+    ):
+        with pytest.raises(SqlRejected):
+            check_read_only(q)
+    check_read_only("EXPLAIN SELECT count(*) FROM extractor.lt_x")

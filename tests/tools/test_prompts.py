@@ -9,13 +9,13 @@ from tests.conftest import Client
 PROMPTS = {"engineer": ENGINEER_PROMPT, "team-lead": TEAM_LEAD_PROMPT, "manager": MANAGER_PROMPT}
 
 
-async def test_fifteen_tools_and_annotations(mcp_no_db):
+async def test_eighteen_tools_and_annotations(mcp_no_db):
     tools = {t.name: t for t in (await mcp_no_db.list_tools()).tools}
     assert set(tools) == {"inspect_source", "setup_log_table", "create_index", "describe_logs", "survey", "locate_occurrences",
                           "extract_params", "trend", "get_context", "search_logs", "run_sql", "rename_parameter",
-                          "count_logs", "show_evidence", "drop_index"}
+                          "count_logs", "show_evidence", "drop_index", "show_team_ownership", "edit_team_ownership", "rank_problems"}
     assert tools["create_index"].annotations.destructiveHint and tools["setup_log_table"].annotations.destructiveHint
-    assert tools["survey"].annotations.readOnlyHint is False and tools["trend"].annotations.readOnlyHint is True
+    assert tools["survey"].annotations.readOnlyHint is False and tools["trend"].annotations.readOnlyHint is False
 
 
 async def test_prompts_without_arguments(mcp_no_db):
@@ -38,9 +38,10 @@ def test_instructions_sent_on_connect(mcp_no_db: Client):
 
 def test_manager_rules():
     m = MANAGER_PROMPT.lower()
-    idx = [m.index(w) for w in ("severity", "trend", "persistence", "spread", "volume")]
-    assert idx == sorted(idx) and "risk score" in m and "roughly equal" in m and "not measure" in m
-    assert "fatal > error > warn" in m and "not in the data" in m and "3-5" in m
+    assert m.index("rank_problems") < m.index("count_logs")  # the measured ranking comes first
+    idx = [m.index(w) for w in ("severity", "change", "persistence", "spread", "share")]
+    assert idx == sorted(idx) and "never call it" in m and "risk, impact or cost" in m and "not measure" in m
+    assert "not in the data" in m and "3-5" in m
 
 
 def test_instructions():
@@ -106,9 +107,9 @@ def test_block_sample_caveat_matches_tool_wording():
     assert "block sample" in ANSWER_RULES.lower() and "clustered in time" in ANSWER_RULES.lower()
 
 
-def test_near_ties_say_how_to_get_exact_counts():
+def test_manager_digs_into_items_the_ranking_places_low():
     m = MANAGER_PROMPT
-    assert "exact=True" in m and "locate_occurrences" in m
+    assert "trend or locate_occurrences" in m and "single-node storm" in m and "say the reason" in m
 
 
 def test_team_lead_surveys_the_whole_period_and_prioritises_in_the_report():

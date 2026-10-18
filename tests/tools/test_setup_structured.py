@@ -49,7 +49,7 @@ async def test_message_falls_back_to_widest_text_column(mcp, db_url):
 async def test_setup_and_describe(mcp, fx_path):
     await call(mcp, "setup_log_table", name="fx", source=fx_path)
     out = await call(mcp, "describe_logs", log_table="fx")
-    assert "in place" in out and "host: absent" in out and "context scopes: trace, service, everything" in out
+    assert "in place" in out and "host: absent" in out and "context scopes: trace, service, component, everything" in out
     # 5,000 entries are cheap to count: the top values are exact, over every entry
     assert "top values (exact, counted over every entry)" in out and "ERROR" in out
     assert "entries: 5,000" in out and "indexes: none" in out and "2026-03-01 00:00:00 to 2026-03-02" in out
@@ -85,7 +85,7 @@ async def test_rejects_unsafe_role_expression(mcp, fx_path):
 async def test_clearing_a_role_marks_it_absent(mcp, fx_lt):
     out = await call(mcp, "setup_log_table", name="fx", source=fx_lt, roles={"trace": None})
     assert "updated field roles: trace" in out
-    assert "context scopes: service, everything" in await call(mcp, "describe_logs", log_table="fx")
+    assert "context scopes: service, component, everything" in await call(mcp, "describe_logs", log_table="fx")
 
 
 async def test_find_values(mcp, fx_lt):

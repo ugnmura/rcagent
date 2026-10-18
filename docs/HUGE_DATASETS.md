@@ -61,7 +61,7 @@ killed for running out of memory at a 64 GB limit
 ([`oom-run-slurm-excerpt.txt`](huge-datasets/oom-run-slurm-excerpt.txt),
 [`oom-run-extractor_setup.jsonl`](huge-datasets/oom-run-extractor_setup.jsonl)). The run above used 128 GB and
 finished cleanly. Index builds are also capped at the server's maximum query time (600 s by default; see
-[Known limits](../README.md#known-limits)).
+[Known limits](reference.md#known-limits)).
 
 ## Cost
 
