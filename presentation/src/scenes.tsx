@@ -1,6 +1,6 @@
 // Scenes 1a, 1b and 2 in film style: one idea per shot, push-ins, hard cuts on beats, fades between acts.
 import React from 'react';
-import {AbsoluteFill, Sequence, spring, useCurrentFrame, useVideoConfig} from 'remotion';
+import {AbsoluteFill, Audio, Freeze, Sequence, spring, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
 import {ASSETS, type AssetKey, type ResolvedAssets} from './assets';
 import type {Benchmarks} from './benchmarks';
 import {DialogAudio} from './components';
@@ -18,6 +18,8 @@ const INK = '#030405';
 /** Lower-third name tag at a presenter's first appearance: from 1 s into the take, about 3 s. */
 const NAME_TAG_FROM = 30;
 const NAME_TAG_FRAMES = 90;
+const REVEAL_UP_FROM = 24;
+const REVEAL_UP_TO = 75;
 
 /** A shot: its own Sequence (local frames) with a slow push-in. */
 const Shot: React.FC<{from: number; to: number; name: string; children: React.ReactNode}> = ({from, to, name, children}) =>
@@ -55,37 +57,76 @@ export const DramatizationTag: React.FC<{top?: number}> = ({top = (LETTERBOX - 4
 	</div>
 );
 
+/** The line goes dead: the last 0.4 s of the cold open is a frozen picture and silence after one click. */
+const DEAD_LINE_FRAMES = 12;
+/** Frames where TitleCaption starts typing its three lines (its default `starts`, src/shots.tsx). */
+const TYPE_STARTS = [15, 72, 112];
+
+/** Typewriter ticks as the caption types on, a drone that swells under the call, keyboard taps after the last line; all of it
+ * stops dead at `end`, where the click of the hung-up line plays. */
+const ColdOpenSfx: React.FC<{end: number}> = ({end}) => {
+	const keysFrom = Math.max(0, end - Math.round(3.5 * FPS));
+	return (
+		<>
+			{TYPE_STARTS.map((from, i) => (
+				<Sequence key={i} from={from} durationInFrames={Math.round(2 * FPS)}>
+					<Audio src={staticFile(`assets/sfx/cold-type-${i + 1}.wav`)} volume={0.5} />
+				</Sequence>
+			))}
+			<Sequence durationInFrames={end}>
+				<Audio src={staticFile('assets/sfx/cold-drone.wav')} volume={(f) => 0.8 * Math.min(1, f / 30)} />
+			</Sequence>
+			<Sequence from={keysFrom} durationInFrames={end - keysFrom}>
+				<Audio src={staticFile('assets/sfx/cold-keys.wav')} volume={0.45} />
+			</Sequence>
+			<Sequence from={end} durationInFrames={DEAD_LINE_FRAMES}>
+				<Audio src={staticFile('assets/sfx/cold-click.wav')} volume={1} />
+			</Sequence>
+		</>
+	);
+};
+
 export const ColdOpenScene: React.FC<SceneProps> = ({assets, frames}) => {
 	const frame = useCurrentFrame();
-	const subs = cueFrames(
-		coldOpen.dialog.map((d) => d.text),
-		frames,
-		DIALOG_LEAD_SECONDS,
-		0.5,
-	);
+	const subs: [number, number][] = assets.dialog.present
+		? coldOpen.dialogSeconds.map(([a, b]) => [Math.round(a * FPS), Math.round(b * FPS) + 6])
+		: cueFrames(
+				coldOpen.dialog.map((d) => d.text),
+				frames,
+				DIALOG_LEAD_SECONDS,
+				0.5,
+			);
 	// The title dims as the storm takes over; a red glow rises at the edges.
 	const dim = 1 - 0.45 * ramp(frame, frames * 0.55, frames * 0.8);
 	const glow = ramp(frame, frames * 0.3, frames);
+	const end = frames - DEAD_LINE_FRAMES;
 	return (
 		<AbsoluteFill style={{backgroundColor: INK}}>
-			<PushIn frames={frames}>
-				<LogStorm frames={frames} />
-				<AbsoluteFill style={{background: 'linear-gradient(90deg, rgba(3,4,5,0.92) 0%, rgba(3,4,5,0.6) 55%, rgba(3,4,5,0) 100%)'}} />
-				<AbsoluteFill style={{justifyContent: 'center', paddingLeft: 170, opacity: dim}}>
-					<TitleCaption />
+			<Freeze frame={end - 1} active={frame >= end}>
+				<AbsoluteFill>
+					<PushIn frames={frames}>
+						<LogStorm frames={frames} />
+						<AbsoluteFill style={{background: 'linear-gradient(90deg, rgba(3,4,5,0.92) 0%, rgba(3,4,5,0.6) 55%, rgba(3,4,5,0) 100%)'}} />
+						<AbsoluteFill style={{justifyContent: 'center', paddingLeft: 170, opacity: dim}}>
+							<TitleCaption />
+						</AbsoluteFill>
+					</PushIn>
+					<FilmFinish vignette={0.55 + 0.25 * glow} tint={`${Math.round(90 * glow)},0,0`} />
+					<Letterbox />
+					<DramatizationTag />
+					{assets.dialog.present ? null : (
+						<div style={{position: 'absolute', left: 48, top: (LETTERBOX - 30) / 2, fontFamily: font.sans, fontSize: 22, fontWeight: 700, color: color.placeholder}}>
+							PLACEHOLDER · dialog.mp3 (audio, 18–24 s) is missing
+						</div>
+					)}
+					<BarSubtitles cues={coldOpen.dialog} timing={subs} />
 				</AbsoluteFill>
-			</PushIn>
-			<FilmFinish vignette={0.55 + 0.25 * glow} tint={`${Math.round(90 * glow)},0,0`} />
-			<Letterbox />
-			<DramatizationTag />
-			{assets.dialog.present ? null : (
-				<div style={{position: 'absolute', left: 48, top: (LETTERBOX - 30) / 2, fontFamily: font.sans, fontSize: 22, fontWeight: 700, color: color.placeholder}}>
-					PLACEHOLDER · dialog.mp3 (audio, 18–24 s) is missing
-				</div>
-			)}
-			<BarSubtitles cues={coldOpen.dialog} timing={subs} />
-			<BlackFades frames={frames} fadeIn={12} fadeOut={24} />
-			<DialogAudio assets={assets} />
+			</Freeze>
+			<BlackFades frames={frames} fadeIn={12} />
+			<Sequence durationInFrames={end}>
+				<DialogAudio assets={assets} />
+			</Sequence>
+			<ColdOpenSfx end={end} />
 		</AbsoluteFill>
 	);
 };
@@ -100,6 +141,8 @@ export const RevealScene: React.FC<SceneProps> = ({assets, frames}) => {
 	const factFrom = timing[reveal.factFromCue][0];
 	const flowFrom = timing[reveal.flowFromCue][0];
 	const corner = spring({frame: frame - counterFrom, fps, config: {damping: 200}, durationInFrames: 22});
+	// Opens on black after the dead line; the facecam fades up as the narration starts.
+	const up = ramp(frame, REVEAL_UP_FROM, REVEAL_UP_TO);
 	return (
 		<AbsoluteFill style={{backgroundColor: INK}}>
 			<Shot from={counterFrom} to={factFrom} name="counter">
@@ -113,10 +156,11 @@ export const RevealScene: React.FC<SceneProps> = ({assets, frames}) => {
 			</Shot>
 			<FilmFacecam assetKey="s1" assets={assets} corner={corner} />
 			<FilmFinish />
-			<Sequence from={NAME_TAG_FROM} durationInFrames={NAME_TAG_FRAMES} name="name tag">
+			<AbsoluteFill style={{background: '#000', opacity: 1 - up}} />
+			<Sequence from={Math.max(NAME_TAG_FROM, REVEAL_UP_TO)} durationInFrames={NAME_TAG_FRAMES} name="name tag">
 				<NameTag assetKey="s1" frames={NAME_TAG_FRAMES} />
 			</Sequence>
-			<BlackFades frames={frames} fadeIn={18} fadeOut={24} />
+			<BlackFades frames={frames} fadeOut={24} />
 		</AbsoluteFill>
 	);
 };

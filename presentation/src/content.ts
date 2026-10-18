@@ -46,7 +46,7 @@ export const intro = {
 	schubkiIcon: 'assets/logos/schubki-icon.png',
 };
 
-export const DRAMATIZATION_LABEL = 'Dramatization: real log data, AI-generated voices';
+export const DRAMATIZATION_LABEL = 'Dramatization: real log data';
 
 // ---------------------------------------------------------------- 1a cold open (slide 1)
 export const coldOpen = {
@@ -70,6 +70,15 @@ export const coldOpen = {
 		],
 		runMessage: 'data TLB error interrupt',
 	},
+	/** Start and end of each dialog line in public/assets/dialog.mp3, in seconds (measured when the file was stitched:
+	 * 2 s lead while the caption types, 0.35 s between lines). Used for the subtitles while that file is present. */
+	dialogSeconds: [
+		[2.0, 12.88],
+		[13.23, 14.75],
+		[15.1, 18.62],
+		[18.97, 21.85],
+		[22.2, 23.8],
+	] as [number, number][],
 	// script.md, dialog table. Speaker labels are the table's "Voice" column, shortened.
 	dialog: [
 		{
@@ -94,7 +103,6 @@ export const reveal = {
 	fact: {value: '4.7 million', label: 'log lines · seven months'},
 	flow: ['Question', 'Agent picks a tool', 'SereneDB searches / counts', 'Evidence', 'Answer'],
 	cues: [
-		'The voices are reconstructed. Everything else is real.',
 		'Saturday, 11 June 2005, Lawrence Livermore National Laboratory.',
 		'Blue Gene/L, then the fastest supercomputer on Earth.',
 		// 152,229: WI §1 [step 2]
@@ -110,11 +118,11 @@ export const reveal = {
 		"Let's answer that phone call.",
 	],
 	/** Index of the cue from which the headline card shows (the cue that says 152,229). */
-	headlineFromCue: 3,
+	headlineFromCue: 2,
 	/** Index of the cue from which the 4.7 million shot shows. */
-	factFromCue: 5,
+	factFromCue: 4,
 	/** Index of the cue from which the flow line shows ("So we flipped it."). */
-	flowFromCue: 7,
+	flowFromCue: 6,
 };
 
 // ---------------------------------------------------------------- 2 engineer (slide 2)
@@ -369,5 +377,5 @@ export const split = {
 // ---------------------------------------------------------------- 8 star gag (after the close)
 export const star = {
 	repo: {owner: 'serenedb', name: 'serenedb'},
-	caption: 'As requested. Several times.',
+	caption: 'As requested.',
 };
