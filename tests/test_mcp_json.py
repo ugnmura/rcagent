@@ -33,7 +33,7 @@ def test_defaults_match_the_readme_quick_start() -> None:
     env = {k: _expand(v, {}) for k, v in _server()["env"].items()}
     settings = Settings.from_env(env)
     assert settings.reader_url == "postgresql://postgres@localhost:7890/postgres"
-    assert settings.single_role and settings.allow_sql
+    assert settings.single_role and not settings.allow_sql  # run_sql fails closed on the unrestricted role
     assert (settings.logs_host_dir, settings.logs_container_dir) == ("~/logs", "/logs")
 
 

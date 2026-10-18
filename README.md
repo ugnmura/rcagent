@@ -277,7 +277,7 @@ the `SERENEDB_TEST_URL` to use (see [Running the tests](#running-the-tests)).
 | `SERENEDB_READER_URL` | connection URL used for every query; should be a SELECT-only role | **required** |
 | `SERENEDB_WRITER_URL` | connection for setup, index builds and catalog writes; a role that owns only the `extractor` schema | the reader URL (single-role mode, with a one-time warning) |
 | `LOGS_HOST_DIR` / `LOGS_CONTAINER_DIR` | the mounted logs folder on this machine and where SereneDB sees it (e.g. `~/logs` → `/logs`) | unset; set both or neither |
-| `SERENEDB_ALLOW_SQL` | `1` lets `run_sql` work in single-role mode | off |
+| `SERENEDB_ALLOW_SQL` | `1` lets `run_sql` work in single-role mode (`.mcp.json` and `up.sh` leave it off) | off |
 
 Built-in limits (not configurable in this prototype):
 

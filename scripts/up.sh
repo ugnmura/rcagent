@@ -147,6 +147,9 @@ Ready. Next step: start Claude Code in this folder and approve the project MCP s
 
     claude
     /engineer What failed on BGL on 11 June 2005, and what happened just before?
+
+run_sql is off by default: this local setup uses one superuser connection, so SereneDB does not enforce
+read-only for it (only the server's own SQL guard does). To turn it on anyway: export SERENEDB_ALLOW_SQL=1
 EOF
 if [[ "$PORT" != 7890 || "$HOST_DIR" != "$HOME/logs" || "$CONTAINER_DIR" != /logs ]]; then
   cat <<EOF

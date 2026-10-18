@@ -6,7 +6,7 @@
       "env": {
         "SERENEDB_READER_URL": "${SERENEDB_READER_URL:-postgresql://postgres@localhost:7890/postgres}",
         "SERENEDB_WRITER_URL": "${SERENEDB_WRITER_URL:-}",
-        "SERENEDB_ALLOW_SQL": "${SERENEDB_ALLOW_SQL:-1}",
+        "SERENEDB_ALLOW_SQL": "${SERENEDB_ALLOW_SQL:-}",
         "LOGS_HOST_DIR": "${LOGS_HOST_DIR:-~/logs}",
         "LOGS_CONTAINER_DIR": "${LOGS_CONTAINER_DIR:-/logs}"
       }
