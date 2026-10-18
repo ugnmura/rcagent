@@ -60,8 +60,10 @@ async def test_overview_counts_spans_of_a_trace_table(mcp, db_url, database):
         )
     )
     out = await call(mcp, "telemetry_overview", prefix="shop_", pivot=fx.PIVOT_ISO)
-    assert "spans: 1 before, 2 after (+100.0%)" in _block(out, "cart")
-    assert "spans: 1 before, 0 after (-100.0%)" in _block(out, "payment")
+    # 4 spans from 10:00:05 to 10:11:41 cover little of the window: counts shown, no percent (Q49).
+    assert "trace table shop_traces: the data covers only" in out
+    assert "spans: 1 before, 2 after (not comparable" in _block(out, "cart")
+    assert "spans: 1 before, 0 after (not comparable" in _block(out, "payment")
     assert "spans: none" in _block(out, "email")
     assert "missing entirely" not in out
     assert "coverage: logs yes, metrics yes, traces yes" in _block(out, "cart")
