@@ -50,16 +50,21 @@ NARROW = (
 )
 
 
-def ts_select(lt: LogTable, cols: dict[str, str]) -> str:
+def _ts_shown(lt: LogTable, cols: dict[str, str]) -> str:
+    """The timestamp role as the timestamptz shown for an entry (only in a SELECT list, never in a WHERE)."""
     if lt.roles.timestamp is None:
-        return "NULL::timestamptz AS occ_ts"
+        return "NULL::timestamptz"
     expr = role_sql(lt, "timestamp")
     typ = cols.get(role_column(lt.roles.timestamp) or "", "").upper()
     if not is_temporal(typ):
-        return f"{instant_sql(expr, typ, lt.timezone)} AS occ_ts"
+        return instant_sql(expr, typ, lt.timezone)
     if "WITH TIME ZONE" in typ or typ.startswith("TIMESTAMPTZ"):
-        return f"({expr})::timestamptz AS occ_ts"
-    return f"({expr})::timestamp AT TIME ZONE {sql_literal(lt.timezone)} AS occ_ts"
+        return f"({expr})::timestamptz"
+    return f"({expr})::timestamp AT TIME ZONE {sql_literal(lt.timezone)}"
+
+
+def ts_select(lt: LogTable, cols: dict[str, str]) -> str:
+    return f"{_ts_shown(lt, cols)} AS occ_ts"
 
 
 def _order_sql(lt: LogTable, order: str) -> str:
@@ -183,23 +188,27 @@ def search_logs(
         scope_sql = time_sql + (" AND " + sampling.clause(plan) if plan.sampling else "")
         what = f"searching log table {lt.name}" + (f" for '{text}'" if text else "")
         timeout = cost.run_timeout(plan, ctx.settings.default_timeout_s, ctx.settings.max_timeout_s)
-        measured = _count(db, lt, plan, scope_sql, match_sql, params, timeout, what)
-        total = int(measured.hits or 0) if not plan.exact else int(measured.value)
+        items = _entry_items(lt, cols)
         rows: list[dict[str, Any]] = []
+        one_scan = _count_and_top(
+            db, lt, plan, scope_sql, match_sql, params, items, order, shown_limit, timeout, what, text
+        )
+        if one_scan is not None:
+            measured, rows = one_scan
+        else:
+            measured = _count(db, lt, plan, scope_sql, match_sql, params, timeout, what)
+        total = int(measured.hits or 0) if not plan.exact else int(measured.value)
         tags: list[str] = []
-        if total:
-            role_sel = "".join(
-                f", ({role_sql(lt, r)})::varchar AS occ_{r}" for r in FILTER_ROLES if getattr(lt.roles, r) is not None
-            )
+        if total and one_scan is None:
             rows = db.read(
-                f"SELECT {ts_select(lt, cols)}, ({role_sql(lt, 'message')})::varchar AS occ_msg{role_sel}"
-                f"{occurrence.select_sql(lt)} FROM {lt.relation} WHERE {scope_sql} AND {match_sql} "
+                f"SELECT {', '.join(f'{e} AS {a}' for e, a in items)} FROM {lt.relation} WHERE {scope_sql} AND {match_sql} "
                 f"{_order_sql(lt, order)} LIMIT %(shown_limit)s",
                 {**params, "shown_limit": shown_limit},
                 timeout_s=timeout,
                 what=what,
                 how_to_narrow=NARROW,
             ).dicts()
+        if total:
             templates = ctx.store.templates(lt.name)
             if templates:  # template tags once the catalog has templates
                 tags = [tag_text(t) for t in tag_entries(templates, [str(r["occ_msg"] or "") for r in rows])]
@@ -413,6 +422,62 @@ def _attach_occurrences(
             source = candidates.pop(0)
             row.update({k: v for k, v in source.items() if k.startswith("occ_") and k not in row})
     return None
+
+
+def _entry_items(lt: LogTable, cols: dict[str, str]) -> list[tuple[str, str]]:
+    """(expression, alias) of every column shown for a found entry."""
+    return [
+        (_ts_shown(lt, cols), "occ_ts"),
+        (f"({role_sql(lt, 'message')})::varchar", "occ_msg"),
+        *((f"({role_sql(lt, r)})::varchar", f"occ_{r}") for r in FILTER_ROLES if getattr(lt.roles, r) is not None),
+        *occurrence.select_items(lt),
+    ]
+
+
+# Row-position columns that are never NULL, so they can break timestamp ties inside a struct key.
+_NEVER_NULL = frozenset({"file_row_number", "entry_id"})
+
+
+def _count_and_top(
+    db: Any, lt: LogTable, plan: cost.Plan, scope_sql: str, match_sql: str, params: dict[str, Any],
+    items: list[tuple[str, str]], order: str, limit: int, timeout: float, what: str, text: str | None,
+) -> tuple[fmt.Measured, list[dict[str, Any]]] | None:
+    """An exact search's count and its newest (or oldest) entries from ONE scan: count(*) with
+    arg_max/arg_min(entry, timestamp, limit), instead of a count and then an ORDER BY ... LIMIT that
+    reads the scope a second time (S6: a 60-second window of TextBench is 33 M entries). The ranking key
+    is (timestamp, order role) like the ORDER BY. None when it does not apply (sampled, no timestamp,
+    or an order role that can be NULL, whose NULLS LAST a struct key would not keep); the caller then
+    counts and selects separately. Entries without a timestamp are not ranked (NULL key), so when fewer
+    entries come back than were asked for while more matched, the caller's ORDER BY reads them.
+
+    Only for a text search: arg_max builds the entry for every match, which pays off when the text
+    keeps few of the entries in scope and the scan reads the messages anyway (S6 'error': 1.34 -> 0.91 s),
+    but not without text, where every entry matches and the count alone only reads the timestamp
+    column (TextBench 60 s: count 0.15 s + ORDER BY LIMIT 0.22 s, one scan 1.38 s)."""
+    if not text or not plan.exact or plan.sampling or lt.roles.timestamp is None:
+        return None
+    ts = role_sql(lt, "timestamp")
+    key = ts
+    if lt.roles.order is not None:
+        if role_column(lt.roles.order) not in _NEVER_NULL:
+            return None
+        key = f"CASE WHEN {ts} IS NULL THEN NULL ELSE struct_pack(t := {ts}, o := {role_sql(lt, 'order')}) END"
+    fn = "arg_max" if order == "newest" else "arg_min"
+    entry = ", ".join(f"{a} := {e}" for e, a in items)
+    got = db.read(
+        f"SELECT n, unnest(coalesce(top, [NULL]), recursive := true) FROM (SELECT count(*) AS n, "
+        f"{fn}(struct_pack({entry}), {key}, %(shown_limit)s) AS top "
+        f"FROM {lt.relation} WHERE {scope_sql} AND {match_sql})",
+        {**params, "shown_limit": limit},
+        timeout_s=timeout,
+        what=what,
+        how_to_narrow=NARROW,
+    ).dicts()
+    n = int(got[0]["n"] or 0) if got else 0
+    rows = [{k: v for k, v in r.items() if k != "n"} for r in got if r.get("occ_ts") is not None]
+    if len(rows) < min(limit, n):
+        return None
+    return fmt.Measured(float(n), True), rows
 
 
 def _count(
