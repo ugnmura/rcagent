@@ -39,10 +39,10 @@ write-up in [docs/worked-investigation.md](worked-investigation.md).
 | Runs from a clean checkout: connect to SereneDB, load the base data, start the agent workflow | [Quick start](../README.md#quick-start) and [The base corpus and the loader](#the-base-corpus-and-the-loader) |
 | A public repository with a README explaining the workflow, setup, how to run it and known limitations | The [README](../README.md) and [Known limits](#known-limits) |
 | One worked investigation of a real issue, with questions, tool calls, executed queries, results, and each role's answer and action | [README section](../README.md#worked-investigation-one-corpus-three-roles), full write-up in [docs/worked-investigation.md](worked-investigation.md), and its [transcript](worked-investigation-transcript.md) |
-| A presentation or demo of no more than 5 minutes, and slides | Talk script, slides and video in `docs/presentation/` and `presentation/` |
-| Optional: the agent manages its own workspace (create an index for an investigation and remove it after) | `create_index` (with a `dry_run` size and time estimate) and `drop_index`. See [Indexes](#indexes) |
+| A presentation or demo of no more than 5 minutes, and slides | In preparation in pull request #31 (talk script, slides and video), not yet on `main` |
+| Optional: the agent manages its own workspace (create an index for an investigation and remove it after) | `create_index` (with a `dry_run` size and time estimate) and `drop_index`. See [Indexes](#indexes). Build times and queries with and without the index: [docs/INDEX_TIMINGS.md](INDEX_TIMINGS.md) |
 | Optional: larger datasets, such as the remote OpenTelemetry Parquet data | [Large datasets: TextBench](#large-datasets-textbench-remote-parquet-1-billion-rows-per-file) |
-| Optional: phrase and fuzzy matching | `search_logs` through the search index: phrase search finds the words in order (`ts_phrase`), `fuzzy=True` matches each word within a typo or two (`ts_levenshtein`). Without the index, text search is an exact substring scan and fuzzy is refused |
+| Optional: phrase and fuzzy matching | `search_logs` through the search index: phrase search finds the words in order (`ts_phrase`), `fuzzy=True` matches each word within a typo or two (`ts_levenshtein`). Without the index, text search is an exact substring scan and fuzzy is refused. Fuzzy search on BGL: 0.17 s ([docs/INDEX_TIMINGS.md](INDEX_TIMINGS.md)) |
 | Optional: row-level security per role | Not implemented. There is a reader/writer split of database roles ([Reader and writer roles](#reader-and-writer-roles)), not per-role row access |
 | Optional: correlate logs with traces or metrics | Metric and trace tables next to the log tables. `telemetry_overview` shows a system's logs, metrics and traces around one moment, per service. `metric_changes`, `metric_series`, `trace_changes` (self time and network time per call) and `get_trace` go deeper. RCAEval held-out root cause: AC@1 96.3% over 348 trials ([evaluation](EVALUATION.md#rcaeval-logs-metrics-and-traces)) |
 
@@ -155,17 +155,21 @@ Setup stays fast on a remote source:
 After setup, every tool checks the predicted cost first. A big scope gets a **block sample** of whole row groups
 (stated, with a margin), or the tool asks before reading more.
 
-**Measured on the real S3 file** (`part_000`, about 1 billion rows, one shared 16-CPU / 128 GB HPC node, details and
-raw logs in [HUGE_DATASETS.md](HUGE_DATASETS.md)):
+**Measured on the real S3 files** at commit `b51daa1` (one shared 16-CPU / 128 GB HPC node, details and raw logs
+in [HUGE_DATASETS.md](HUGE_DATASETS.md)):
 
 | Step | Time |
 |---|---|
-| `setup_log_table` on the S3 URL (metadata only, nothing downloaded) | 1.97 s |
-| `create_index(kind="search")` over all ~1B rows, built once (needs more than 64 GB of RAM) | 69.9 s |
-| `search_logs` "error" over the **whole file** (30 minutes of data) through that index (median of 3) | 4.18 s |
-| `search_logs` "error" over **one minute** of the file's 30, no index (exact scan, median of 3) | 2.88 s |
+| `setup_log_table` on `part_000` (1B rows, metadata only, nothing downloaded) | 1.38 s |
+| `create_index(kind="search")` over all 1B rows, built once (37.5 GB) | 70.7 s |
+| `search_logs` "error", **whole billion-row file, with index** (exact, median of 3) | 2.32 s |
+| the same search **without index**, exact (`run_sql`, after confirming the cost) | 15.4 s |
+| `search_logs` "error", one minute, **without index** (exact, median of 3) | 1.71 s |
+| `setup_log_table` on `part_{000..009}` (10B rows) | 0.57 s |
+| `search_logs` "error", one minute of 10B rows (exact, median of 3, slowest window) | 3.49 s |
+| `count_logs` by service and level over all 10B rows (exact, after confirming the cost) | 31.8 s |
 
-The two searches cover different scopes, so this is not a speed comparison.
+The index repays its build after about 5 exact whole-file searches.
 
 ## The base corpus and the loader
 
@@ -483,8 +487,8 @@ This is a prototype:
   gets large.
 - **Gap detection needs an affordable timestamp scan.** When that is too expensive (a huge remote source over a
   long period), `trend` says gaps were not checked.
-- **TextBench timings are from one file at commit `6cad141`** on a shared HPC node
-  ([HUGE_DATASETS.md](HUGE_DATASETS.md)). Multi-file sources (`part_{000..009}`) work but were not timed, and later
-  changes on `main` were not re-timed there.
+- **TextBench timings ran at commit `b51daa1`** on a shared HPC node ([HUGE_DATASETS.md](HUGE_DATASETS.md)). Later
+  changes on `main` were not re-timed there. A survey of all ten files was refused as longer than the 600 s query
+  limit, and the cost guard's time predictions there were 1.7 to 23 times too high.
 - **A search index over 1 billion rows needs more than 64 GB of RAM.** The database server ran out of memory at
   64 GB and finished at 128 GB.

@@ -12,7 +12,11 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from serenedb_extractor.templating.words import constant_word
+from serenedb_extractor.templating.words import (
+    constant_word,
+    names_a_value,
+    unit_after_number,
+)
 from drain3 import TemplateMiner  # type: ignore[import-untyped]
 from drain3.template_miner_config import TemplateMinerConfig  # type: ignore[import-untyped]
 
@@ -53,7 +57,10 @@ class MergedTemplate:
 def _miner(sim_th: float, depth: int) -> TemplateMiner:
     config = TemplateMinerConfig()  # defaults: no masking instructions
     config.masking_instructions = []
-    config.parametrize_numeric_tokens = False
+    # Route tokens with digits (`attempt_1445_m_000003_0`, `job_..._0020Job`) through Drain's
+    # wildcard branch of its prefix tree, so one event's lines with different leading ids meet in
+    # one cluster instead of one cluster per id (templates still compare the tokens themselves).
+    config.parametrize_numeric_tokens = True
     config.drain_sim_th = sim_th
     config.drain_depth = depth
     return TemplateMiner(persistence_handler=None, config=config)
@@ -62,7 +69,8 @@ def _miner(sim_th: float, depth: int) -> TemplateMiner:
 # A word position is an enum (part of the event's wording) rather than a variable when all its
 # values are constant words (templating.words), at most MAX_ENUM_VALUES distinct ones. `VM Paused` /
 # `VM Resumed` and `"GET` / `"POST` stay apart; a position with many different words (user names)
-# or with ids, numbers or placeholders still becomes `<*>`.
+# or with ids, numbers or placeholders still becomes `<*>`. So does a position whose words are units
+# after a number (`<NUM> KB` / `<NUM> MB`) or follow a label naming the value (`user cyrus` / `user news`).
 MAX_ENUM_VALUES = 6
 
 
@@ -83,8 +91,14 @@ def _split_enums(
         if token != "<*>":
             continue
         values = {constant_word(t[pos]) for t in member_tokens}
-        if None not in values and len(values) <= MAX_ENUM_VALUES:
-            enum_positions.append(pos)
+        if None in values or len(values) > MAX_ENUM_VALUES:
+            continue
+        if pos and any(
+            names_a_value(t[pos - 1]) or unit_after_number(t[pos - 1], t[pos])
+            for t in member_tokens
+        ):
+            continue
+        enum_positions.append(pos)
     if not enum_positions:
         return [(tokens, items)]
     by_key: dict[tuple[str, ...], list[tuple[list[str], MaskedGroup]]] = {}

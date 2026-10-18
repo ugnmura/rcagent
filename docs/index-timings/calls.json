@@ -1,0 +1,184 @@
+[
+ {
+  "label": "noindex:search_bgl_parity_all",
+  "tool": "search_logs",
+  "args": {
+   "log_table": "bgl",
+   "text": "parity error",
+   "limit": 20
+  },
+  "runs": 5,
+  "confirm": true
+ },
+ {
+  "label": "noindex:search_bgl_error_day",
+  "tool": "search_logs",
+  "args": {
+   "log_table": "bgl",
+   "text": "error",
+   "start": "2005-06-11",
+   "end": "2005-06-12",
+   "timezone": "UTC",
+   "limit": 20
+  },
+  "runs": 5,
+  "confirm": true
+ },
+ {
+  "label": "noindex:count_bgl_error_by_component",
+  "tool": "count_logs",
+  "args": {
+   "log_tables": [
+    "bgl"
+   ],
+   "text": "error",
+   "group_by": [
+    "component"
+   ]
+  },
+  "runs": 5,
+  "confirm": true
+ },
+ {
+  "label": "noindex:search_openstack_error_all",
+  "tool": "search_logs",
+  "args": {
+   "log_table": "openstack",
+   "text": "error",
+   "limit": 20
+  },
+  "runs": 5,
+  "confirm": true
+ },
+ {
+  "label": "noindex:search_bgl_fuzzy",
+  "tool": "search_logs",
+  "args": {
+   "log_table": "bgl",
+   "text": "parity eror",
+   "fuzzy": true,
+   "limit": 20
+  },
+  "runs": 1,
+  "confirm": true
+ },
+ {
+  "label": "dryrun_bgl",
+  "tool": "create_index",
+  "args": {
+   "log_table": "bgl",
+   "kind": "search",
+   "dry_run": true
+  },
+  "confirm": true
+ },
+ {
+  "label": "build_bgl",
+  "tool": "create_index",
+  "args": {
+   "log_table": "bgl",
+   "kind": "search"
+  },
+  "confirm": true
+ },
+ {
+  "label": "dryrun_openstack",
+  "tool": "create_index",
+  "args": {
+   "log_table": "openstack",
+   "kind": "search",
+   "dry_run": true
+  },
+  "confirm": true
+ },
+ {
+  "label": "build_openstack",
+  "tool": "create_index",
+  "args": {
+   "log_table": "openstack",
+   "kind": "search"
+  },
+  "confirm": true
+ },
+ {
+  "label": "index:search_bgl_parity_all",
+  "tool": "search_logs",
+  "args": {
+   "log_table": "bgl",
+   "text": "parity error",
+   "limit": 20
+  },
+  "runs": 5,
+  "confirm": true
+ },
+ {
+  "label": "index:search_bgl_error_day",
+  "tool": "search_logs",
+  "args": {
+   "log_table": "bgl",
+   "text": "error",
+   "start": "2005-06-11",
+   "end": "2005-06-12",
+   "timezone": "UTC",
+   "limit": 20
+  },
+  "runs": 5,
+  "confirm": true
+ },
+ {
+  "label": "index:count_bgl_error_by_component",
+  "tool": "count_logs",
+  "args": {
+   "log_tables": [
+    "bgl"
+   ],
+   "text": "error",
+   "group_by": [
+    "component"
+   ]
+  },
+  "runs": 5,
+  "confirm": true
+ },
+ {
+  "label": "index:search_openstack_error_all",
+  "tool": "search_logs",
+  "args": {
+   "log_table": "openstack",
+   "text": "error",
+   "limit": 20
+  },
+  "runs": 5,
+  "confirm": true
+ },
+ {
+  "label": "index:search_bgl_fuzzy",
+  "tool": "search_logs",
+  "args": {
+   "log_table": "bgl",
+   "text": "parity eror",
+   "fuzzy": true,
+   "limit": 20
+  },
+  "runs": 1,
+  "confirm": true
+ },
+ {
+  "label": "drop_bgl",
+  "tool": "drop_index",
+  "args": {
+   "log_table": "bgl",
+   "kind": "search"
+  },
+  "confirm": true
+ },
+ {
+  "label": "drop_openstack",
+  "tool": "drop_index",
+  "args": {
+   "log_table": "openstack",
+   "kind": "search"
+  },
+  "confirm": true
+ }
+]

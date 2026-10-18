@@ -44,7 +44,7 @@ Other suites at the same commit:
 | Localisation: right node and time at the first answer (Sonnet, k=3, 42 trials) | **100%** [92–100] | 100% | 86% |
 | Templating accuracy, BGL (GA / FGA) | 0.929 / **0.745** | 0.939 / 0.694 | 0.939 / 0.694 |
 | Templating accuracy, OpenStack (GA / FGA) | **0.355** / 0.682 | 1.000 / 1.000 | 1.000 / 1.000 |
-| TextBench, 1 billion rows: search in a 60 s window | 2.88 s, plus a whole-file search in 4.2 s after a 70 s index build ([HUGE_DATASETS.md](HUGE_DATASETS.md)) | not supported | 0.82 s, 60 s windows only |
+| TextBench, 1 billion rows: search in a 60 s window | 2.88 s, plus a whole-file search in 4.2 s after a 70 s index build (at `6cad141`; at `b51daa1`: 1.71 s and 2.32 s, [HUGE_DATASETS.md](HUGE_DATASETS.md)) | not supported | 0.82 s, 60 s windows only |
 
 ## The current `main`
 

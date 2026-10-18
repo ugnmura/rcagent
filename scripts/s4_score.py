@@ -3,8 +3,8 @@
 A fast local stand-in for serenedb-bench `harness/s4` (extractor_catalog.py + score_templates.py),
 same method, smaller data:
   1. a fresh scratch database (default `s4_base`) on the SereneDB at --dsn;
-  2. this checkout's MCP server (stdio) runs `setup_log_table` for `openstack` and `bgl` on the raw
-     Loghub-2.0 `<DS>_2k.log` files;
+  2. this checkout's MCP server (stdio) runs `setup_log_table` for each dataset: openstack and bgl on
+     the raw Loghub-2.0 `<DS>_2k.log` files, the rest on their Content column (see RAW_PARSED);
   3. the catalog is built with `survey` (sample_size=1000000, limit=300), repeated with every known
      template in `exclude` until a round adds nothing (harness extractor_catalog.py);
   4. each gold `Content` of `<DS>_2k.log_structured_corrected.csv` goes to the first template, in
@@ -19,6 +19,10 @@ Usage (from the extractor checkout):
   uv run python scripts/s4_score.py                      # scores only
   uv run python scripts/s4_score.py --diagnose           # + merged / split gold events with examples
   uv run python scripts/s4_score.py --datasets openstack --json out.json
+  uv run python scripts/s4_score.py --datasets all       # all 14 labelled Loghub-2.0 2k datasets
+Only openstack and bgl have a setup_log_table line format for their raw .log; the other datasets are
+set up from their gold Content column written one entry per line (line_format "lines"), so templating
+sees exactly the message text it is scored on. --content does that for openstack/bgl too.
 Options: --dsn (default postgresql://postgres@localhost:17890/postgres), --db s4_base,
 --data <dir> (2k files are downloaded there from github.com/logpai/loghub-2.0 when missing).
 """
@@ -43,13 +47,49 @@ import psycopg
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-DATASETS = {"openstack": "OpenStack", "bgl": "BGL"}
+DATASETS = {
+    d.lower(): d
+    for d in (
+        "Apache",
+        "BGL",
+        "Hadoop",
+        "HDFS",
+        "HealthApp",
+        "HPC",
+        "Linux",
+        "Mac",
+        "OpenSSH",
+        "OpenStack",
+        "Proxifier",
+        "Spark",
+        "Thunderbird",
+        "Zookeeper",
+    )
+}
+# Datasets whose raw <DS>_2k.log a setup_log_table line format parses into the gold Content. Every
+# other dataset (and every dataset under --content) is fed as its gold Content column, one entry per
+# line, with line_format "lines": the header (time, level, component, ...) is not part of templating,
+# so this scores the same message text the raw parse would, for old and new checkouts alike.
+RAW_PARSED = {"openstack", "bgl"}
 RAW_URL = "https://raw.githubusercontent.com/logpai/loghub-2.0/main/2k_dataset/{ds}/{f}"
 TOKEN = re.compile(r"confirmed_cost=(\S+?)[\s.,;)]*(?:\s|$)")
 SAMPLE_MAX = 1_000_000
 LIMIT_MAX = 300
 UNMATCHED = "__unmatched__"
 csv.field_size_limit(sys.maxsize)
+
+
+def content_file(data: Path, ds: str, structured: Path) -> Path:
+    """The gold Content column as a one-entry-per-line log (newlines inside a message become spaces)."""
+    p = data / f"{DATASETS[ds]}_2k.content.log"
+    if not p.exists():
+        with structured.open(newline="", encoding="utf-8", errors="replace") as f:
+            rows = [
+                r["Content"].replace("\r", " ").replace("\n", " ")
+                for r in csv.DictReader(f)
+            ]
+        p.write_text("".join(r + "\n" for r in rows), encoding="utf-8")
+    return p
 
 
 def fetch(data: Path, ds: str) -> tuple[Path, Path]:
@@ -96,7 +136,11 @@ def template_ids(dsn: str, table: str) -> list[str]:
 
 
 async def build_catalog(
-    repo: str, dsn: str, sources: dict[str, Path], rounds: int, verbose: bool
+    repo: str,
+    dsn: str,
+    sources: dict[str, tuple[Path, str | None]],
+    rounds: int,
+    verbose: bool,
 ) -> None:
     env = {**os.environ, "SERENEDB_READER_URL": dsn}
     env.pop("SERENEDB_WRITER_URL", None)
@@ -106,11 +150,12 @@ async def build_catalog(
     errlog = sys.stderr if verbose else open(os.devnull, "w")  # noqa: SIM115, ASYNC230
     async with stdio_client(params, errlog=errlog) as (r, w), ClientSession(r, w) as s:
         await s.initialize()
-        for table, src in sources.items():
+        for table, (src, line_format) in sources.items():
             t0 = time.monotonic()
-            res = await s.call_tool(
-                "setup_log_table", {"name": table, "source": str(src)}
-            )
+            setup_args = {"name": table, "source": str(src)}
+            if line_format:
+                setup_args["line_format"] = line_format
+            res = await s.call_tool("setup_log_table", setup_args)
             setup_text = tool_text(res)
             if is_error(res):
                 raise SystemExit(f"setup_log_table {table} failed:\n{setup_text}")
@@ -309,7 +354,16 @@ def main() -> int:
             os.environ.get("S4_DATA", Path(tempfile.gettempdir()) / "s4-lh2k")
         ),
     )
-    ap.add_argument("--datasets", default="openstack,bgl")
+    ap.add_argument(
+        "--datasets",
+        default="openstack,bgl",
+        help=f"comma-separated, or 'all' ({','.join(DATASETS)})",
+    )
+    ap.add_argument(
+        "--content",
+        action="store_true",
+        help="feed every dataset as its gold Content column (one entry per line), even openstack/bgl",
+    )
     ap.add_argument("--rounds", type=int, default=8)
     ap.add_argument(
         "--diagnose",
@@ -320,8 +374,18 @@ def main() -> int:
     ap.add_argument("--keep", action="store_true", help="keep the scratch database")
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args()
-    datasets = [d.strip() for d in a.datasets.split(",") if d.strip()]
+    datasets = (
+        list(DATASETS)
+        if a.datasets.strip() == "all"
+        else [d.strip().lower() for d in a.datasets.split(",") if d.strip()]
+    )
     files = {ds: fetch(a.data, ds) for ds in datasets}
+    sources: dict[str, tuple[Path, str | None]] = {
+        ds: (files[ds][0].resolve(), None)
+        if ds in RAW_PARSED and not a.content
+        else (content_file(a.data, ds, files[ds][1]).resolve(), "lines")
+        for ds in datasets
+    }
     db_dsn = with_db(a.dsn, a.db)
     t0 = time.monotonic()
     recreate(a.dsn, a.db)
@@ -331,7 +395,7 @@ def main() -> int:
             build_catalog(
                 str(Path(a.repo).resolve()),
                 db_dsn,
-                {ds: files[ds][0].resolve() for ds in datasets},
+                sources,
                 a.rounds,
                 a.verbose,
             )

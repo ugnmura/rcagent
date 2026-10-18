@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 232" width="900" height="232" role="img" aria-label="TextBench, 1 billion rows read in place on S3, seconds per call: search of the whole file with the index 4.18 s, exact search of one minute without an index 2.88 s, survey of message types from a block sample 7.8 s. The index was built once in 69.9 s and needs over 64 GB of RAM." font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 330" width="900" height="330" role="img" aria-label="TextBench read in place on S3 at commit b51daa1, seconds per call. One billion rows: whole-file search with the index 2.32 s, the same exact search without an index 15.4 s, a one-minute window 1.71 s. Ten billion rows: a one-minute window 3.49 s, an exact count of all rows by service and level 31.8 s. The index was built once in 70.7 s and repays itself after about 5 whole-file searches." font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif">
   <style>
     .t1 { fill: #0b0b0b; }
     .t2 { fill: #52514e; }
@@ -20,37 +20,51 @@
     .mono { font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; font-size: 12px; }
   </style>
 
-  <text x="20" y="28" class="t1 title">TextBench: 1 billion rows, read in place on S3</text>
-  <text x="20" y="48" class="t2">seconds per call · one shared 16-CPU / 128 GB node · median of 3 for searches</text>
+  <text x="20" y="28" class="t1 title">TextBench: 1 and 10 billion rows, read in place on S3</text>
+  <text x="20" y="48" class="t2">seconds per call · commit b51daa1 · one shared 16-CPU / 128 GB node · median of 3 where repeated</text>
 
   <g class="grid" stroke-width="1">
-    <line x1="340" y1="68" x2="340" y2="168" class="axis"/>
-    <line x1="440" y1="68" x2="440" y2="168"/>
-    <line x1="540" y1="68" x2="540" y2="168"/>
-    <line x1="640" y1="68" x2="640" y2="168"/>
-    <line x1="740" y1="68" x2="740" y2="168"/>
-    <line x1="840" y1="68" x2="840" y2="168"/>
+    <line x1="340.0" y1="68" x2="340.0" y2="276" class="axis"/>
+    <line x1="411.4" y1="68" x2="411.4" y2="276"/>
+    <line x1="482.9" y1="68" x2="482.9" y2="276"/>
+    <line x1="554.3" y1="68" x2="554.3" y2="276"/>
+    <line x1="625.7" y1="68" x2="625.7" y2="276"/>
+    <line x1="697.1" y1="68" x2="697.1" y2="276"/>
+    <line x1="768.6" y1="68" x2="768.6" y2="276"/>
+    <line x1="840.0" y1="68" x2="840.0" y2="276"/>
   </g>
   <g class="t2 tick" text-anchor="middle">
-    <text x="340" y="186">0</text>
-    <text x="440" y="186">2</text>
-    <text x="540" y="186">4</text>
-    <text x="640" y="186">6</text>
-    <text x="740" y="186">8</text>
-    <text x="840" y="186">10 s</text>
+    <text x="340.0" y="294">0</text>
+    <text x="411.4" y="294">5</text>
+    <text x="482.9" y="294">10</text>
+    <text x="554.3" y="294">15</text>
+    <text x="625.7" y="294">20</text>
+    <text x="697.1" y="294">25</text>
+    <text x="768.6" y="294">30</text>
+    <text x="840.0" y="294">35 s</text>
   </g>
 
-  <text x="20" y="92" class="t1">Search the whole file, with index*</text>
-  <rect x="340" y="78" width="209.0" height="20" rx="4" class="bar"/><rect x="340" y="78" width="4" height="20" class="bar"/>
-  <text x="557.0" y="93" class="t1 val">4.18 s</text>
+  <text x="20" y="84" class="t2 grp">1 BILLION ROWS</text>
+  <text x="20" y="108" class="t1">Search the whole file, with index*</text>
+  <rect x="340" y="94" width="33.1" height="20" rx="4" class="bar"/><rect x="340" y="94" width="4" height="20" class="bar"/>
+  <text x="381.1" y="109" class="t1 val">2.32 s</text>
 
-  <text x="20" y="122" class="t1">Search one minute, no index</text>
-  <rect x="340" y="108" width="144.0" height="20" rx="4" class="bar"/><rect x="340" y="108" width="4" height="20" class="bar"/>
-  <text x="492.0" y="123" class="t1 val">2.88 s</text>
+  <text x="20" y="138" class="t1">Search the whole file, no index</text>
+  <rect x="340" y="124" width="220.0" height="20" rx="4" class="bar"/><rect x="340" y="124" width="4" height="20" class="bar"/>
+  <text x="568.0" y="139" class="t1 val">15.4 s</text>
 
-  <text x="20" y="152" class="t1">Survey message types (block sample)</text>
-  <rect x="340" y="138" width="390.0" height="20" rx="4" class="bar"/><rect x="340" y="138" width="4" height="20" class="bar"/>
-  <text x="738.0" y="153" class="t1 val">7.8 s</text>
+  <text x="20" y="168" class="t1">Search one minute, no index</text>
+  <rect x="340" y="154" width="24.4" height="20" rx="4" class="bar"/><rect x="340" y="154" width="4" height="20" class="bar"/>
+  <text x="372.4" y="169" class="t1 val">1.71 s</text>
 
-  <text x="20" y="216" class="t2 tick">* index built once in 69.9 s, needs over 64 GB of RAM</text>
+  <text x="20" y="208" class="t2 grp">10 BILLION ROWS</text>
+  <text x="20" y="232" class="t1">Search one minute (slowest of 3)</text>
+  <rect x="340" y="218" width="49.9" height="20" rx="4" class="bar"/><rect x="340" y="218" width="4" height="20" class="bar"/>
+  <text x="397.9" y="233" class="t1 val">3.49 s</text>
+
+  <text x="20" y="262" class="t1">Exact count of all rows by service</text>
+  <rect x="340" y="248" width="454.3" height="20" rx="4" class="bar"/><rect x="340" y="248" width="4" height="20" class="bar"/>
+  <text x="802.3" y="263" class="t1 val">31.8 s</text>
+
+  <text x="20" y="318" class="t2 tick">* index built once in 70.7 s, 37.5 GB on disk, peak 98 GB of RAM. It repays its build after about 5 whole-file searches.</text>
 </svg>

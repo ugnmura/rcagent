@@ -24,8 +24,8 @@ Beyond the required workflow:
 | feature | what it does | measured |
 |---|---|---|
 | **Polished MCP server** | 18 tools that say when to use them, what they take and what they return. Results are capped and say when they were cut. Role prompts `/engineer`, `/team-lead`, `/manager` | **96.9%** on 30 sealed held-out questions, blind-graded, at **$0.117** per answer, benchmarked when it had 12 tools ([evaluation](docs/EVALUATION.md)) |
-| **Huge datasets** | Reads one TextBench file, **1 billion rows**, in place from the public S3 bucket. Nothing is downloaded | one minute searched without an index: **2.88 s**. Whole file searched with an index: **4.18 s**, after a **69.9 s** build needing over 64 GB of RAM ([timings](docs/HUGE_DATASETS.md)) |
-| **Agent-managed indexes** | `create_index` (with a `dry_run` size and time estimate) and `drop_index`. The agent builds an index for an investigation and removes it after | build time against query time in [docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md#the-trade-off-index-build-time-against-query-time) |
+| **Huge datasets** | Reads TextBench in place from the public S3 bucket: one file of **1 billion rows** and ten files of **10 billion rows**. Nothing is downloaded | 1B rows: whole file searched in **2.32 s** with an index, **15.4 s** without. 10B rows: one minute searched in **3.49 s**, all rows counted in **31.8 s** ([timings](docs/HUGE_DATASETS.md)) |
+| **Agent-managed indexes** | `create_index` (with a `dry_run` size and time estimate) and `drop_index`. The agent builds an index for an investigation and removes it after | the 1B-row index takes **70.7 s** to build and repays itself after about 5 whole-file searches ([trade-off](docs/HUGE_DATASETS.md#the-trade-off-index-build-time-against-query-time)) |
 | **Logs with metrics and traces** | Metric and trace tables next to the log tables. `telemetry_overview` shows a system's logs, metrics and traces around one moment, per service. `metric_changes`, `metric_series`, `trace_changes` (self time and network time per call) and `get_trace` go deeper || RCAEval root-cause benchmark: right service ranked first in **96.3%** of 348 held-out trials ([below](#rcaeval-root-cause-from-logs-metrics-and-traces)) |
 | **Phrase and fuzzy search** | `search_logs` matches words in order, or with `fuzzy` each word within a typo or two, through the search index | |
 | **Template mining** | Groups log lines into message templates at question time (SQL masking, then Drain), kept as stable IDs `T1, T2, …` | best BGL grouping score (FGA 0.745) of every approach compared, published parsers included ([table](docs/EVALUATION.md#templating-better-grouping-than-drain-on-the-full-loghub-20-data)) |
@@ -61,7 +61,7 @@ Sonnet 5.5, 3 trials per held-out case, extractor `785b7ba`. Resource faults (CP
 in metrics, not logs, which is where logs alone fail. The test set is at its ceiling, so the held-out set is the
 result. BARO is not a like-for-like contestant. Details: [docs/EVALUATION.md](docs/EVALUATION.md#rcaeval-logs-metrics-and-traces).
 
-<img src="docs/img/bench-textbench.svg" alt="TextBench, 1 billion rows read in place on S3: search of the whole file with the index 4.18 s, search of one minute without an index 2.88 s, survey of message types 7.8 s. The index was built once in 69.9 s." width="100%">
+<img src="docs/img/bench-textbench.svg" alt="TextBench read in place on S3 at commit b51daa1. One billion rows: whole-file search with the index 2.32 s, without an index 15.4 s, one minute 1.71 s. Ten billion rows: one minute 3.49 s, an exact count of all rows 31.8 s. The index was built once in 70.7 s." width="100%">
 
 ## How it works
 
@@ -211,15 +211,19 @@ Claude picks these from their descriptions. Every result says how it was measure
 - Counts are log entries, not incidents.
 - The team-ownership table is a fictional stand-in. `edit_team_ownership` imports a real one.
 - Log tables are snapshots and are not refreshed.
-- The log benchmarks ran at commit `6cad141`, RCAEval at `785b7ba`. Later changes were only rerun on the smaller screening set.
+- The answer-quality finals ran at commit `6cad141` (later changes were only rerun on the smaller screening set),
+  RCAEval at `785b7ba` and TextBench at `b51daa1`. None was rerun at the current `main`.
 
 Full list: [docs/reference.md](docs/reference.md#known-limits).
 
 ## More
 
 - [docs/worked-investigation.md](docs/worked-investigation.md): the full worked investigation
-- [docs/EVALUATION.md](docs/EVALUATION.md): benchmark method, the three designs, templating scores
-- [docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md): TextBench at 1 billion rows
+- [docs/live-session.md](docs/live-session.md): live, unscripted Claude sessions, one question per role, with every
+  tool call the agent chose
+- [docs/EVALUATION.md](docs/EVALUATION.md): benchmark method, the three designs, templating scores, RCAEval
+- [docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md): TextBench at 1 and 10 billion rows
+- [docs/INDEX_TIMINGS.md](docs/INDEX_TIMINGS.md): base-corpus queries with and without a search index
 - [docs/reference.md](docs/reference.md): requirements checklist, all tools, configuration, security, tests
 
 ## References
