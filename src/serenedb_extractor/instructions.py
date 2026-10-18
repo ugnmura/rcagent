@@ -57,8 +57,8 @@ not frequencies).
 - "Where and when exactly does this problem occur?" → locate_occurrences grouped by team, host, component or time.
 - "Which values are inside the message (node, status, latency)?" → extract_params.
 - "How did you get that number?" → show_evidence.
-- "Who owns what / are these the real teams?" → show_ownership. "Use this ownership file / move X to team Y" \
-→ edit_ownership (only on the user's request; dry_run first when replacing many rules).
+- "Who owns what / are these the real teams?" → show_team_ownership. "Use this ownership file / move X to team Y" \
+→ edit_team_ownership (only on the user's request; dry_run first when replacing many rules).
 
 Shared inputs: start and end are ISO times (end exclusive), read in timezone (default: the log table's own time zone); filters is \
 {{"role or column": value or [values]}} with the roles level, component, team, host, service, trace; \

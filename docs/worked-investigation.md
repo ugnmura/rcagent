@@ -4,7 +4,7 @@ The same agent (Claude Code connected to this MCP server) answers one question p
 corpus: Loghub **BGL** (4,747,963 entries, 2005-06-03 to 2006-01-04) and **OpenStack** (207,636 entries,
 2017-05-14 to 2017-05-17), loaded with `scripts/load_base_corpus.py`. Teams come from the **stand-in** ownership
 table (`src/serenedb_extractor/data/ownership.csv`, a fictional organisation we wrote, see the README); with the
-challenge's own table imported (`edit_ownership`), the same steps give its team names.
+challenge's own table imported (`edit_team_ownership`), the same steps give its team names.
 
 Every number below cites a step of the **transcript**, [docs/worked-investigation-transcript.md](worked-investigation-transcript.md).
 The transcript holds each tool call, its result and the exact queries that ran. Regenerate it with

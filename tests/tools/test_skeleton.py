@@ -88,13 +88,13 @@ EXPECTED_ANNOTATIONS = {
             "run_sql",
             "count_logs",
             "show_evidence",
-            "show_ownership",
+            "show_team_ownership",
         )
     },
     "setup_log_table": (None, True),
     "create_index": (None, True),
     "drop_index": (None, True),
-    "edit_ownership": (None, True),
+    "edit_team_ownership": (None, True),
     "survey": (False, False),
     "rename_parameter": (False, False),
 }

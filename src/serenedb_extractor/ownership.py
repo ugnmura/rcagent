@@ -2,7 +2,7 @@
 
 The mapping lives in `extractor.ownership`. A fresh database gets the packaged `data/ownership.csv`, a
 stand-in (a fictional platform organisation written for this project, see the README) until a real table is
-imported with edit_ownership. Each rule says: in log tables whose name matches `log_table` (a LIKE pattern),
+imported with edit_team_ownership. Each rule says: in log tables whose name matches `log_table` (a LIKE pattern),
 entries whose `role` (component or service) matches `pattern` (case-insensitive LIKE) belong to `team`. The
 most specific pattern wins. Every rule records where it came from (`source`), and every change is logged in
 `extractor.ownership_changes`; once anything was imported or edited, the stand-in is never added back.

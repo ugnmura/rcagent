@@ -161,13 +161,13 @@ Ask the agent ("use the ownership table in ~/Downloads/teams.csv"), or call the 
 
 | call | what it does |
 |---|---|
-| `show_ownership()` | the rules by team, where each came from (imported file, set by hand, stand-in), the latest changes, and per log table the entries per team plus the components no rule covers |
-| `edit_ownership(action="import", csv_path="teams.csv")` | import a CSV. Headers are matched loosely: `dataset`/`log_table`/`table`, `component`/`service`/`pattern`, `team`/`owner`, optional `role` and `area`/`description`; `,` `;` tab or `\|` separated. `log_table="bgl"` names the log table when the file has no such column. |
+| `show_team_ownership()` | the rules by team, where each came from (imported file, set by hand, stand-in), the latest changes, and per log table the entries per team plus the components no rule covers |
+| `edit_team_ownership(action="import", csv_path="teams.csv")` | import a CSV. Headers are matched loosely: `dataset`/`log_table`/`table`, `component`/`service`/`pattern`, `team`/`owner`, optional `role` and `area`/`description`; `,` `;` tab or `\|` separated. `log_table="bgl"` names the log table when the file has no such column. |
 | `mode="replace"` (default) / `"merge"` / `"replace_all"` | replace the rules of the log tables the file covers (others stay) / add and update only / drop every other rule |
-| `edit_ownership(action="set", rules=[{"log_table": "bgl", "component": "KERNEL", "team": "Kernel"}])` | add or change single rules |
-| `edit_ownership(action="remove", team="Kernel")` or `rules=[...]` | remove a team's rules, or single rules |
-| `edit_ownership(action="export", csv_path="ownership.csv")` | write the rules to a file to edit and import again |
-| `edit_ownership(action="reset")` | back to the stand-in |
+| `edit_team_ownership(action="set", rules=[{"log_table": "bgl", "component": "KERNEL", "team": "Kernel"}])` | add or change single rules |
+| `edit_team_ownership(action="remove", team="Kernel")` or `rules=[...]` | remove a team's rules, or single rules |
+| `edit_team_ownership(action="export", csv_path="ownership.csv")` | write the rules to a file to edit and import again |
+| `edit_team_ownership(action="reset")` | back to the stand-in |
 | `dry_run=True` | show the change without making it |
 
 Every change reports what was added, changed and removed, then the coverage of the affected log tables, so a
@@ -193,8 +193,8 @@ footer** (see below).
 | `trend` | rising, falling, new or persistent: a period against the one before | `start`, `end`, `templates`, `bucket` hour\|day, `exact` | per template the counts per bucket, change, presence, components and teams; refuses to call anything new across gaps |
 | `extract_params` | the values inside a template (nodes, status codes, latencies) | `template`, `by` | top values per parameter; min / p50 / p95 / max for numbers |
 | `show_evidence` | the queries and results behind any earlier answer | `ids` (Q-handles) | the tool call, every query with its time and row count, the result |
-| `show_ownership` | who owns what, and whether the teams are official | `log_table`, `coverage` | rules by team, their source, recent changes, entries per team and components without a team |
-| `edit_ownership` | import the supplied ownership CSV, fix a team, export the rules | `action` import\|set\|remove\|export\|reset, `csv_path`/`csv_text`, `mode`, `rules`, `team`, `dry_run` | the rules added, changed and removed, then coverage |
+| `show_team_ownership` | who owns what, and whether the teams are official | `log_table`, `coverage` | rules by team, their source, recent changes, entries per team and components without a team |
+| `edit_team_ownership` | import the supplied ownership CSV, fix a team, export the rules | `action` import\|set\|remove\|export\|reset, `csv_path`/`csv_text`, `mode`, `rules`, `team`, `dry_run` | the rules added, changed and removed, then coverage |
 | `inspect_source` | look at a new source before setting it up | `source` | columns, samples, size, proposed roles |
 | `setup_log_table` | register a source (Parquet/JSON read in place, raw text copied) | `name`, `source` (several files: `part_{000..009}.parquet`), `roles` | roles, entries, files, size, setup time, index estimates |
 | `create_index` / `drop_index` | build an index for repeated questions; remove it after the investigation | `log_table`, `kind` filter\|search, `dry_run` | size and build time (estimated with `dry_run`) |
@@ -482,7 +482,7 @@ This is a prototype:
   process; several server processes writing the same catalog at the same time are not supported.
 - **Timings under emulation are not representative.** Size and time estimates and test timings measured with the
   amd64 image on an arm64 machine are slower than on native hardware.
-- **The shipped ownership table is a fictional stand-in** until the supplied one is imported with `edit_ownership`.
+- **The shipped ownership table is a fictional stand-in** until the supplied one is imported with `edit_team_ownership`.
   Its rules are keyed by log table name patterns (`bgl%`, `openstack%`, `textbench%`); a log table with another
   name has no team until rules cover it.
 - **Evidence records grow without limit** in `extractor.evidence` (one row per tool call); clear the table when it

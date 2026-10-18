@@ -385,17 +385,17 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
         return await runner.run_tool(setup_tools.create_index, log_table=log_table, kind=kind, dry_run=dry_run)
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-    async def show_ownership(log_table: str | None = None, coverage: bool = True, confirmed_cost: str | None = None) -> str:
+    async def show_team_ownership(log_table: str | None = None, coverage: bool = True, confirmed_cost: str | None = None) -> str:
         """The team-ownership table: which team owns which component (or service), where the rules came from (imported file, set by hand, or the fictional stand-in), and how well they cover the logs.
         Use when: the user asks who owns what, which teams exist, whether the teams are official, or before and after editing the ownership table; also when a team breakdown shows many "Unassigned" entries.
         Inputs: log_table (omit for all); coverage=False skips the counts.
         Returns: the rules grouped by team, their sources, recent changes, and per log table the entries per team plus the component values no rule covers (exact counts, or TOO EXPENSIVE / a block sample on huge tables, said so)."""
         return await runner.run_tool(
-            ownership_tools.show_ownership, log_table=log_table, coverage=coverage, confirmed_cost=confirmed_cost
+            ownership_tools.show_team_ownership, log_table=log_table, coverage=coverage, confirmed_cost=confirmed_cost
         )
 
     @mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
-    async def edit_ownership(
+    async def edit_team_ownership(
         action: str,
         csv_path: str | None = None,
         csv_text: str | None = None,
@@ -417,7 +417,7 @@ def register_tools(mcp: FastMCP, runner: ToolRunner) -> None:
           Values are matched case-insensitively; % matches any text (nova.compute.% covers every nova.compute module). dry_run=True shows the change without making it.
         Returns: the rules added, changed and removed, then per affected log table the entries per team and the component values still without a team."""
         return await runner.run_tool(
-            ownership_tools.edit_ownership,
+            ownership_tools.edit_team_ownership,
             action=action,
             csv_path=csv_path,
             csv_text=csv_text,

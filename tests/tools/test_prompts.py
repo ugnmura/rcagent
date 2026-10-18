@@ -13,7 +13,7 @@ async def test_seventeen_tools_and_annotations(mcp_no_db):
     tools = {t.name: t for t in (await mcp_no_db.list_tools()).tools}
     assert set(tools) == {"inspect_source", "setup_log_table", "create_index", "describe_logs", "survey", "locate_occurrences",
                           "extract_params", "trend", "get_context", "search_logs", "run_sql", "rename_parameter",
-                          "count_logs", "show_evidence", "drop_index", "show_ownership", "edit_ownership"}
+                          "count_logs", "show_evidence", "drop_index", "show_team_ownership", "edit_team_ownership"}
     assert tools["create_index"].annotations.destructiveHint and tools["setup_log_table"].annotations.destructiveHint
     assert tools["survey"].annotations.readOnlyHint is False and tools["trend"].annotations.readOnlyHint is True
 
