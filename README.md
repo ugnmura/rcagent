@@ -23,7 +23,7 @@ Besides the required workflow, the server covers these optional parts of the bri
 
 | feature | what it does | measured |
 |---|---|---|
-| **Polished MCP server** | 18 tools that say when to use them, what they take and what they return. Results are capped and say when they were cut. Role prompts `/engineer`, `/team-lead`, `/manager` | **96.9%** on 30 sealed held-out questions, blind-graded, **$0.117** per answer ([evaluation](docs/EVALUATION.md)) |
+| **Polished MCP server** | 18 tools that say when to use them, what they take and what they return. Results are capped and say when they were cut. Role prompts `/engineer`, `/team-lead`, `/manager` | **96.9%** on 30 sealed held-out questions, blind-graded, benchmarked when it had 12 tools,, **$0.117** per answer ([evaluation](docs/EVALUATION.md)) |
 | **Huge datasets** | Reads one TextBench file, **1 billion rows**, in place from the public S3 bucket. Nothing is downloaded | one minute searched without an index: **2.88 s**. Whole file searched with an index: **4.18 s**, after a **69.9 s** build needing over 64 GB of RAM ([timings](docs/HUGE_DATASETS.md)) |
 | **Agent-managed indexes** | `create_index` (with a `dry_run` size and time estimate) and `drop_index`. The agent builds an index for an investigation and removes it after | build time against query time in [docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md#the-trade-off-index-build-time-against-query-time) |
 | **Phrase and fuzzy search** | `search_logs` matches words in order, or with `fuzzy` each word within a typo or two, through the search index | |
