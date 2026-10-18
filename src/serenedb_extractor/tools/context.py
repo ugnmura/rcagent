@@ -118,7 +118,10 @@ def _lookup_scope(lt: LogTable, stats: ScopeStats, params: dict[str, Any], keyed
             if g.first_row <= row < g.first_row + g.rows:
                 one = replace(stats, rows_in_range=g.rows, bytes_by_column=dict(g.bytes_by_column), groups=(g,))
                 return one, f" AND file_row_number BETWEEN {int(g.first_row)} AND {int(g.first_row + g.rows - 1)}"
-        raise UserFacingError(f"No entry has the occurrence ID '{params.get('occ_file')}#{row}' in log table '{lt.name}'.")
+        given = str(params.get("occ_file") or "")
+        if given.startswith("%/"):  # a bare file name, matched in any folder
+            given = given[2:].replace("\\_", "_").replace("\\%", "%").replace("\\\\", "\\")
+        raise UserFacingError(f"No entry has the occurrence ID '{given}#{row}' in log table '{lt.name}'.")
     if k == "entry" and keyed:
         per_row = {c: -(-b // max(stats.total_rows, 1)) for c, b in stats.bytes_by_column.items()}
         return replace(stats, rows_in_range=1, bytes_by_column=per_row), ""
@@ -245,7 +248,7 @@ def _fetch_window(
     earlier = fetch(lt_sql, lt_p, "DESC", before)[::-1] if before else []
     same = fetch(f"{ge_sql} AND {same_hi_sql}", ge_p | same_hi_p, "ASC", SAME_TS_CAP)
     later = fetch(later_sql, later_p, "ASC", after) if after else []
-    mine = occ.strip()
+    mine = occ_mod.encode_occurrence(lt, occ_row)  # its full ID, also when it was given as just the file name
     ids = [occ_mod.encode_occurrence(lt, r) for r in same]
     split = ids.index(mine) if mine in ids else 0
     others = [r for r, i in zip(same, ids, strict=True) if i != mine]

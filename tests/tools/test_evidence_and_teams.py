@@ -206,8 +206,9 @@ async def test_an_occurrence_id_may_name_just_the_file(mcp, db_url):
     await call(mcp, "setup_log_table", name="fxs", source=path)
     found = await call(mcp, "search_logs", log_table="fxs", limit=1)
     occ = re.search(r"\s(\S+#\d+)\s", found).group(1)
-    out = await call(mcp, "get_context", log_table="fxs", occurrence=occ.rsplit("/", 1)[-1], scope="everything")
-    assert "→" in out and occ in out
+    out = await call(mcp, "get_context", log_table="fxs", occurrence=occ.rsplit("/", 1)[-1], scope="everything",
+                     before=2, after=2)
+    assert "→" in out and out.count(occ + " ") == 1  # the occurrence once, its neighbours around it
 
 
 async def test_raw_openstack_logs_get_service_and_trace(mcp, corpus):

@@ -77,9 +77,17 @@ def _like(value: str, pattern: str) -> bool:
     return re.fullmatch(rx, value, re.IGNORECASE | re.DOTALL) is not None
 
 
-def _precedence(r: "Rule") -> tuple[bool, int, str]:
-    """Most specific first: an exact name before any pattern, then the longer fixed text."""
-    return ("%" in r.pattern, -len(r.pattern.replace("%", "")), r.pattern.lower())
+def _precedence(r: "Rule") -> tuple[bool, int, bool, int, str, str]:
+    """Most specific first: an exact name before any pattern, then the longer fixed text; between rules on the same
+    value, the one naming the log table exactly (bgl) before one naming a pattern of tables (bgl%)."""
+    return (
+        "%" in r.pattern,
+        -len(r.pattern.replace("%", "")),
+        "%" in r.log_table,
+        -len(r.log_table.replace("%", "")),
+        r.pattern.lower(),
+        r.log_table.lower(),
+    )
 
 
 def _like_sql(pattern: str) -> str:

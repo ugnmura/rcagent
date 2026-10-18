@@ -177,3 +177,9 @@ async def test_export_dry_run_writes_nothing_and_relative_paths_are_refused(mcp,
 async def test_rules_on_a_role_the_table_lacks_are_flagged(mcp, corpus):
     out = await call(mcp, "edit_team_ownership", action="set", rules=[{"log_table": "bgl", "service": "x", "team": "T"}])
     assert "log table bgl has no service field, so its rules on service match nothing; it has a component field" in out
+
+
+async def test_a_rule_for_the_exact_table_beats_a_table_pattern(mcp, corpus):
+    await call(mcp, "edit_team_ownership", action="set", rules=[{"log_table": "bgl", "component": "kernel", "team": "Kernel Exact"}])
+    out = await call(mcp, "count_logs", log_tables=["bgl"], group_by=["team"])
+    assert "Kernel Exact: 197" in out and "Node OS" not in out
