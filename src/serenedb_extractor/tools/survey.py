@@ -259,7 +259,10 @@ def survey(
     limit: int | None = None,
     timezone: str | None = None,
     confirmed_cost: str | None = None,
+    found: list[tuple[Template, fmt.Measured]] | None = None,
 ) -> str:
+    """`found`, when given, receives every template of the result (largest first) with its measured count,
+    for tools that build on a survey (rank_problems)."""
     lt = ctx.store.get_log_table(log_table)
     timezone = shown_zone(lt, timezone)
     tr: TimeRange = parse_time_range(start, end, timezone)
@@ -311,7 +314,7 @@ def survey(
                 ]
             head = fmt.how_measured(_kind(run, plan), period, scope_text, _method(run, plan), tz=timezone)
             return "\n".join([head, *notes, *lines])
-    return _render(ctx, lt, run, plan, period, scope_text, timezone, notes, shown_limit)
+    return _render(ctx, lt, run, plan, period, scope_text, timezone, notes, shown_limit, found)
 
 
 @dataclass
@@ -488,6 +491,7 @@ def _render(
     tz: str,
     notes: list[str],
     shown_limit: int,
+    found: list[tuple[Template, fmt.Measured]] | None = None,
 ) -> str:
     merged = merge_groups(run.groups)
     exact = run.method == "every"
@@ -496,14 +500,16 @@ def _render(
     candidates = [_candidate(m, measures[m.template]) for m in merged]
     result = ctx.store.upsert_survey_templates(lt.name, candidates, datetime.now(UTC))
     saved: dict[str, tuple[Template, str]] = {t.template: (t, status) for t, status in result.items}
+    if found is not None:
+        found += [(saved[m.template][0], measures[m.template]) for m in merged if m.template in saved]
     head = fmt.how_measured(_kind(run, plan), period, scope_text, _method(run, plan), tz=tz)
     shown, note = fmt.cut(merged, shown_limit, "templates")
     covered = sum(m.count for m in shown)
-    found = f"{len(merged)} templates found" + ("" if exact else " in the sample")
+    n_found = f"{len(merged)} templates found" + ("" if exact else " in the sample")
     if run.population.exact:
-        population = f"Log table {lt.name}: {round(run.population.value):,} entries match; {found}."
+        population = f"Log table {lt.name}: {round(run.population.value):,} entries match; {n_found}."
     else:
-        population = f"Log table {lt.name}: population estimated: {fmt.render(run.population)} matching entries; {found}."
+        population = f"Log table {lt.name}: population estimated: {fmt.render(run.population)} matching entries; {n_found}."
     out = [
         head,
         *notes,

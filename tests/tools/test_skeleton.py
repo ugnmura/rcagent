@@ -97,13 +97,14 @@ EXPECTED_ANNOTATIONS = {
     "edit_team_ownership": (None, True),
     "survey": (False, False),
     "rename_parameter": (False, False),
+    "rank_problems": (False, False),
 }
 
 
-async def test_exactly_seventeen_tools_with_expected_annotations(mcp_no_db):
+async def test_exactly_eighteen_tools_with_expected_annotations(mcp_no_db):
     listed = (await mcp_no_db.list_tools()).tools
     assert sorted(t.name for t in listed) == sorted(EXPECTED_ANNOTATIONS)
-    assert len(listed) == 17
+    assert len(listed) == 18
     for t in listed:
         assert t.annotations is not None
         read_only, destructive = EXPECTED_ANNOTATIONS[t.name]

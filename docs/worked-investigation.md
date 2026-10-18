@@ -18,8 +18,8 @@ The three answers use different evidence and recommend different kinds of action
 | | Engineer | Team lead | Manager |
 |---|---|---|---|
 | Question | What failed, where, and what happened just before? | What recurs, how often, which teams, what first? | What deserves attention first, and what happens next? |
-| Evidence | Quoted messages, one node's timeline, nearby events | Whole-corpus counts by team and level, weekly and hourly trends, spread over nodes | Severity counts by team, month-over-month trend, spread |
-| Tools used | count_logs, search_logs (full text), get_context | count_logs, survey, locate_occurrences, trend, run_sql | count_logs, survey, trend |
+| Evidence | Quoted messages, one node's timeline, nearby events | Whole-corpus counts by team and level, weekly and hourly trends, spread over nodes | A measured ranking (severity, change, persistence, spread, share), severity counts by team, month-over-month trend |
+| Tools used | count_logs, search_logs (full text), get_context | count_logs, survey, locate_occurrences, trend, run_sql | rank_problems, count_logs, survey, trend |
 | Recommendation | The next diagnostic check, with what each outcome means | What to investigate first, assigned to a team, with runners-up | A ranked list with an owning team and a next action each |
 
 ---
@@ -54,7 +54,7 @@ at about 24,000 entries per hour [step 4].
 
 An L2 data-cache fault on this node's processor. A failing cache read would explain why the kernel then
 loops on data TLB errors: it cannot resolve the faulting memory reference. The evidence fits: the
-machine-check line comes first, the same rare error recurs on the same node two days later, and no other
+machine-check line comes first, the same rare error recurs on the same node 35 hours later, and no other
 node or event is involved. The logs do **not** show the hardware state, so this stays a hypothesis.
 
 ### Next check
@@ -127,28 +127,39 @@ probably one per node of a partition. Cause and user impact are not in the logs.
 
 ## 3. Manager: "What should we prioritise, and what happens next?"
 
-**Scope assumed:** the whole base corpus, all time, with December 2005 against November (Pacific calendar
-days) for trends on BGL.
-Ranked by severity, then trend, persistence, spread and volume. No numeric risk score.
+**Scope assumed:** the whole base corpus. The ranking covers BGL's most recent full month, December 2005,
+against November (Pacific calendar days); the June incidents are added from the all-time evidence.
 
-1. **Failing job launches on the supercomputer, rising** (owner: **HPC Applications**). This is FATAL, and
-   it is up 91% month over month for one cause: "permission denied" when loading a program, 7,296 → 13,952
-   entries [step 21]. The applications team accounts for 80% of December's fatal entries (36,056 of 44,878)
-   [step 22]. **Next action:** HPC Applications to review program-image permissions and job-submission
+The order comes from `rank_problems` [step 23]: every warning-and-worse problem of December, counted exactly
+and scored on measured severity, change against November, persistence (days present), spread (nodes) and
+share of December's severe entries. The score orders what to look at first; it is not a risk or cost figure.
+
+1. **Persistent broken links between compute and I/O nodes** (owner: **HPC Applications**). Ranked 1st
+   (16 of 18). It is FATAL, on 24 of 31 days in December, on 1,024 nodes, and holds 31% of December's severe
+   entries (14,608). It is not falling (+4% against November) [step 23, step 21]. **Next action:** HPC
+   Applications with Interconnect to trace which I/O-node links drop, since this is the most persistent fatal
+   problem.
+2. **Failing job launches, rising** (owner: **HPC Applications**). Ranked 2nd (15 of 18). FATAL, up 91% for
+   one cause: "permission denied" when loading a program, 7,296 → 13,952 entries, on 1,024 nodes, but on only
+   3 days [step 23, step 21]. The applications team accounts for 80% of December's fatal entries (36,056 of
+   44,878) [step 22]. **Next action:** HPC Applications to review program-image permissions and job-submission
    checks for the paths in these errors.
-2. **Persistent broken links between compute and I/O nodes** (owner: **HPC Applications**). This is FATAL
-   and on 24 of 31 days in December, stable (+4%, 14,608 entries) [step 21]. **Next action:** HPC Applications
-   with Interconnect to trace which I/O-node links drop, since this is the most persistent fatal problem.
-3. **One faulty compute node** (owner: **Node OS**). This is FATAL. A single node produced 17.8% of all fatal
-   entries in the log (152,229) in one 6-hour storm, after a rare cache hardware error, and the same error
-   recurred two days later [step 2, step 7, step 8]. **Next action:** Node OS to run hardware diagnostics on
-   node R30-M0-N9-C:J16-U01 and keep it out of service until it passes.
-4. **A machine-wide fault burst on 14 June** (owner: **Node OS**). This is FATAL. 344,064 entries in three
-   hours (02:00-05:00 PDT) across about 22,500 nodes [step 12, step 13]. It is a single burst, not a trend. **Next action:**
-   Node OS to confirm whether it was a planned restart. If it was not, run a post-incident review.
-5. **Cloud warnings** (owners: **Virtualization**, **Cloud API**). These are warnings only. An image-cache
-   warning repeats every hour (3,059 entries), and 3.9% of API calls return 404 [step 14, step 17].
-   **Next action:** a low-priority check that both are expected behaviour.
+3. **Lustre file-system mounts failing on compute nodes, sharply up** (owner: **Node OS**). Ranked 4th
+   (15 of 18, after a related "program image not found" error of the applications team). FATAL, 230 → 1,877
+   entries (+716%), on 924 nodes over 4 days [step 23]. **Next action:** Node OS to check the Lustre mounts and
+   their servers for those 4 days. A failed mount is one possible explanation (a hypothesis) for the missing
+   program images ranked 3rd.
+4. **One faulty compute node in June** (owner: **Node OS**). Outside the December ranking, and a ranking would
+   place it low on spread (one node), but it produced 17.8% of all fatal entries in the log (152,229) in one
+   6-hour storm, after a rare cache hardware error that recurred 35 hours later [step 2, step 7, step 8].
+   **Next action:** Node OS to run hardware diagnostics on node R30-M0-N9-C:J16-U01 and keep it out of service
+   until it passes.
+5. **A machine-wide fault burst on 14 June** (owner: **Node OS**). FATAL, 344,064 entries in three hours
+   (02:00-05:00 PDT) across about 22,500 nodes [step 12, step 13]. It is a single burst, not a trend.
+   **Next action:** Node OS to confirm whether it was a planned restart. If it was not, run a post-incident review.
+
+Lower priority: on OpenStack, warnings only. An image-cache warning repeats every hour (3,059 entries) and 3.9%
+of API calls return 404 [step 14, step 17]; Virtualization and Cloud API to confirm both are expected behaviour.
 
 These logs do not measure customer impact, downtime or cost; the counts above are log entries, not incidents.
 
@@ -164,6 +175,6 @@ These logs do not measure customer impact, downtime or cost; the counts above ar
 - **Not established:** root causes (each cause above is a hypothesis), incident counts, downtime, user or
   customer impact, and anything on OpenStack during its gaps (15 May; 16 May 07:00-15:00).
 - **A check against ground truth:** a full-text count of "data TLB error interrupt" over all of BGL gives
-  **152,734** entries [step 23], exactly the number of lines BGL's own alert labels mark as `KERNDTLB`
-  [step 24]. 152,182 of them are the 11 June run on one node. The survey's sampled estimate for the
+  **152,734** entries [step 24], exactly the number of lines BGL's own alert labels mark as `KERNDTLB`
+  [step 25]. 152,182 of them are the 11 June run on one node. The survey's sampled estimate for the
   template was ≈153,000 ±1% [step 11].
