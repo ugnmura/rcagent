@@ -26,13 +26,14 @@ A separate model wrote the questions without seeing this repository; a blind gra
 finals ran at commit `6cad141`. The current version, rerun on the screening set with Sonnet 5.5, scored 94.4% on
 the rubric and 99% on exact values. Method, confidence intervals and weak spots: [docs/EVALUATION.md](docs/EVALUATION.md).
 
-### 1 billion rows on S3, queried in place
+### 1 and 10 billion rows on S3, queried in place
 
-<img src="docs/img/bench-textbench.svg" alt="TextBench, 1 billion rows read in place on S3: search of the whole file with the index 4.18 s, exact search of a 60-second window without an index 2.88 s, survey 7.8 s; registering the S3 file 1.97 s, building the search index 69.9 s." width="100%">
+<img src="docs/img/bench-textbench.svg" alt="TextBench read in place on S3 at commit b51daa1. One billion rows: whole-file search with the index 2.32 s, the same exact search without an index 15.4 s, a 60-second window 1.71 s. Ten billion rows: a 60-second window 3.49 s, an exact count of all rows 31.8 s. Once: registering the S3 file 1.38 s, building the search index 70.7 s." width="100%">
 
-One TextBench file (`part_000.parquet`) straight from the public bucket, nothing downloaded, at commit `6cad141`
-on one shared HPC node. The search index over a billion rows needs more than 64 GB of RAM. Raw per-call logs:
-[docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md).
+TextBench straight from the public bucket, nothing downloaded: one file (`part_000`, 1 billion rows) and ten files
+(`part_{000..009}`, 10 billion rows), at commit `b51daa1` on one shared HPC node. The search index repays its 71 s
+build after about 5 exact whole-file searches. It needs about 98 GB of RAM for a billion rows. Raw per-call logs,
+the break-even and how good the cost guard's predictions were: [docs/HUGE_DATASETS.md](docs/HUGE_DATASETS.md).
 
 ### The base corpus: 25 tool calls, median 0.25 s
 
@@ -136,7 +137,8 @@ There are 18 tools in total, including setup, indexes and team ownership. Each o
 - Counts are log entries, not incidents.
 - The team-ownership table is fictional: the organisers supplied none.
 - Log tables are snapshots; they are not refreshed.
-- The benchmarks above ran at commit `6cad141`; later changes were only rerun on the smaller screening set.
+- The answer-quality finals ran at commit `6cad141` (later changes were only rerun on the smaller screening set), and
+  the TextBench timings at `b51daa1`; neither was rerun at the current `main`.
 
 Full list: [docs/reference.md](docs/reference.md#known-limits).
 

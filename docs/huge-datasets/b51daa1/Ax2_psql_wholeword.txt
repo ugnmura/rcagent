@@ -1,0 +1,6 @@
+WARNING:  parameter "statement_timeout" is accepted for compatibility but is not enforced by serened
+SET
+Timing is on.
+ERROR:  invalid escape sequence: \m
+Time: 56.286 ms
+Ax2_psql_wholeword wall_s 0.291

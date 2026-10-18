@@ -1,0 +1,68 @@
+# Part A
+job 5120494 (hpc-A) node r23m0124.hpc.itc.rwth-aachen.de start 2026-10-18T16:12:05Z
+image $HPCWORK/night-run-2/sdb-26.10.1.sif sha256 9d141a5424e4f49d4ec574b33154e3380e97902c72a8436043990001309283f2
+extractor b51daa1899c5419f62cd192f7c8032626230258c dirty=0
+PostgreSQL 18.3 (SereneDB 26.10.1)
+end 2026-10-18T16:14:01Z
+sacct -j 5120494 --format=JobID,Elapsed,MaxRSS,TotalCPU,State:
+JobID           Elapsed     MaxRSS   TotalCPU      State 
+------------ ---------- ---------- ---------- ---------- 
+5120494        00:02:00             20:45.478  COMPLETED 
+5120494.bat+   00:02:00  98465328K  20:45.478  COMPLETED 
+5120494.ext+   00:02:00              00:00:00  COMPLETED 
+note: MaxRSS of the batch step includes serened (SereneDB) and the extractor; the search index build ran in this job.
+SereneDB image: night-run-2/sdb-26.10.1.sif (SereneDB 26.10.1 amd64, same image as job 5113147); data dir /dev/shm/$USER-sdb-<jobid>; 127.0.0.1:57895, trust auth
+extractor checkout: $HPCWORK/hpc-b51daa1/src/extractor, cloned from a git bundle of origin/main (repo is private, no GitHub credentials on the cluster), detached at b51daa1, uv sync, no edits (dirty=0)
+
+# Part A extra (Ax3 run_sql; Ax1/Ax2 psql failed: container could not see the .sql path)
+job 5120974 (hpc-Ax) node r23m0124.hpc.itc.rwth-aachen.de start 2026-10-18T17:10:44Z
+image $HPCWORK/night-run-2/sdb-26.10.1.sif sha256 9d141a5424e4f49d4ec574b33154e3380e97902c72a8436043990001309283f2
+extractor b51daa1899c5419f62cd192f7c8032626230258c dirty=0
+PostgreSQL 18.3 (SereneDB 26.10.1)
+end 2026-10-18T17:11:15Z
+sacct -j 5120974 --format=JobID,Elapsed,MaxRSS,TotalCPU,State:
+JobID           Elapsed     MaxRSS   TotalCPU      State 
+------------ ---------- ---------- ---------- ---------- 
+5120974        00:00:33             04:03.848  COMPLETED 
+5120974.bat+   00:00:33  14512488K  04:03.848  COMPLETED 
+5120974.ext+   00:00:33              00:00:00  COMPLETED 
+
+# Part A extra rerun (Ax1/Ax2 psql via stdin)
+job 5121278 (hpc-Axb) node r23m0124.hpc.itc.rwth-aachen.de start 2026-10-18T17:46:58Z
+image $HPCWORK/night-run-2/sdb-26.10.1.sif sha256 9d141a5424e4f49d4ec574b33154e3380e97902c72a8436043990001309283f2
+extractor b51daa1899c5419f62cd192f7c8032626230258c dirty=0
+PostgreSQL 18.3 (SereneDB 26.10.1)
+end 2026-10-18T17:47:16Z
+sacct -j 5121278 --format=JobID,Elapsed,MaxRSS,TotalCPU,State:
+JobID           Elapsed     MaxRSS   TotalCPU      State 
+------------ ---------- ---------- ---------- ---------- 
+5121278        00:00:20             03:05.300  COMPLETED 
+5121278.bat+   00:00:20  15414392K  03:05.300  COMPLETED 
+5121278.ext+   00:00:20              00:00:00  COMPLETED 
+
+# Part B, superseded (table tb10; guard not followed on B6)
+job 5120519 (hpc-B) node r23m0124.hpc.itc.rwth-aachen.de start 2026-10-18T16:40:48Z
+image $HPCWORK/night-run-2/sdb-26.10.1.sif sha256 9d141a5424e4f49d4ec574b33154e3380e97902c72a8436043990001309283f2
+extractor b51daa1899c5419f62cd192f7c8032626230258c dirty=0
+PostgreSQL 18.3 (SereneDB 26.10.1)
+end 2026-10-18T16:41:43Z
+sacct -j 5120519 --format=JobID,Elapsed,MaxRSS,TotalCPU,State:
+JobID           Elapsed     MaxRSS   TotalCPU      State 
+------------ ---------- ---------- ---------- ---------- 
+5120519        00:00:57             04:25.034  COMPLETED 
+5120519.bat+   00:00:57   8224600K  04:25.034  COMPLETED 
+5120519.ext+   00:00:57              00:00:00  COMPLETED 
+
+# Part B (textbench10)
+job 5120975 (hpc-B) node r23m0124.hpc.itc.rwth-aachen.de start 2026-10-18T17:45:25Z
+image $HPCWORK/night-run-2/sdb-26.10.1.sif sha256 9d141a5424e4f49d4ec574b33154e3380e97902c72a8436043990001309283f2
+extractor b51daa1899c5419f62cd192f7c8032626230258c dirty=0
+PostgreSQL 18.3 (SereneDB 26.10.1)
+end 2026-10-18T17:46:55Z
+sacct -j 5120975 --format=JobID,Elapsed,MaxRSS,TotalCPU,State:
+JobID           Elapsed     MaxRSS   TotalCPU      State 
+------------ ---------- ---------- ---------- ---------- 
+5120975        00:01:32             10:09.855  COMPLETED 
+5120975.bat+   00:01:32  13858536K  10:09.855  COMPLETED 
+5120975.ext+   00:01:32              00:00:00  COMPLETED 
+
