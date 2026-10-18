@@ -433,7 +433,7 @@ def _copied_summary(
     lines = [
         fmt.how_measured(how + (index_lines_how(read_data) if read_data else ""), tz=lt.timezone),
         f"Set up log table '{lt.name}': {_why_copy(rs)}",
-        f"The copy is {lt.relation} ({lt.row_count:,} entries); the original file was not changed.",
+        f"The copy is {lt.relation} ({lt.row_count:,} {'entry' if lt.row_count == 1 else 'entries'}); the original file was not changed.",
         *_size_lines(rs),
         *extra,
         _zone_line(lt.timezone, zone_why),

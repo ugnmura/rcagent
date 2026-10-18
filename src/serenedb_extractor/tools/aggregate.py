@@ -273,9 +273,14 @@ def _render(
             lines.append(f"Log table {t.lt.name}: {t.note}")
             continue
         total_text = _num(t.total)
-        lines.append(f"Log table {t.lt.name}: {total_text} matching entries" + (" (exact)." if t.total.exact else "."))
+        one = t.total.exact and round(t.total.value) == 1
+        lines.append(
+            f"Log table {t.lt.name}: {total_text} matching {'entry' if one else 'entries'}" + (" (exact)." if t.total.exact else ".")
+        )
         if t.note:
             lines.append(f"  note: {t.note}")
+        for n in t.plan.notes if t.plan is not None else ():
+            lines.append(f"  note: {n}")
         if t.groups:
             cut = t.groups[:limit]
             n_all = t.n_groups if t.n_groups is not None else len(t.groups)

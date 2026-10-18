@@ -507,9 +507,10 @@ def _render(
     head = fmt.how_measured(_kind(run, plan), period, scope_text, _method(run, plan), tz=tz)
     shown, note = fmt.cut(merged, shown_limit, "templates")
     covered = sum(m.count for m in shown)
-    n_found = f"{len(merged)} templates found" + ("" if exact else " in the sample")
+    n_found = f"{len(merged)} template{'' if len(merged) == 1 else 's'} found" + ("" if exact else " in the sample")
     if run.population.exact:
-        population = f"Log table {lt.name}: {round(run.population.value):,} entries match; {n_found}."
+        n_pop = round(run.population.value)
+        population = f"Log table {lt.name}: {n_pop:,} {'entry matches' if n_pop == 1 else 'entries match'}; {n_found}."
     else:
         population = f"Log table {lt.name}: population estimated: {fmt.render(run.population)} matching entries; {n_found}."
     out = [
@@ -518,7 +519,8 @@ def _render(
         *_merge_notes(result),
         population,
         *([fmt.sentence(run.population_note)] if run.population_note else []),
-        f"These {len(shown)} cover {100 * covered / run.sampled:.0f}% of the {'matching entries' if exact else 'sample'}.",
+        ("This one covers" if len(shown) == 1 else f"These {len(shown)} cover")
+        + f" {100 * covered / run.sampled:.0f}% of the {'matching entries' if exact else 'sample'}.",
     ]
     if note:
         out.append(note)

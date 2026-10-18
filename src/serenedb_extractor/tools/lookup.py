@@ -325,7 +325,7 @@ def _search_via_index(
     empty_why = diagnose_empty(db, lt, tr, f, cols) if total == 0 else []
     out = _render(
         lt, tr, f, text, tz, plan, fmt.Measured(float(total), True), rows, tags, total, order, empty_why,
-        via=(ix.name, how), notes=[n for n in (missing, lookup_note) if n],
+        via=(ix.name, f"{how} {fmt.shorten(str(text), 200)!r}"), notes=[n for n in (missing, lookup_note) if n],
     )
     return out
 

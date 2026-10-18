@@ -164,3 +164,14 @@ def test_preceding_period_keeps_local_midnight_across_a_dst_change():
     start = datetime(2005, 10, 29, tzinfo=la).astimezone(UTC)
     end = datetime(2005, 11, 1, tzinfo=la).astimezone(UTC)
     assert preceding_start(start, end, la).astimezone(la).replace(tzinfo=None) == datetime(2005, 10, 26)
+
+
+def test_a_local_time_skipped_by_the_spring_change_is_explained():
+    import pytest
+
+    from serenedb_extractor.errors import UserFacingError
+    from serenedb_extractor.query.filters import parse_time_range
+
+    with pytest.raises(UserFacingError, match="does not exist in America/Los_Angeles"):
+        parse_time_range("2005-04-03 02:30", "2005-04-03 04:00", "America/Los_Angeles")
+    assert parse_time_range("2005-04-03 01:30", "2005-04-03 04:00", "America/Los_Angeles").start is not None
