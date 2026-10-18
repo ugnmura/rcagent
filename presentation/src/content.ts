@@ -5,6 +5,15 @@
 
 export const REPO_URL = 'github.com/ugnmura/serenedb-extractor';
 
+// ---------------------------------------------------------------- 0 intro card
+export const intro = {
+	event: 'National AI Hackathon 2026',
+	// Logos: public/assets/logos/SOURCES.md. SchubKI has no logo file; its wordmark is text.
+	schubki: {first: 'Schub', accent: 'KI', gold: '#D3A43F'},
+	sereneLogo: 'assets/logos/serenedb.svg',
+	schubkiIcon: 'assets/logos/schubki-icon.png',
+};
+
 export const DRAMATIZATION_LABEL = 'Dramatization: real log data, AI-generated voices';
 
 // ---------------------------------------------------------------- 1a cold open (slide 1)
@@ -116,6 +125,17 @@ export const engineer = {
 // ---------------------------------------------------------------- 3 team lead (slide 3)
 export const teamLead = {
 	title: 'Team lead: what keeps coming back?',
+	chapter: {title: 'The team lead', question: 'What keeps coming back?'},
+	// WI §2 "The numbers" table [step 9]: BGL entries at level FATAL, by team, whole corpus.
+	fatalBars: [
+		{team: 'Node OS', value: '626,756'},
+		{team: 'HPC Applications', value: '228,536'},
+		{team: 'Control System', value: '3'},
+	],
+	fatalBarsLabel: 'BGL fatal entries, by team',
+	// WI §2 [step 21]: "Link has been severed" on 22 of 31 days in December, +4% against November
+	persistent: {message: 'Link has been severed', days: 22, of: 31, trend: '+4%', trendLabel: 'not falling'},
+	first: {label: 'Investigate first', team: 'HPC Applications'},
 	prompt: '/team-lead Which problems keep recurring across BGL and OpenStack, and what should we look at first?',
 	recordingCue: 'Pause on the count_logs table by team and level, then on the trend result.',
 	// WI §2 "The numbers" table [step 9]: entries by team and level, whole corpus.
@@ -151,6 +171,16 @@ export const teamLead = {
 // ---------------------------------------------------------------- 4 manager (slide 4)
 export const manager = {
 	title: 'Manager: what do we act on first?',
+	chapter: {title: 'The manager', question: 'What do we act on first?'},
+	// WI §3, ranked list; labels shortened to at most five words, owners as in WI §3.
+	cards: [
+		{label: 'Failing job launches, rising', owner: 'HPC Applications', counter: 91}, // +91%: WI §3 item 1 [step 21]
+		{label: 'Broken compute-to-I/O links', owner: 'HPC Applications'},
+		{label: 'One faulty node', owner: 'Node OS'},
+		{label: 'Machine-wide burst, 14 June', owner: 'Node OS'}, // WI §3 item 4 [step 13]
+		{label: 'Cloud warnings only', owner: 'Virtualization · Cloud API'},
+	],
+	limit: "Logs don't measure downtime or cost.",
 	prompt: '/manager What should we prioritise from these logs?',
 	recordingCue: 'Hold on the ranked list.',
 	// WI §3, ranked list. Only numbers the script speaks are shown.
@@ -186,6 +216,15 @@ export const evidence = {
 	// Exact SQL: docs/worked-investigation-transcript.md, step 23, Q127.5
 	sql: `SELECT k0, count(*) AS n FROM (SELECT 1 AS one, coalesce(("level")::varchar, '(none)') AS k0 FROM extractor.lt_bgl WHERE TRUE AND TRUE AND ("message")::varchar ILIKE '%data TLB error interrupt%' ESCAPE '\\') GROUP BY k0`,
 	measured: 'exact count · every entry in scope · no sampling',
+	tool: 'count_logs',
+	/** Readable excerpt of `sql` (same query, middle elided). */
+	sqlExcerpt: [
+		'SELECT k0, count(*) AS n FROM (',
+		'  SELECT … "level" AS k0 FROM extractor.lt_bgl',
+		"  WHERE \"message\" ILIKE '%data TLB error interrupt%'",
+		') GROUP BY k0',
+	],
+	snapCaption: "full-text count = BGL's own labels",
 	left: {value: '152,734', label: 'full-text count of "data TLB error interrupt" over all of BGL'}, // WI [step 23]
 	right: {value: '152,734', label: "lines BGL's own alert labels mark KERNDTLB"}, // WI [step 24]
 	cues: [
@@ -201,6 +240,7 @@ export const evidence = {
 // ---------------------------------------------------------------- 6 benchmarks (slide 6)
 export const benchmarks = {
 	title: 'Same questions, graded blind',
+	todo: 'Numbers pending: final benchmark run',
 	cues: [
 		'We did not guess which design works.',
 		'We built three, gave them the same sealed questions for all three roles,',
@@ -221,10 +261,17 @@ export const close = {
 		{role: 'Manager', line: 'the priority'},
 	],
 	traceable: 'Every number is traceable to a query.',
+	cardLine: 'Every number traceable to a query',
 	cues: [
 		'So, back to that phone call.',
 		'The engineer gets a cause to check, not a scroll bar.',
 		'The team lead gets the pattern. The manager gets the priority.',
 		'And every number is traceable to a query. Thank you.',
 	],
+};
+
+// ---------------------------------------------------------------- 8 star gag (after the close)
+export const star = {
+	repo: {owner: 'serenedb', name: 'serenedb'},
+	caption: 'As requested. Several times.',
 };

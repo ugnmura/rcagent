@@ -1,13 +1,15 @@
 // Scenes 1a, 1b and 2 in film style: one idea per shot, push-ins, hard cuts on beats, fades between acts.
 import React from 'react';
 import {AbsoluteFill, Sequence, spring, useCurrentFrame, useVideoConfig, interpolate} from 'remotion';
-import type {ResolvedAssets} from './assets';
+import type {AssetKey, ResolvedAssets} from './assets';
+import type {Benchmarks} from './benchmarks';
 import {DialogAudio, RecordingVideo} from './components';
-import {coldOpen, DRAMATIZATION_LABEL, engineer, reveal} from './content';
+import {coldOpen, DRAMATIZATION_LABEL, engineer, manager, reveal, teamLead} from './content';
 import {BarSubtitles, BlackFades, ChapterCard, FilmFacecam, Grain, Letterbox, LETTERBOX, PushIn, ramp, SoftPlaceholder, Vignette} from './film';
+import {BarsShot, BenchShot, CitationShot, DaysShot, EndCard, FirstShot, IntroShot, LimitShot, RiskCards, SnapShot, StarShot, TrendShot} from './shots2';
 import {CounterShot, FactShot, FloodShot, FlowShot, LogStorm, NodeShot, RingShot, TitleCaption} from './shots';
 import {color, font} from './theme';
-import {cueFrames, DIALOG_LEAD_SECONDS, FPS, SLIDE_SECONDS} from './timeline';
+import {cueFrames, DIALOG_LEAD_SECONDS, END_CARD_SECONDS, FPS, SLIDE_SECONDS} from './timeline';
 
 type SceneProps = {assets: ResolvedAssets; frames: number};
 
@@ -115,12 +117,11 @@ export const RevealScene: React.FC<SceneProps> = ({assets, frames}) => {
 // ---------------------------------------------------------------- 2 engineer
 
 /** The recording slot zooms in like a screen inside the film. */
-const ScreenInFilm: React.FC<SceneProps> = ({assets, frames}) => {
+const ScreenInFilm: React.FC<SceneProps & {recording: AssetKey; prompt: string; cue: string}> = ({assets, frames, recording, prompt, cue}) => {
 	const frame = useCurrentFrame();
 	const {fps} = useVideoConfig();
 	const s = spring({frame, fps, config: {damping: 200}, durationInFrames: 40});
 	const scale = interpolate(s, [0, 1], [0.6, 0.8]) * interpolate(frame, [0, frames], [1, 1.04], {extrapolateRight: 'clamp'});
-	const present = assets.engineerRec.present;
 	return (
 		<AbsoluteFill style={{background: 'radial-gradient(ellipse at 50% 45%, #141a22 0%, #030405 70%)'}}>
 			<AbsoluteFill style={{transform: `translate(-64px, -34px) scale(${scale})`, opacity: ramp(frame, 0, 10)}}>
@@ -132,13 +133,13 @@ const ScreenInFilm: React.FC<SceneProps> = ({assets, frames}) => {
 						boxShadow: '0 40px 140px rgba(0,0,0,0.85), 0 0 0 3px #2a313a',
 					}}
 				>
-					{present ? (
-						<RecordingVideo assetKey="engineerRec" assets={assets} />
+					{assets[recording].present ? (
+						<RecordingVideo assetKey={recording} assets={assets} />
 					) : (
 						<SoftPlaceholder
-							assetKey="engineerRec"
+							assetKey={recording}
 							note={`screen recording · slot ${(frames / FPS).toFixed(1)} s`}
-							detail={`${engineer.prompt}\n${engineer.recordingCue}`}
+							detail={`${prompt}\n${cue}`}
 							style={{width: '100%', height: '100%', fontSize: 30}}
 						/>
 					)}
@@ -150,33 +151,171 @@ const ScreenInFilm: React.FC<SceneProps> = ({assets, frames}) => {
 
 const CHAPTER_FRAMES = 78;
 
-export const EngineerScene: React.FC<SceneProps> = ({assets, frames}) => {
+type ShotSpec = {name: string; weight: number; render: (frames: number) => React.ReactNode};
+
+/** Lays shots out between `from` and `to` in proportion to their weights. */
+const ShotRun: React.FC<{from: number; to: number; shots: ShotSpec[]}> = ({from, to, shots}) => {
+	const sum = shots.reduce((a, s) => a + s.weight, 0);
+	let at = from;
+	return (
+		<>
+			{shots.map((s, i) => {
+				const end = i === shots.length - 1 ? to : at + Math.round(((to - from) * s.weight) / sum);
+				const node = (
+					<Shot key={s.name} from={at} to={end} name={s.name}>
+						{s.render(end - at)}
+					</Shot>
+				);
+				at = end;
+				return node;
+			})}
+		</>
+	);
+};
+
+/** A role: chapter card, its shots, then the recording zooms in; facecam in the corner after the card. */
+const RoleScene: React.FC<
+	SceneProps & {
+		facecam: AssetKey;
+		recording: AssetKey;
+		splitSeconds: number;
+		chapter: {title: string; question: string};
+		prompt: string;
+		cue: string;
+		shots: ShotSpec[];
+	}
+> = ({assets, frames, facecam, recording, splitSeconds, chapter, prompt, cue, shots}) => {
 	const frame = useCurrentFrame();
-	const split = Math.min(frames - 1, Math.round(SLIDE_SECONDS.engineer * FPS));
-	const rest = split - CHAPTER_FRAMES;
-	const nodeTo = CHAPTER_FRAMES + Math.round(rest * 0.24);
-	const ringTo = nodeTo + Math.round(rest * 0.34);
-	const facecam = ramp(frame, CHAPTER_FRAMES - 6, CHAPTER_FRAMES + 12);
+	const split = Math.min(frames - 1, Math.round(splitSeconds * FPS));
+	const opacity = ramp(frame, CHAPTER_FRAMES - 6, CHAPTER_FRAMES + 12);
 	return (
 		<AbsoluteFill style={{backgroundColor: INK}}>
 			<Sequence durationInFrames={CHAPTER_FRAMES} name="chapter card">
-				<ChapterCard title={engineer.chapter.title} question={engineer.chapter.question} frames={CHAPTER_FRAMES} />
+				<ChapterCard title={chapter.title} question={chapter.question} frames={CHAPTER_FRAMES} />
 			</Sequence>
-			<Shot from={CHAPTER_FRAMES} to={nodeTo} name="node">
-				<NodeShot />
-			</Shot>
-			<Shot from={nodeTo} to={ringTo} name="17.8% ring">
-				<RingShot />
-			</Shot>
-			<Shot from={ringTo} to={split} name="L2, then the flood">
-				<FloodShot frames={split - ringTo} />
-			</Shot>
+			<ShotRun from={CHAPTER_FRAMES} to={split} shots={shots} />
 			<Sequence from={split} durationInFrames={frames - split} name="recording">
-				<ScreenInFilm assets={assets} frames={frames - split} />
+				<ScreenInFilm assets={assets} frames={frames - split} recording={recording} prompt={prompt} cue={cue} />
 			</Sequence>
-			<FilmFacecam assetKey="s2" assets={assets} corner={1} opacity={facecam} />
+			<FilmFacecam assetKey={facecam} assets={assets} corner={1} opacity={opacity} />
 			<FilmFinish />
 			<BlackFades frames={frames} fadeOut={20} />
 		</AbsoluteFill>
 	);
 };
+
+export const EngineerScene: React.FC<SceneProps> = (p) => (
+	<RoleScene
+		{...p}
+		facecam="s2"
+		recording="engineerRec"
+		splitSeconds={SLIDE_SECONDS.engineer}
+		chapter={engineer.chapter}
+		prompt={engineer.prompt}
+		cue={engineer.recordingCue}
+		shots={[
+			{name: 'node', weight: 0.24, render: () => <NodeShot />},
+			{name: '17.8% ring', weight: 0.34, render: () => <RingShot />},
+			{name: 'L2, then the flood', weight: 0.42, render: (f) => <FloodShot frames={f} />},
+		]}
+	/>
+);
+
+export const TeamLeadScene: React.FC<SceneProps> = (p) => (
+	<RoleScene
+		{...p}
+		facecam="s3"
+		recording="teamLeadRec"
+		splitSeconds={SLIDE_SECONDS.teamLead}
+		chapter={teamLead.chapter}
+		prompt={teamLead.prompt}
+		cue={teamLead.recordingCue}
+		shots={[
+			{name: 'fatal by team', weight: 0.3, render: () => <BarsShot />},
+			{name: '22 of 31 days', weight: 0.3, render: () => <DaysShot />},
+			{name: 'not falling', weight: 0.17, render: () => <TrendShot />},
+			{name: 'investigate first', weight: 0.23, render: () => <FirstShot />},
+		]}
+	/>
+);
+
+export const ManagerScene: React.FC<SceneProps> = (p) => (
+	<RoleScene
+		{...p}
+		facecam="s4"
+		recording="managerRec"
+		splitSeconds={SLIDE_SECONDS.manager}
+		chapter={manager.chapter}
+		prompt={manager.prompt}
+		cue={manager.recordingCue}
+		shots={[
+			{name: 'five risks', weight: 0.72, render: () => <RiskCards />},
+			{name: 'what logs do not measure', weight: 0.28, render: () => <LimitShot />},
+		]}
+	/>
+);
+
+/** A slide-only act: shots over the whole take, facecam in the corner, fades at both ends. */
+const ActScene: React.FC<SceneProps & {facecam: AssetKey; shots: ShotSpec[]}> = ({assets, frames, facecam, shots}) => (
+	<AbsoluteFill style={{backgroundColor: INK}}>
+		<ShotRun from={0} to={frames} shots={shots} />
+		<FilmFacecam assetKey={facecam} assets={assets} corner={1} />
+		<FilmFinish />
+		<BlackFades frames={frames} fadeIn={15} fadeOut={20} />
+	</AbsoluteFill>
+);
+
+export const EvidenceScene: React.FC<SceneProps> = (p) => (
+	<ActScene
+		{...p}
+		facecam="s5"
+		shots={[
+			{name: 'citation', weight: 0.45, render: () => <CitationShot />},
+			{name: '152,734 = 152,734', weight: 0.55, render: () => <SnapShot />},
+		]}
+	/>
+);
+
+export const BenchmarksScene: React.FC<SceneProps & {benchmarks: Benchmarks | null}> = ({benchmarks, ...p}) => (
+	<ActScene {...p} facecam="s6" shots={[{name: 'bars', weight: 1, render: () => <BenchShot benchmarks={benchmarks} />}]} />
+);
+
+/** Facecam full screen, then it shrinks to the corner and the end card shows. */
+export const CloseScene: React.FC<SceneProps> = ({assets, frames}) => {
+	const frame = useCurrentFrame();
+	const {fps} = useVideoConfig();
+	const endFrom = Math.max(0, frames - Math.round(END_CARD_SECONDS * FPS));
+	const corner = spring({frame: frame - endFrom, fps, config: {damping: 200}, durationInFrames: 22});
+	return (
+		<AbsoluteFill style={{backgroundColor: INK}}>
+			<Shot from={endFrom} to={frames} name="end card">
+				<EndCard />
+			</Shot>
+			<FilmFacecam assetKey="s7" assets={assets} corner={corner} />
+			<FilmFinish />
+			<BlackFades frames={frames} fadeIn={15} fadeOut={15} />
+		</AbsoluteFill>
+	);
+};
+
+// ---------------------------------------------------------------- bookends
+
+export const IntroScene: React.FC<{frames: number}> = ({frames}) => (
+	<AbsoluteFill style={{backgroundColor: '#000'}}>
+		<PushIn frames={frames}>
+			<IntroShot />
+		</PushIn>
+		<FilmFinish />
+		<BlackFades frames={frames} fadeIn={6} fadeOut={16} />
+	</AbsoluteFill>
+);
+
+export const StarScene: React.FC<{frames: number}> = ({frames}) => (
+	<AbsoluteFill style={{backgroundColor: INK}}>
+		<PushIn frames={frames} to={1.03}>
+			<StarShot />
+		</PushIn>
+		<FilmFinish />
+		<BlackFades frames={frames} fadeIn={8} fadeOut={18} />
+	</AbsoluteFill>
+);

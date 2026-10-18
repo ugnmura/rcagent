@@ -1,79 +1,29 @@
 import React from 'react';
-import {AbsoluteFill, interpolate, Sequence, Series, useCurrentFrame} from 'remotion';
-import type {AssetKey, ResolvedAssets} from './assets';
+import {AbsoluteFill, Series} from 'remotion';
+import type {ResolvedAssets} from './assets';
 import type {Benchmarks} from './benchmarks';
 import type {TalkProps} from './calculate-metadata';
-import {Facecam, Recording, Subtitles} from './components';
-import {benchmarks, close, evidence, manager, teamLead} from './content';
 import {MusicBed} from './music';
-import {ColdOpenScene, EngineerScene, RevealScene} from './scenes';
-import {Slide3, Slide4, Slide5, Slide6, Slide7} from './slides';
-import {color} from './theme';
-import {END_CARD_SECONDS, FPS, SLIDE_SECONDS, type SceneId} from './timeline';
+import {
+	BenchmarksScene,
+	CloseScene,
+	ColdOpenScene,
+	EngineerScene,
+	EvidenceScene,
+	IntroScene,
+	ManagerScene,
+	RevealScene,
+	StarScene,
+	TeamLeadScene,
+} from './scenes';
+import {type SceneId} from './timeline';
 
 type SceneProps = {assets: ResolvedAssets; frames: number; benchmarks: Benchmarks | null};
 
-const textCues = (cues: readonly string[]) => cues.map((text) => ({text}));
-
-// ---------------------------------------------------------------- 2–4: slide, then recording
-const SlideThenRecording: React.FC<
-	SceneProps & {
-		facecam: AssetKey;
-		recording: AssetKey;
-		splitSeconds: number;
-		slide: React.ReactNode;
-		cues: readonly string[];
-		prompt: string;
-		cue: string;
-	}
-> = ({assets, frames, facecam, recording, splitSeconds, slide, cues, prompt, cue}) => {
-	const split = Math.min(frames - 1, Math.round(splitSeconds * FPS));
-	return (
-		<AbsoluteFill style={{backgroundColor: color.bg}}>
-			<Sequence durationInFrames={split} name="slide">
-				{slide}
-			</Sequence>
-			<Sequence from={split} durationInFrames={frames - split} name="recording">
-				<Recording assetKey={recording} assets={assets} frames={frames - split} prompt={prompt} cue={cue} mode="video" />
-			</Sequence>
-			<Facecam assetKey={facecam} assets={assets} layout="corner" />
-			<Subtitles cues={textCues(cues)} sceneFrames={frames} />
-		</AbsoluteFill>
-	);
-};
-
-const SlideOnly: React.FC<SceneProps & {facecam: AssetKey; slide: React.ReactNode; cues: readonly string[]}> = ({
-	assets,
-	frames,
-	facecam,
-	slide,
-	cues,
-}) => (
-	<AbsoluteFill>
-		{slide}
-		<Facecam assetKey={facecam} assets={assets} layout="corner" />
-		<Subtitles cues={textCues(cues)} sceneFrames={frames} />
-	</AbsoluteFill>
-);
-
-// ---------------------------------------------------------------- 7
-const Close: React.FC<SceneProps> = ({assets, frames}) => {
-	const frame = useCurrentFrame();
-	const endFrom = Math.max(0, frames - Math.round(END_CARD_SECONDS * FPS));
-	const opacity = interpolate(frame, [endFrom, endFrom + 15], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
-	return (
-		<AbsoluteFill style={{backgroundColor: color.bg}}>
-			<AbsoluteFill style={{opacity}}>
-				<Slide7 mode="video" />
-			</AbsoluteFill>
-			<Facecam assetKey="s7" assets={assets} layout={frame < endFrom ? 'full' : 'corner'} />
-			<Subtitles cues={textCues(close.cues)} sceneFrames={frames} />
-		</AbsoluteFill>
-	);
-};
-
 const renderScene = (id: SceneId, p: SceneProps): React.ReactNode => {
 	switch (id) {
+		case 'intro':
+			return <IntroScene frames={p.frames} />;
 		case 'coldOpen':
 			return <ColdOpenScene {...p} />;
 		case 'reveal':
@@ -81,44 +31,17 @@ const renderScene = (id: SceneId, p: SceneProps): React.ReactNode => {
 		case 'engineer':
 			return <EngineerScene {...p} />;
 		case 'teamLead':
-			return (
-				<SlideThenRecording
-					{...p}
-					facecam="s3"
-					recording="teamLeadRec"
-					splitSeconds={SLIDE_SECONDS.teamLead}
-					slide={<Slide3 mode="video" />}
-					cues={teamLead.cues}
-					prompt={teamLead.prompt}
-					cue={teamLead.recordingCue}
-				/>
-			);
+			return <TeamLeadScene {...p} />;
 		case 'manager':
-			return (
-				<SlideThenRecording
-					{...p}
-					facecam="s4"
-					recording="managerRec"
-					splitSeconds={SLIDE_SECONDS.manager}
-					slide={<Slide4 mode="video" />}
-					cues={manager.cues}
-					prompt={manager.prompt}
-					cue={manager.recordingCue}
-				/>
-			);
+			return <ManagerScene {...p} />;
 		case 'evidence':
-			return <SlideOnly {...p} facecam="s5" slide={<Slide5 mode="video" />} cues={evidence.cues} />;
+			return <EvidenceScene {...p} />;
 		case 'benchmarks':
-			return (
-				<SlideOnly
-					{...p}
-					facecam="s6"
-					slide={<Slide6 mode="video" benchmarks={p.benchmarks} />}
-					cues={benchmarks.cues}
-				/>
-			);
+			return <BenchmarksScene {...p} />;
 		case 'close':
-			return <Close {...p} />;
+			return <CloseScene {...p} />;
+		case 'star':
+			return <StarScene frames={p.frames} />;
 	}
 };
 
@@ -127,7 +50,7 @@ export const Talk: React.FC<TalkProps> = ({assets, scenes, benchmarks: b}) => {
 		return null; // calculateMetadata fills these before anything renders
 	}
 	return (
-		<AbsoluteFill style={{backgroundColor: color.bg}}>
+		<AbsoluteFill style={{backgroundColor: '#000'}}>
 			<Series>
 				{scenes.map((s) => (
 					<Series.Sequence key={s.id} durationInFrames={s.frames} name={s.label}>
