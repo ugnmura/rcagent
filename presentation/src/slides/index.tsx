@@ -3,9 +3,9 @@ import {AbsoluteFill} from 'remotion';
 import type {Benchmarks} from '../benchmarks';
 import {SlideFrame, type Mode} from '../components';
 import {DONE_TIMES, SplitBoard} from '../split';
-import {FactShot, FlowDiagramShot, IntroducingShot, TemplatesShot, TitleCaption} from '../shots';
+import {FlowDiagramShot, IntroducingShot, StatShot, TemplatesShot, TitleCaption} from '../shots';
 import {BenchShot, CitationShot, LogoPair, SnapShot} from '../shots2';
-import {close, coldOpen, demo, evidence, features, intro, PROJECT_NAME, reveal} from '../content';
+import {close, coldOpen, demo, evidence, features, intro, PROJECT_NAME} from '../content';
 import {color, font} from '../theme';
 
 const Mono: React.FC<{children: React.ReactNode; style?: React.CSSProperties}> = ({children, style}) => (
@@ -52,17 +52,16 @@ export const SlideCall: React.FC<{mode: Mode}> = () => (
 	</AbsoluteFill>
 );
 
-export const SlideCounter: React.FC<{mode: Mode}> = () => (
-	<AbsoluteFill style={{backgroundColor: '#030405', color: color.text, fontFamily: font.sans, justifyContent: 'center', alignItems: 'center'}}>
-		<div style={{fontSize: 240, fontWeight: 800, color: color.accent, letterSpacing: -6, lineHeight: 1}}>{reveal.counter.value}</div>
-		<div style={{fontSize: 56, marginTop: 30}}>{reveal.counter.label}</div>
+export const SlideStatCost: React.FC<{mode: Mode}> = () => (
+	<AbsoluteFill style={{backgroundColor: '#030405'}}>
+		<StatShot index={0} done />
 		<Brand />
 	</AbsoluteFill>
 );
 
-export const SlideFact: React.FC<{mode: Mode}> = () => (
+export const SlideStatFailures: React.FC<{mode: Mode}> = () => (
 	<AbsoluteFill style={{backgroundColor: '#030405'}}>
-		<FactShot done />
+		<StatShot index={1} done />
 		<Brand />
 	</AbsoluteFill>
 );
@@ -180,6 +179,6 @@ export const Slide7: React.FC<{mode: Mode}> = ({mode}) => (
 	</SlideFrame>
 );
 
-export const SLIDES = [SlideTitle, SlideCall, SlideCounter, SlideFact, SlideIntroducing, SlideTemplating, SlideHowItWorks, SlideSplit, SlideDemo, Slide5, Slide6, SlideFeatures, Slide7] as const;
+export const SLIDES = [SlideTitle, SlideCall, SlideStatCost, SlideStatFailures, SlideIntroducing, SlideTemplating, SlideHowItWorks, SlideSplit, SlideDemo, Slide5, Slide6, SlideFeatures, Slide7] as const;
 
 export const Blank: React.FC = () => <AbsoluteFill style={{backgroundColor: color.bg}} />;

@@ -3,11 +3,10 @@
 import React from 'react';
 import {AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig} from 'remotion';
 import {coldOpen, engineer, reveal} from './content';
-import {ease, easeOut, ramp, Typewriter} from './film';
+import {ease, ramp, Typewriter} from './film';
 import {color, font} from './theme';
 
 const num = (s: string) => Number(s.replace(/[^0-9.]/g, ''));
-const fmtInt = (n: number) => Math.round(n).toLocaleString('en-US');
 export const RED = '#ff4b4b';
 
 // ------------------------------------------------------------------ cold open
@@ -107,54 +106,18 @@ export const TitleCaption: React.FC<{done?: boolean; starts?: [number, number, n
 
 // ------------------------------------------------------------------ reveal
 
-/** 0 → 152,229, eased; then the words fade in under it. */
-export const CounterShot: React.FC<{done?: boolean}> = ({done}) => {
-	const frame = useCurrentFrame();
-	const target = num(reveal.counter.value);
-	const p = done ? 1 : ramp(frame, 6, 84, easeOut);
-	const words = done ? 1 : ramp(frame, 88, 112);
-	return (
-		<AbsoluteFill style={{justifyContent: 'center', alignItems: 'center', fontFamily: font.sans}}>
-			<div
-				style={{
-					fontSize: 240,
-					fontWeight: 800,
-					color: color.accent,
-					letterSpacing: -6,
-					fontVariantNumeric: 'tabular-nums',
-					lineHeight: 1,
-				}}
-			>
-				{fmtInt(target * p)}
-			</div>
-			<div
-				style={{
-					fontSize: 52,
-					color: color.text,
-					marginTop: 34,
-					opacity: words,
-					transform: `translateY(${(1 - words) * 16}px)`,
-					letterSpacing: '0.02em',
-				}}
-			>
-				{reveal.counter.label}
-			</div>
-		</AbsoluteFill>
-	);
-};
-
-/** One big number: 4.7 million log lines. */
-export const FactShot: React.FC<{done?: boolean}> = ({done}) => {
+/** How often this happens: one number from the world per shot, with its source under it. */
+export const StatShot: React.FC<{index: number; done?: boolean}> = ({index, done}) => {
 	const frame = useCurrentFrame();
 	const {fps} = useVideoConfig();
-	const s = done ? 1 : spring({frame, fps, config: {damping: 200}, durationInFrames: 24});
-	const words = done ? 1 : ramp(frame, 18, 36);
+	const it = reveal.stats.items[index];
+	const s = done ? 1 : spring({frame: frame - 6, fps, config: {damping: 200}, durationInFrames: 22});
+	const words = done ? 1 : ramp(frame, 18, 32);
 	return (
-		<AbsoluteFill style={{justifyContent: 'center', alignItems: 'center', fontFamily: font.sans}}>
-			<div style={{fontSize: 220, fontWeight: 800, color: color.text, letterSpacing: -5, lineHeight: 1, opacity: s, transform: `scale(${0.94 + 0.06 * s})`}}>
-				{reveal.fact.value}
-			</div>
-			<div style={{fontSize: 52, color: color.muted, marginTop: 34, opacity: words}}>{reveal.fact.label}</div>
+		<AbsoluteFill style={{fontFamily: font.sans, justifyContent: 'center', alignItems: 'center', textAlign: 'center'}}>
+			<div style={{fontSize: 240, fontWeight: 800, color: color.accent, letterSpacing: -6, lineHeight: 1, opacity: s, transform: `scale(${0.94 + 0.06 * s})`}}>{it.value}</div>
+			<div style={{fontSize: 52, color: color.text, marginTop: 34, opacity: words}}>{it.label}</div>
+			<div style={{fontSize: 26, color: color.muted, marginTop: 26, opacity: words}}>{it.source}</div>
 		</AbsoluteFill>
 	);
 };

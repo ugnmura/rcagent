@@ -8,7 +8,7 @@ import {DialogAudio} from './components';
 import {coldOpen, reveal} from './content';
 import {BarSubtitles, BlackFades, FilmFacecam, Grain, Letterbox, LETTERBOX, NameTag, PushIn, ramp, Vignette} from './film';
 import {BenchShot, EndCard, IntroShot, StarShot} from './shots2';
-import {CounterShot, FactShot, FlowDiagramShot, LogStorm, TemplatesShot, TitleCaption, IntroducingShot} from './shots';
+import {FlowDiagramShot, StatShot, LogStorm, TemplatesShot, TitleCaption, IntroducingShot} from './shots';
 import {color, font} from './theme';
 import {CLOSE_PARTS, cueFrames, DIALOG_LEAD_SECONDS, END_CARD_SECONDS, FPS, secondsToFrames} from './timeline';
 
@@ -118,8 +118,8 @@ export const RevealScene: React.FC<SceneProps> = ({assets, frames}) => {
 	const frame = useCurrentFrame();
 	const {fps} = useVideoConfig();
 	const timing = cueFrames(reveal.cues, frames);
-	const counterFrom = timing[reveal.headlineFromCue][0];
-	const factFrom = timing[reveal.factFromCue][0];
+	const statFrom = reveal.statsFromCue.map((c) => timing[c][0]);
+	const counterFrom = statFrom[0];
 	const introFrom = timing[reveal.introFromCue][0];
 	const templatesFrom = timing[reveal.templatesFromCue][0];
 	const flowFrom = timing[reveal.flowFromCue][0];
@@ -128,11 +128,11 @@ export const RevealScene: React.FC<SceneProps> = ({assets, frames}) => {
 	const up = ramp(frame, REVEAL_UP_FROM, REVEAL_UP_TO);
 	return (
 		<AbsoluteFill style={{backgroundColor: INK}}>
-			<Shot from={counterFrom} to={factFrom} name="counter">
-				<CounterShot />
+			<Shot from={statFrom[0]} to={statFrom[1]} name="$2M an hour">
+				<StatShot index={0} />
 			</Shot>
-			<Shot from={factFrom} to={introFrom} name="4.7 million">
-				<FactShot />
+			<Shot from={statFrom[1]} to={introFrom} name="419 failures">
+				<StatShot index={1} />
 			</Shot>
 			<Shot from={introFrom} to={templatesFrom} name="Introducing RCAgent">
 				<IntroducingShot />

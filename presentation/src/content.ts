@@ -95,12 +95,15 @@ export const coldOpen = {
 
 // ---------------------------------------------------------------- 1b reveal (slide 1, continued)
 export const reveal = {
-	// 152,229: WI §1 [step 2]
-	headline: ['152,229 fatal entries', 'one node', 'one evening'],
-	/** Video shot: the counter rolls to this value; the words fade in under it. */
-	counter: {value: '152,229', label: 'fatal entries · one node · one evening'}, // WI §1 [step 2]
-	// 4.7 million: WI intro (4,747,963 BGL entries, 2005-06-03 to 2006-01-04); "seven months": script
-	fact: {value: '4.7 million', label: 'log lines · seven months'},
+	/** How often these failures happen in the world, each with its source (shown under the number). */
+	stats: {
+		items: [
+			// New Relic, Observability Forecast 2025 (press release 2025-09-17): median $2M per hour of a high-impact outage
+			{value: '$2M', label: 'per hour of a high-impact outage', source: 'New Relic Observability Forecast 2025'},
+			// Meta, The Llama 3 Herd of Models (arXiv 2407.21783): 419 unexpected interruptions in 54 days, 16,384 H100 GPUs
+			{value: '419', label: 'unexpected failures in 54 days on one AI cluster', source: 'Meta, The Llama 3 Herd of Models (2024)'},
+		],
+	},
 	/** Raw lines → masked in SereneDB (SQL regexp_replace) → merged by Drain3 into templates (ADR 0002 on main).
 	 * Example lines and templates: the BGL survey in the transcript, step 11; headline numbers: Loghub-2.0. */
 	templates: {
@@ -132,12 +135,11 @@ export const reveal = {
 	cues: [
 		'Saturday, 11 June 2005, Lawrence Livermore National Laboratory.',
 		'Blue Gene/L, then the fastest supercomputer on Earth.',
-		// 152,229: WI §1 [step 2]
-		'That one node wrote 152,229 fatal entries in a single evening.',
-		'Tonight it could be CLAIX, here in Aachen.',
-		// 4.7 million: WI intro (4,747,963 BGL entries, 2005-06-03 to 2006-01-04)
-		'That machine wrote 4.7 million log lines in seven months.',
-		'No human reads that. No AI prompt holds it either.',
+		// $2M per hour: New Relic Observability Forecast 2025
+		'This is not rare: a high-impact outage costs a company two million dollars an hour.',
+		// 419 unexpected interruptions in 54 days (about one every three hours): Meta, Llama 3 paper
+		'On a 16,000-GPU AI cluster, something fails every three hours. Tonight it could be CLAIX, here in Aachen.',
+		'No human can read those logs fast enough. No AI prompt holds them either.',
 		'So we built RCAgent.',
 		'We call it templating: Drain3 and SereneDB regex fold the lines into templates.',
 		// Loghub-2.0, BGL: 4,631,261 annotated lines, 320 templates
@@ -148,16 +150,14 @@ export const reveal = {
 		'and every number carries the query that proved it.',
 		"Let's answer that phone call.",
 	],
-	/** Index of the cue from which the headline card shows (the cue that says 152,229). */
-	headlineFromCue: 2,
-	/** Index of the cue from which the 4.7 million shot shows. */
-	factFromCue: 4,
+	/** Index of the cue from which each How-often number shows (one per cue). */
+	statsFromCue: [2, 3],
 	/** Index of the cue from which the "Introducing RCAgent" card shows ("So we built RCAgent."). */
-	introFromCue: 6,
+	introFromCue: 5,
 	/** Index of the cue from which the templates shot shows ("We call it templating…"). */
-	templatesFromCue: 7,
+	templatesFromCue: 6,
 	/** Index of the cue from which the How-it-works diagram shows ("So we flipped it."). */
-	flowFromCue: 9,
+	flowFromCue: 8,
 };
 
 // ---------------------------------------------------------------- 2 engineer (slide 2)

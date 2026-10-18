@@ -1,42 +1,79 @@
-# Demo script: Making Sense of Logs (about 2:20, limit 5 minutes)
+# Demo script: Making Sense of Logs (about 3:20, limit 5 minutes)
 
-Spoken text plus 20 seconds of dialog audio comes to about 2:20 at a calm pace (140 words per minute).
-Screen cues are in *italics*. The one recording is a pre-run Claude Code session with this MCP server, shown
-muted in the live demo while B narrates. Log numbers come from
-[worked-investigation.md](../worked-investigation.md); benchmark numbers from serenedb-bench REPORT.md (night run 2).
+Spoken text (about 340 words at a calm 140 words per minute) plus 27 seconds of dialog audio comes to about 3:20.
+Screen cues are in *italics*. Every spoken line below is the subtitle text in `presentation/src/content.ts`; change
+both together. The one recording is a pre-run Claude Code session with this MCP server, shown muted in the live demo
+while B narrates. Log numbers come from [worked-investigation.md](../worked-investigation.md); world numbers from the
+sources named on screen; benchmark numbers from serenedb-bench REPORT.md (night run 2).
+
+| Time | Scene | Who | Slide |
+|---|---|---|---|
+| 0:00 – 0:03 | Intro card | — | 1 (title) |
+| 0:03 – 0:30 | Cold open: the phone call | ElevenLabs voices | 2 |
+| 0:30 – 1:27 | Reveal: how often, RCAgent, templating, how it works | A (`s1-reveal.mp4`) | 3 – 7 |
+| 1:27 – 2:01 | Three roles, one split | B (`s2-roles.mp4`) | 8 |
+| 2:01 – 2:21 | Live demo | B (`s-demo.mp4`) | 9 |
+| 2:21 – 2:59 | Benchmarks | C (`s6-benchmarks.mp4`) | 10 – 12 |
+| 2:59 – 3:15 | Close | A, B, C (`s7-close-a/b/c.mp4`) | 13 |
+| 3:15 – 3:21 | Star gag | — | — |
 
 ---
 
-## 0:00 – 1:00 · Why this matters: a phone call, a fact, our answer (slide 1)
+## 0:03 – 0:30 · Cold open: the phone call (slide 2)
 
-*Slide 1: dark screen, caption "Lawrence Livermore National Laboratory · Blue Gene/L · Saturday, 11 June 2005,
-17:17". A phone rings. The dialog below plays as AI-generated audio (about 20 seconds) with subtitles. Corner
-label: "Dramatization: real log data, AI-generated voices".*
+*Dark screen. The caption types on, with a typewriter tick per character: "Lawrence Livermore National Laboratory ·
+Blue Gene/L · Saturday, 11 June 2005 · 17:17". Real BGL lines scroll behind it, faster and redder; a low drone
+swells under the call; subtitles of the five lines in the bottom bar. Keyboard taps after the last line. Then the
+line goes dead: one hang-up click, and the last 0.4 s is a frozen picture in silence. Hard cut.*
 
-| Voice | Line |
+| Voice (ElevenLabs v4) | Line |
 | --- | --- |
-| Engineer on call (tired, quiet) | "Yes, I'm looking at it. One node on Blue Gene/L, R30-M0-N9. Data TLB errors, fatal. Twenty-four thousand an hour." |
-| Team lead (worried) | "Has this happened before?" |
+| Engineer (Spence, tired, quiet) | "Yes, I'm looking at it. One node on Blue Gene/L, R30-M0-N9. Data TLB errors, fatal. Twenty-four thousand an hour." |
+| Team lead (Hollie Sue, on the phone, worried) | "Has this happened before?" |
 | Engineer | "I don't know. The log is millions of lines." |
-| Manager (calm, firm) | "How bad is it? Do we act tonight?" |
-| Engineer | "Give me a few hours." *(sigh, keyboard, scrolling)* |
+| Manager (Jessica, on the phone, calm) | "How bad is it? Do we act tonight?" |
+| Engineer | *(sigh)* "Give me a few hours." |
 
-> **The reveal.** The voices are reconstructed. Everything else is real. Saturday, 11 June 2005, Lawrence
-> Livermore National Laboratory. Blue Gene/L, then the fastest supercomputer on Earth. That one node wrote
-> 152,229 fatal entries in a single evening. Tonight it could be CLAIX, here in Aachen.
->
-> **The fact.** That machine wrote 4.7 million log lines in seven months. No human reads that. No AI prompt
-> holds it either.
->
-> **Our answer.** So we flipped it. The AI does not read the logs. SereneDB searches and counts every line,
-> exactly. Claude asks the questions and explains the answers, and every number carries the query that proved
-> it. Let's answer that phone call.
+*Audio: `presentation/public/assets/dialog.mp3` (26.8 s; team lead and manager through a phone filter; credits in
+`presentation/public/assets/CREDITS.md`). Sound effects: `scripts/sfx-cold.mjs`.*
 
-*Production: generate the dialog with ElevenLabs (three distinct voices; its dialogue mode or one clip per line,
-stitched), export MP3, embed on slide 1 with auto-play. Fallback if audio fails: the presenter reads the three
-questions aloud.*
+## 0:30 – 1:27 · Reveal: how often, RCAgent, templating, how it works (slides 3 – 7)
 
-## 1:00 – 1:30 · Three roles, one split (slide 2)
+*Opens on black after the dead line; A's facecam fades up as A starts. A moves to the corner when the first number
+appears.*
+
+**A:**
+
+> Saturday, 11 June 2005, Lawrence Livermore National Laboratory. Blue Gene/L, then the fastest supercomputer on
+> Earth.
+
+*Slide 3: "$2M · per hour of a high-impact outage" (New Relic Observability Forecast 2025).*
+
+> This is not rare: a high-impact outage costs a company two million dollars an hour.
+
+*Slide 4: "419 · unexpected failures in 54 days on one AI cluster" (Meta, The Llama 3 Herd of Models, 2024).*
+
+> On a 16,000-GPU AI cluster, something fails every three hours. Tonight it could be CLAIX, here in Aachen. No
+> human can read those logs fast enough. No AI prompt holds them either.
+
+*Slide 5: "Introducing RCAgent" (RCAgent in gold).*
+
+> So we built RCAgent.
+
+*Slide 6: Templating, powered by Drain3 and SereneDB regex. Real BGL lines mask and fold into four template cards;
+"4.6 million lines → 320 templates", source line Loghub-2.0 (BGL: 4,631,261 annotated lines, 320 templates).*
+
+> We call it templating: Drain3 and SereneDB regex fold the lines into templates. On Loghub's Blue Gene/L log,
+> 4.6 million lines come down to 320 templates.
+
+*Slide 7: How it works (the README diagram, `docs/img/flow.svg`), built step by step: You → Claude → MCP tools
+(with Templating) → SereneDB; question, tool call, SQL; Q46 coming back; Evidence Q46; `show_evidence`.*
+
+> So we flipped it. The AI does not read the logs. SereneDB searches and counts every line, exactly. Claude asks
+> the questions and explains the answers, and every number carries the query that proved it. Let's answer that
+> phone call.
+
+## 1:27 – 2:01 · Three roles, one split (slide 8)
 
 One scene, one presenter (B, take `s2-roles.mp4`, about 30 s; design:
 `docs/superpowers/specs/2026-10-19-three-way-split-design.md`). *The three
@@ -52,11 +89,16 @@ a one-line answer and its next step. At the end all three are lit, with a quick 
 > ranked risks, each with an owner, and no invented cost. And every number is a query: 152,734 counted,
 > 152,734 in BGL's own labels.
 
-## Live demo (demo.mp4)
+## 2:01 – 2:21 · Live demo (slide 9)
 
 *A real Claude Code session with the RCAgent MCP server, cut and sped up, shown muted as a screen inside the film; B narrates it live in the corner (take `s-demo.mp4`, ≈ 15–25 s).*
 
-## 1:50 – 2:18 · Benchmarks (slide 4)
+*Slide 9 (without the video): "LIVE DEMO" and the three role prompts to type in Claude Code:
+`/engineer What failed on BGL on 11 June 2005, and what happened just before?`,
+`/team-lead Which problems keep recurring across BGL and OpenStack, and what should we look at first?`,
+`/manager What should we prioritise from these logs?`*
+
+## 2:21 – 2:59 · Benchmarks (slides 10 – 12)
 
 *Video, two calm shots to talk over (plain fades, no sound effects): the three steps appear one column at a
 time as you name them (pipeline, score, "+N pts"), about 4 s apart; then cost per answer per step with "+93%",
@@ -84,20 +126,30 @@ logs only 56% → 100% with metric and trace tools, $0.54 → $0.30 per answer. 
 - [x] RCAEval result for metrics and traces (third shot of the benchmark scene)
 - [ ] Slide footnote: model, number of questions, runs per question, blind grader
 
-## 2:05 – 2:30 · Close (slide 5)
+## 2:59 – 3:15 · Close (slide 13)
 
 > So, back to that phone call. The engineer gets a cause to check, not a scroll bar. The team lead gets the
 > pattern. The manager gets the priority. And every number is traceable to a query. Thank you.
 
 ---
 
-## Slides
+## Slides (`out/slides.pdf`, 13 pages, rendered with `node scripts/slides.mjs` on CLAIX)
 
-1. Dark title card "Lawrence Livermore National Laboratory · Blue Gene/L · Saturday, 11 June 2005, 17:17" with the ElevenLabs dialog and subtitles, then "152,229 fatal entries · one node · one evening", then the flow line
-2. Three roles: the split's final frame, all three columns built (Question / Evidence / Next step)
-3. Evidence: `[Q46]` footer + 152,734 = 152,734
-4. Benchmarks: blind rubric bars per design, cost per answer on each bar, comparability footnote
-5. Close: the three answers in one line each
+Every page carries SchubKI × SereneDB in the bottom right corner (the close shows it next to the repository link).
+
+1. Title: National AI Hackathon 2026 · Making Sense of Logs · the README pitch · SchubKI × SereneDB
+2. The call: caption and the five dialog lines with speakers
+3. $2M per hour of a high-impact outage (New Relic Observability Forecast 2025)
+4. 419 unexpected failures in 54 days on one AI cluster (Meta, Llama 3 paper)
+5. Introducing RCAgent
+6. Templating: four BGL templates, 4.6 million lines → 320 templates (Loghub-2.0)
+7. How it works: the README diagram
+8. Three roles: the split's final frame
+9. Live demo: the three role prompts
+10. Evidence
+11. Benchmarks
+12. Features
+13. Close: the three answers in one line each, the repository link
 
 ## Recording checklist
 
