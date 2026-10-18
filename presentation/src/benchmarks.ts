@@ -2,6 +2,11 @@
 
 export type Design = {
 	name: string;
+	/** The design as a step of the story ("Start small", "More tools", "Add Drain3"); designs are listed in that order. */
+	step?: string;
+	/** Stages between question and answer, drawn as chips; `added` names the chip that is new in this step. */
+	pipeline?: string[];
+	added?: string;
 	/** One line under the name: how the design answers a question. */
 	detail?: string;
 	/** Name for running text ("cheaper per answer than 18 fixed tools"). */

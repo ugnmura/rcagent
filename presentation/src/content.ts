@@ -281,15 +281,15 @@ export const benchmarks = {
 	todo: 'Numbers pending: final benchmark run',
 	placeholder: 'PLACEHOLDER NUMBERS · benchmarks still running',
 	setup: {designs: 'designs', questions: 'sealed questions', runs: 'runs each · graded blind'},
-	race: 'Blind rubric score',
-	winner: 'Top score',
-	graded: 'answers, graded blind',
-	hero: 'blind rubric score',
+	costTitle: 'Cost per answer',
+	andTop: 'and the top score:',
 	cheaper: 'cheaper per answer than',
 	cues: [
-		"We didn't guess which design works.",
-		'Three designs, the same sealed questions, graded blind.',
-		'Ours scored highest, and it was the cheapest per answer.',
+		'How did we get here? Same sealed questions, graded blind, at every step.',
+		'We started small: seven fixed tools.',
+		'Then more tools: eighteen. A better score, but every answer cost twice as much.',
+		'Then Drain3: it finds the log templates when a question comes in, and Claude gets eight core tools plus run_sql.',
+		'The best score, and the cheapest answer: three times cheaper.',
 	],
 };
 

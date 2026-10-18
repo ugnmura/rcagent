@@ -4,8 +4,38 @@
   "questions": 30,
   "runs": 5,
   "designs": [
-    {"name": "Drain3 + SQL (ours)", "detail": "Drain3 templates per question · 8 core tools + run_sql", "short": "Drain3 + SQL", "score_pct": 96.9, "usd_per_answer": 0.09, "ours": true},
-    {"name": "7 fixed tools", "detail": "fixed query tools · no Drain3 templates", "short": "7 fixed tools", "score_pct": 93.5, "usd_per_answer": 0.12, "ours": false},
-    {"name": "18 fixed tools", "detail": "fixed query tools · no Drain3 templates", "short": "18 fixed tools", "score_pct": 88.4, "usd_per_answer": 0.27, "ours": false}
+    {
+      "name": "7 fixed tools",
+      "step": "Start small",
+      "pipeline": ["7 fixed tools"],
+      "added": "7 fixed tools",
+      "detail": "a small set of fixed query tools",
+      "short": "7 fixed tools",
+      "score_pct": 88.4,
+      "usd_per_answer": 0.14,
+      "ours": false
+    },
+    {
+      "name": "18 fixed tools",
+      "step": "More tools",
+      "pipeline": ["18 fixed tools"],
+      "added": "18 fixed tools",
+      "detail": "11 more fixed query tools",
+      "short": "18 fixed tools",
+      "score_pct": 93.5,
+      "usd_per_answer": 0.27,
+      "ours": false
+    },
+    {
+      "name": "Drain3 + SQL (ours)",
+      "step": "Add Drain3",
+      "pipeline": ["Drain3 templates", "8 tools + run_sql"],
+      "added": "Drain3 templates",
+      "detail": "Drain3 templates per question · 8 core tools + run_sql",
+      "short": "Drain3 + SQL",
+      "score_pct": 96.9,
+      "usd_per_answer": 0.09,
+      "ours": true
+    }
   ]
 }

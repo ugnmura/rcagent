@@ -1,5 +1,5 @@
-// Scene 3 benchmarks in film style: the setup in three slams, a bar race ours wins, every graded answer lighting up
-// under the score, then the cost multiple. Numbers come only from public/assets/benchmarks.json.
+// Scene 3 benchmarks in film style, told as how we got here: the setup in three slams, then one column per step
+// (start small, more tools, add Drain3) with its pipeline and a climbing score, the cost of each step, the cost multiple. Numbers come only from public/assets/benchmarks.json.
 import React from 'react';
 import {AbsoluteFill, Audio, random, Sequence, spring, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
 import type {Benchmarks, Design} from './benchmarks';
@@ -7,7 +7,7 @@ import {benchmarks as benchContent} from './content';
 import {easeOut, ramp} from './film';
 import {color, font} from './theme';
 
-/** Left end of the race axis (percent). Ticks are labelled, so the zoom stays honest. */
+/** Bottom of the score axis (percent). Both ends are labelled, so the zoom stays honest. */
 const AXIS_MIN = 80;
 const GLOW = 'rgba(245,165,36,';
 const BAR_GREY = '#3b4450';
@@ -110,8 +110,6 @@ export const BenchSetupShot: React.FC<{frames: number; benchmarks: Benchmarks}> 
 	);
 };
 
-// ------------------------------------------------------------------ shot 2: the race
-
 /** Design name, and under it one muted line on how it answers a question. */
 export const DesignLabel: React.FC<{d: Design; width: number; size?: number}> = ({d, width, size = 44}) => (
 	<div style={{width, textAlign: 'right', whiteSpace: 'nowrap'}}>
@@ -120,205 +118,231 @@ export const DesignLabel: React.FC<{d: Design; width: number; size?: number}> = 
 	</div>
 );
 
-const TRACK = 860;
-const LABEL_W = 620;
-/** Room right of the track for the value label. */
-const VALUE_W = 200;
 
-export const BenchRaceShot: React.FC<{frames: number; benchmarks: Benchmarks}> = ({frames, benchmarks: b}) => {
+// ------------------------------------------------------------------ shot 2: the steps, one column each
+
+const GREEN = '#3fb950';
+const RED_SOFT = '#ff6b6b';
+const COL_W = 500;
+const COL_GAP = 70;
+const COL_LEFT = (1920 - 3 * COL_W - 2 * COL_GAP) / 2;
+/** Bars stand on BASE; the tallest possible bar (100 %, or the top cost) reaches BASE - BAR_MAX. */
+const BASE = 790;
+const BAR_MAX = 360;
+const BAR_W = 200;
+const colX = (k: number) => COL_LEFT + k * (COL_W + COL_GAP);
+
+/** Small pill with a signed change, green when it is good news. */
+const Delta: React.FC<{text: string; good: boolean; style?: React.CSSProperties}> = ({text, good, style}) => (
+	<div
+		style={{
+			position: 'absolute',
+			padding: '6px 16px',
+			borderRadius: 999,
+			fontSize: 30,
+			fontWeight: 800,
+			fontVariantNumeric: 'tabular-nums',
+			color: good ? GREEN : RED_SOFT,
+			border: `2px solid ${good ? GREEN : RED_SOFT}`,
+			background: '#030405',
+			whiteSpace: 'nowrap',
+			...style,
+		}}
+	>
+		{text}
+	</div>
+);
+
+/** The stages a question goes through, stacked top to bottom; the stage that is new in this step is gold. */
+const Pipeline: React.FC<{d: Design; t: number}> = ({d, t}) => {
+	const stages = d.pipeline ?? [d.name];
+	return (
+		<div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4}}>
+			{stages.map((s, i) => {
+				const p = ramp(t, 6 + i * 5, 14 + i * 5, easeOut);
+				const isNew = s === d.added;
+				return (
+					<React.Fragment key={s}>
+						{i > 0 ? <div style={{fontSize: 26, lineHeight: 1, color: color.muted, opacity: p}}>↓</div> : null}
+						<div
+							style={{
+								opacity: p,
+								transform: `translateY(${(1 - p) * 10}px) scale(${isNew ? 1 + 0.15 * Math.exp(-Math.max(0, t - 14 - i * 5) / 6) : 1})`,
+								padding: '8px 18px',
+								borderRadius: 10,
+								fontSize: 28,
+								fontWeight: isNew ? 800 : 600,
+								whiteSpace: 'nowrap',
+								color: isNew ? color.accent : color.text,
+								border: `2px solid ${isNew ? color.accent : color.line}`,
+								background: isNew ? 'rgba(245,165,36,0.12)' : 'transparent',
+								boxShadow: isNew ? `0 0 24px ${GLOW}0.35)` : 'none',
+							}}
+						>
+							{s}
+						</div>
+					</React.Fragment>
+				);
+			})}
+		</div>
+	);
+};
+
+/** One column per design, left to right in story order: step title, its pipeline, a score bar that climbs. */
+export const BenchStepsShot: React.FC<{frames: number; benchmarks: Benchmarks}> = ({frames, benchmarks: b}) => {
 	const frame = useCurrentFrame();
 	const {fps} = useVideoConfig();
-	const top = Math.max(...b.designs.map((d) => d.score_pct ?? 0));
+	const ds = b.designs.slice(0, 3);
 	const at = (v: number) => Math.max(0, Math.min(1, (v - AXIS_MIN) / (100 - AXIS_MIN)));
-	// One shared front moves right with ease-out; each bar stops at its score, so the winner is the last to stop.
-	const START = 12;
-	const FINISH = Math.round(frames * 0.55);
-	const front = ramp(frame, START, FINISH, easeOut) * at(top);
-	const stopFrame = (v: number) => {
-		// invert the ease numerically: first frame where the front reaches v
-		for (let f = START; f <= FINISH; f++) if (ramp(f, START, FINISH, easeOut) * at(top) >= at(v) - 1e-6) return f;
-		return FINISH;
-	};
-	const win = spring({frame: frame - FINISH, fps, config: {damping: 10, stiffness: 180, mass: 0.6}});
-	const won = frame >= FINISH;
-	const {transform} = useKick(FINISH);
-	const ticks = [80, 85, 90, 95, 100].filter((v) => v >= AXIS_MIN);
+	const STEP = Math.round(frames * 0.27);
+	const starts = ds.map((_, k) => 6 + k * STEP);
+	const GROW = 26;
+	const last = starts[ds.length - 1] + 14 + GROW;
+	const win = spring({frame: frame - last, fps, config: {damping: 10, stiffness: 180, mass: 0.6}});
+	const {transform} = useKick(last);
 	return (
 		<AbsoluteFill style={{fontFamily: font.sans}}>
-			<Sfx name="whoosh" from={START - 4} volume={0.4} />
-			{b.designs.filter((d) => !d.ours).map((d) => (
-				<Sfx key={d.name} name="click" from={stopFrame(d.score_pct ?? 0)} volume={0.55} />
+			{starts.map((s, k) => (
+				<Sfx key={k} name="whoosh" from={s} volume={0.3} />
 			))}
-			<Sfx name="impact" from={FINISH} volume={0.7} />
-			<Sfx name="chime" from={FINISH} volume={0.55} />
-			<div style={{position: 'absolute', top: 150, width: '100%', textAlign: 'center', fontSize: 34, fontWeight: 600, letterSpacing: '0.3em', color: color.muted, opacity: ramp(frame, 0, 12)}}>
-				{benchContent.race.toUpperCase()}
-			</div>
-			<AbsoluteFill style={{transform, transformOrigin: '60% 50%'}}>
-				<div style={{position: 'absolute', left: (1920 - LABEL_W - 40 - TRACK - VALUE_W) / 2, top: 290}}>
-					{/* grid + axis */}
-					<div style={{position: 'absolute', left: LABEL_W + 40, top: -30, width: TRACK, height: b.designs.length * 150 + 30}}>
-						{ticks.map((v) => (
-							<div key={v} style={{position: 'absolute', left: at(v) * TRACK, top: 0, bottom: 0, borderLeft: `2px ${v === 100 ? 'solid' : 'dashed'} ${color.line}`}}>
-								<div style={{position: 'absolute', bottom: -52, left: -40, width: 80, textAlign: 'center', fontSize: 28, color: color.muted, fontVariantNumeric: 'tabular-nums'}}>{v}%</div>
+			{starts.slice(0, -1).map((s, k) => (
+				<Sfx key={`c${k}`} name="click" from={s + 14 + GROW} volume={0.55} />
+			))}
+			<Sfx name="impact" from={last} volume={0.7} />
+			<Sfx name="chime" from={last} volume={0.55} />
+			<AbsoluteFill style={{transform, transformOrigin: '75% 60%'}}>
+				{/* axis: baseline at 80 %, dashed line at 100 %, both labelled */}
+				<div style={{position: 'absolute', left: COL_LEFT - 20, width: 3 * COL_W + 2 * COL_GAP + 40, top: BASE, borderTop: `2px solid ${color.line}`, opacity: ramp(frame, 0, 10)}} />
+				<div style={{position: 'absolute', left: COL_LEFT - 20, width: 3 * COL_W + 2 * COL_GAP + 40, top: BASE - BAR_MAX, borderTop: `2px dashed ${color.line}`, opacity: ramp(frame, 0, 10)}} />
+				<div style={{position: 'absolute', left: COL_LEFT - 110, top: BASE - 18, width: 80, textAlign: 'right', fontSize: 26, color: color.muted}}>{AXIS_MIN}%</div>
+				<div style={{position: 'absolute', left: COL_LEFT - 110, top: BASE - BAR_MAX - 18, width: 80, textAlign: 'right', fontSize: 26, color: color.muted}}>100%</div>
+				{ds.map((d, k) => {
+					const t = frame - starts[k];
+					if (t < 0) return null;
+					const v = d.score_pct ?? 0;
+					const grow = ramp(t, 14, 14 + GROW, easeOut);
+					const h = at(v) * BAR_MAX * grow;
+					const head = ramp(t, 0, 10, easeOut);
+					const later = ds.length - 1 > k ? ramp(frame, last, last + 12) : 0;
+					const glow = d.ours ? win : 0;
+					const prev = k > 0 ? ds[k - 1].score_pct ?? 0 : null;
+					const pctUp = prev === null ? 0 : v - prev;
+					return (
+						<div key={d.name} style={{position: 'absolute', left: colX(k), top: 0, width: COL_W, height: 1080, opacity: 1 - 0.45 * later}}>
+							<div style={{position: 'absolute', top: 120, width: '100%', textAlign: 'center', opacity: head, transform: `translateY(${(1 - head) * 16}px)`}}>
+								<div style={{fontSize: 24, fontWeight: 800, letterSpacing: '0.3em', color: color.muted}}>STEP {k + 1}</div>
+								<div style={{fontSize: 54, fontWeight: 800, color: d.ours ? color.accent : color.text, marginTop: 6}}>{d.step ?? d.name}</div>
 							</div>
-						))}
-					</div>
-					{b.designs.map((d, i) => {
-						const v = d.score_pct ?? 0;
-						const w = Math.min(front, at(v));
-						const shown = AXIS_MIN + w * (100 - AXIS_MIN);
-						const done = frame >= stopFrame(v);
-						const dim = !d.ours && won ? 1 - 0.55 * Math.min(1, win) : 1;
-						const glow = d.ours && won ? win : 0;
-						const enter = ramp(frame, i * 4, i * 4 + 12, easeOut);
-						return (
-							<div key={d.name} style={{display: 'flex', alignItems: 'center', gap: 40, height: 150, opacity: enter * dim, transform: `translateX(${(1 - enter) * -30}px)`}}>
-								<DesignLabel d={d} width={LABEL_W} size={38} />
-								<div style={{position: 'relative', width: TRACK, height: 96}}>
-									<div
-										style={{
-											position: 'absolute',
-											left: 0,
-											top: 0,
-											height: '100%',
-											width: Math.max(8, w * TRACK),
-											borderRadius: 12,
-											background: d.ours ? `linear-gradient(90deg, #b8741a, ${color.accent} 70%, #ffd27a)` : `linear-gradient(90deg, #2a313a, ${BAR_GREY})`,
-											boxShadow: d.ours ? `0 0 ${20 + 70 * glow}px ${GLOW}${0.25 + 0.45 * glow})` : 'none',
-										}}
-									/>
-									{/* bright leading edge while the bar is still moving */}
-									{!done ? (
-										<div style={{position: 'absolute', left: Math.max(8, w * TRACK) - 6, top: -6, width: 6, height: 108, borderRadius: 3, background: '#fff', opacity: 0.8, boxShadow: '0 0 24px #fff'}} />
-									) : null}
-									<div
-										style={{
-											position: 'absolute',
-											left: Math.max(8, w * TRACK) + 14,
-											top: 12,
-											height: 72,
-											padding: '0 12px',
-											borderRadius: 10,
-											background: '#030405',
-											display: 'flex',
-											alignItems: 'center',
-											fontSize: 54,
-											fontWeight: 800,
-											fontVariantNumeric: 'tabular-nums',
-											color: d.ours ? color.accent : color.text,
-											transform: d.ours && won ? `scale(${1 + 0.25 * Math.exp(-(frame - FINISH) / 8)})` : undefined,
-											transformOrigin: 'left center',
-										}}
-									>
-										{pct(done ? v : shown)}
-									</div>
-								</div>
+							<div style={{position: 'absolute', top: 236, width: '100%'}}>
+								<Pipeline d={d} t={t} />
 							</div>
-						);
-					})}
-				</div>
-				{/* winner badge */}
-				{won ? (
-					<div
-						style={{
-							position: 'absolute',
-							right: 120,
-							top: 190,
-							transform: `scale(${win}) rotate(${(1 - win) * -20}deg)`,
-							padding: '12px 26px',
-							borderRadius: 999,
-							background: color.accent,
-							color: '#030405',
-							fontSize: 34,
-							fontWeight: 800,
-							letterSpacing: '0.08em',
-							boxShadow: `0 0 50px ${GLOW}0.6)`,
-						}}
-					>
-						★ {benchContent.winner.toUpperCase()}
-					</div>
-				) : null}
+							<div
+								style={{
+									position: 'absolute',
+									left: (COL_W - BAR_W) / 2,
+									width: BAR_W,
+									top: BASE - h,
+									height: h,
+									borderRadius: '12px 12px 0 0',
+									background: d.ours ? `linear-gradient(0deg, #b8741a, ${color.accent} 70%, #ffd27a)` : `linear-gradient(0deg, #2a313a, ${BAR_GREY})`,
+									boxShadow: d.ours ? `0 0 ${20 + 70 * glow}px ${GLOW}${0.25 + 0.45 * glow})` : 'none',
+								}}
+							/>
+							<div
+								style={{
+									position: 'absolute',
+									width: '100%',
+									top: BASE - h - 92,
+									textAlign: 'center',
+									fontSize: 72,
+									fontWeight: 800,
+									fontVariantNumeric: 'tabular-nums',
+									color: d.ours ? color.accent : color.text,
+									opacity: ramp(t, 14, 20),
+									transform: d.ours ? `scale(${1 + 0.2 * glow * Math.exp(-Math.max(0, frame - last) / 8)})` : undefined,
+								}}
+							>
+								{pct(AXIS_MIN + (v - AXIS_MIN) * grow)}
+							</div>
+							<div style={{position: 'absolute', top: BASE + 18, width: '100%', textAlign: 'center', fontSize: 30, color: color.muted, opacity: ramp(t, 20, 30), fontVariantNumeric: 'tabular-nums'}}>
+								{d.name}
+							</div>
+							{prev !== null ? (
+								<Delta
+									text={`${pctUp >= 0 ? '+' : '−'}${Math.abs(pctUp).toFixed(1)} pts`}
+									good={pctUp >= 0}
+									style={{left: -COL_GAP / 2 - 70, top: BASE - at(v) * BAR_MAX - 30, opacity: ramp(t, 14 + GROW, 14 + GROW + 8), transform: `scale(${0.6 + 0.4 * ramp(t, 14 + GROW, 14 + GROW + 8, easeOut)})`}}
+								/>
+							) : null}
+						</div>
+					);
+				})}
 			</AbsoluteFill>
 		</AbsoluteFill>
 	);
 };
 
-// ------------------------------------------------------------------ shot 3: every answer, then the score
+// ------------------------------------------------------------------ shot 3: cost per answer, same columns
 
-export const BenchHeroShot: React.FC<{frames: number; benchmarks: Benchmarks}> = ({frames, benchmarks: b}) => {
+/** Cost bars start at zero, so their heights compare honestly; each step shows its change against the one before. */
+export const BenchCostBarsShot: React.FC<{frames: number; benchmarks: Benchmarks}> = ({frames, benchmarks: b}) => {
 	const frame = useCurrentFrame();
-	const {fps} = useVideoConfig();
-	const d = ours(b);
-	const cols = b.questions ?? 30;
-	const rows = b.runs ?? 5;
-	const total = cols * rows;
-	const CELL = 30;
-	const GAP = 10;
-	const gridW = cols * (CELL + GAP) - GAP;
-	const sweepEnd = Math.round(frames * 0.42);
-	const lit = ramp(frame, 4, sweepEnd, (x) => x) * (cols + rows);
-	const back = ramp(frame, sweepEnd, sweepEnd + 14, easeOut);
-	const NUM_FROM = sweepEnd + 4;
-	const count = ramp(frame, NUM_FROM, NUM_FROM + 30, easeOut);
-	const pop = spring({frame: frame - NUM_FROM, fps, config: {damping: 12, stiffness: 160}});
-	const {transform} = useKick(NUM_FROM + 30, 0.6);
-	const answered = Math.min(total, Math.round(ramp(frame, 4, sweepEnd, (x) => x) * total));
+	const ds = b.designs.slice(0, 3);
+	const top = Math.max(...ds.map((d) => d.usd_per_answer ?? 0), 1e-9);
+	const starts = ds.map((_, k) => 8 + k * Math.round(frames * 0.16));
+	const GROW = 20;
+	const oursAt = starts[ds.findIndex((d) => d.ours)] ?? starts[ds.length - 1];
+	const {transform} = useKick(oursAt + GROW, 0.7);
 	return (
-		<AbsoluteFill style={{fontFamily: font.sans, justifyContent: 'center', alignItems: 'center'}}>
-			<Sfx name="whoosh" from={2} volume={0.25} />
-			<Sfx name="impact" from={NUM_FROM + 30} volume={0.6} />
-			<Sfx name="twinkle" from={NUM_FROM + 30} volume={0.3} />
-			<div style={{position: 'absolute', opacity: 1 - 0.8 * back, transform: `scale(${1 - 0.1 * back})`, filter: `blur(${4 * back}px)`}}>
-				<div style={{display: 'grid', gridTemplateColumns: `repeat(${cols}, ${CELL}px)`, gap: GAP, width: gridW}}>
-					{Array.from({length: total}, (_, k) => {
-						const c = k % cols;
-						const r = Math.floor(k / cols);
-						// diagonal sweep: a cell lights when the wave passes its column + row
-						const on = Math.max(0, Math.min(1, lit - (c + r)));
-						const flash = on > 0 && on < 1 ? 1 : 0;
-						return (
+		<AbsoluteFill style={{fontFamily: font.sans}}>
+			{starts.map((s, k) => (
+				<Sfx key={k} name={ds[k].ours ? 'impact' : 'click'} from={s + GROW} volume={ds[k].ours ? 0.6 : 0.5} />
+			))}
+			<div style={{position: 'absolute', top: 130, width: '100%', textAlign: 'center', fontSize: 34, fontWeight: 600, letterSpacing: '0.3em', color: color.muted, opacity: ramp(frame, 0, 12)}}>
+				{benchContent.costTitle.toUpperCase()}
+			</div>
+			<AbsoluteFill style={{transform, transformOrigin: '75% 70%'}}>
+				<div style={{position: 'absolute', left: COL_LEFT - 20, width: 3 * COL_W + 2 * COL_GAP + 40, top: BASE, borderTop: `2px solid ${color.line}`}} />
+				{ds.map((d, k) => {
+					const t = frame - starts[k];
+					const c = d.usd_per_answer ?? 0;
+					const grow = ramp(t, 0, GROW, easeOut);
+					const h = (c / top) * BAR_MAX * grow;
+					const prev = k > 0 ? ds[k - 1].usd_per_answer ?? 0 : null;
+					const change = prev ? (c - prev) / prev : 0;
+					return (
+						<div key={d.name} style={{position: 'absolute', left: colX(k), top: 0, width: COL_W, height: 1080, opacity: ramp(t, 0, 6)}}>
 							<div
-								key={k}
 								style={{
-									width: CELL,
-									height: CELL,
-									borderRadius: 6,
-									background: on > 0 ? (flash ? '#fff4d6' : color.accent) : color.panel,
-									border: `1px solid ${on > 0 ? 'transparent' : color.line}`,
-									boxShadow: flash ? `0 0 18px ${GLOW}0.9)` : 'none',
-									opacity: 0.35 + 0.65 * on,
+									position: 'absolute',
+									left: (COL_W - BAR_W) / 2,
+									width: BAR_W,
+									top: BASE - h,
+									height: h,
+									borderRadius: '12px 12px 0 0',
+									background: d.ours ? `linear-gradient(0deg, #b8741a, ${color.accent})` : `linear-gradient(0deg, #2a313a, ${BAR_GREY})`,
+									boxShadow: d.ours ? `0 0 50px ${GLOW}0.4)` : 'none',
 								}}
 							/>
-						);
-					})}
-				</div>
-				<div style={{marginTop: 46, textAlign: 'center', fontSize: 46, color: color.text, fontVariantNumeric: 'tabular-nums', opacity: 1 - back}}>
-					<span style={{fontWeight: 800, color: color.accent}}>{answered}</span> {benchContent.graded}
-				</div>
-			</div>
-			{frame >= NUM_FROM ? (
-				<div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', transform}}>
-					<div
-						style={{
-							fontSize: 320,
-							fontWeight: 800,
-							lineHeight: 1,
-							letterSpacing: -10,
-							color: color.accent,
-							fontVariantNumeric: 'tabular-nums',
-							transform: `scale(${0.7 + 0.3 * pop})`,
-							textShadow: `0 0 80px ${GLOW}0.45)`,
-						}}
-					>
-						{pct((d.score_pct ?? 0) * count)}
-					</div>
-					<div style={{fontSize: 56, color: color.text, marginTop: 30, opacity: ramp(frame, NUM_FROM + 24, NUM_FROM + 40)}}>{benchContent.hero}</div>
-				</div>
-			) : null}
+							<div style={{position: 'absolute', width: '100%', top: BASE - h - 92, textAlign: 'center', fontSize: 72, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: d.ours ? color.accent : color.text}}>
+								{usd(c * grow)}
+							</div>
+							<div style={{position: 'absolute', top: BASE + 18, width: '100%', textAlign: 'center', fontSize: 30, color: color.muted}}>{d.name}</div>
+							{prev ? (
+								<Delta
+									text={`${change >= 0 ? '+' : '−'}${Math.abs(Math.round(change * 100))}%`}
+									good={change < 0}
+									style={{left: -COL_GAP / 2 - 60, top: BASE - (c / top) * BAR_MAX - 30, opacity: ramp(t, GROW, GROW + 8), transform: `scale(${0.6 + 0.4 * ramp(t, GROW, GROW + 8, easeOut)})`}}
+								/>
+							) : null}
+						</div>
+					);
+				})}
+			</AbsoluteFill>
 		</AbsoluteFill>
 	);
 };
+
 
 // ------------------------------------------------------------------ shot 4: the cost multiple
 
@@ -332,7 +356,6 @@ export const BenchCostShot: React.FC<{frames: number; benchmarks: Benchmarks}> =
 	const s = spring({frame: frame - SLAM, fps, config: {damping: 11, stiffness: 240, mass: 0.7}});
 	const {transform} = useKick(SLAM + 6, 1.2);
 	const words = ramp(frame, SLAM + 12, SLAM + 26, easeOut);
-	const sorted = [...b.designs].sort((x, y) => (x.usd_per_answer ?? 0) - (y.usd_per_answer ?? 0));
 	return (
 		<AbsoluteFill style={{fontFamily: font.sans, justifyContent: 'center', alignItems: 'center'}}>
 			<Sfx name="impact" from={SLAM + 6} volume={0.8} />
@@ -356,29 +379,17 @@ export const BenchCostShot: React.FC<{frames: number; benchmarks: Benchmarks}> =
 					{benchContent.cheaper} <span style={{fontWeight: 800}}>{priciest.short ?? priciest.name}</span>
 				</div>
 			</div>
-			<div style={{position: 'absolute', top: 820, display: 'flex', gap: 28}}>
-				{sorted.map((x, i) => {
-					const p = ramp(frame, SLAM + 22 + i * 5, SLAM + 34 + i * 5, easeOut);
-					return (
-						<div
-							key={x.name}
-							style={{
-								opacity: p,
-								transform: `translateY(${(1 - p) * 24}px)`,
-								padding: '14px 26px',
-								borderRadius: 12,
-								border: `2px solid ${x.ours ? color.accent : color.line}`,
-								background: x.ours ? 'rgba(245,165,36,0.12)' : 'transparent',
-								fontSize: 34,
-								color: x.ours ? color.accent : color.muted,
-								fontWeight: x.ours ? 800 : 500,
-								fontVariantNumeric: 'tabular-nums',
-							}}
-						>
-							{usd(x.usd_per_answer ?? 0)} <span style={{fontSize: 26}}>· {x.short ?? x.name}</span>
-						</div>
-					);
-				})}
+			<div
+				style={{
+					position: 'absolute',
+					top: 800,
+					fontSize: 46,
+					color: color.muted,
+					opacity: ramp(frame, SLAM + 30, SLAM + 44, easeOut),
+					transform: `translateY(${(1 - ramp(frame, SLAM + 30, SLAM + 44, easeOut)) * 18}px)`,
+				}}
+			>
+				{benchContent.andTop} <span style={{color: color.accent, fontWeight: 800}}>{pct(d.score_pct ?? 0)}</span>
 			</div>
 		</AbsoluteFill>
 	);

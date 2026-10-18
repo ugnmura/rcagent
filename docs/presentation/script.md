@@ -52,12 +52,16 @@ a one-line answer and its next step. At the end all three are lit, with a quick 
 > ranked risks, each with an owner, and no invented cost. And every number is a query: 152,734 counted,
 > 152,734 in BGL's own labels.
 
-## 1:30 – 1:45 · Benchmarks (slide 4)
+## 1:30 – 1:50 · Benchmarks (slide 4)
 
-*Slide: title "Same questions, graded blind". Three bars, one per design, ours highlighted.*
+*Video: three steps, one column each (pipeline chips, a score bar that climbs, "+N pts" between steps), then
+cost per answer per step ("+93%", "−67%"), then "3× cheaper … and the top score". Slide: the three designs in
+the same order. Numbers in the video come from `benchmarks.json`; say the final ones.*
 
-> We didn't guess which design works. Three designs, the same sealed questions, graded blind. Ours scored
-> highest, and it was the cheapest per answer. *[TODO: final score and cost.]*
+> How did we get here? Same sealed questions, graded blind, at every step. We started small: seven fixed tools.
+> Then more tools: eighteen. A better score, but every answer cost twice as much. Then Drain3: it finds the log
+> templates when a question comes in, and Claude gets eight core tools plus run_sql. The best score, and the
+> cheapest answer: three times cheaper. *[TODO: final scores, costs and the multiple.]*
 
 **TODO when all runs finish:**
 
