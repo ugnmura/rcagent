@@ -309,7 +309,7 @@ def register(mcp: Any, runner: Any) -> None:
         timezone: str | None = None,
     ) -> str:
         """Which metric series changed across a pivot time: per (service, metric) a robust z of the median after vs before.
-        Use when: you have a suspected incident time and want to see which services' metrics moved. It reports change sizes, not causes.
+        Use when: you have a suspected incident time and want to see which services' metrics moved. It reports change sizes, not causes. For a short incident (shorter than half the after-window) the median barely moves: use sort="peak" or a shorter after_minutes.
         Inputs: pivot (ISO time); exactly one of prefix (all metric tables of a system, e.g. 'shop_') or table; before_minutes/after_minutes (default 10/10); services, metrics to filter; sort 'median' (|z|) or 'peak' (|peak z|, the after-value farthest from the baseline); top (20); timezone for a pivot without offset (default UTC).
         Returns: top series with medians before -> after, z and peak; series that rose from zero (listed apart); too-little-data count; largest change per service; coverage per service when a prefix is given."""
         return await runner.run_tool(

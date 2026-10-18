@@ -437,7 +437,7 @@ def register(mcp: Any, runner: Any) -> None:
         timezone: str | None = None,
     ) -> str:
         """Compare spans before and after a time (the pivot): what changed per service and operation, and per call between services. Reports changes; it does not name a cause.
-        Use when: an incident time is known and the system has a trace table; to see which operations got slower in their own code (self time), started failing, or changed volume, and which calls between services got slower in the callee or on the network.
+        Use when: an incident time is known and the system has a trace table; to see which operations got slower in their own code (self time), started failing, or changed volume, and which calls between services got slower in the callee or on the network. For a short incident (shorter than half the after-window) the medians barely move: use sort="volume" or a shorter after_minutes.
         Inputs: pivot (ISO time); prefix (e.g. 'shop_', every trace table of a system, adds coverage of logs and metrics) or table (one trace table); before_minutes and after_minutes (default 10 each); services and operations to filter; sort: self_time (default), errors or volume; top (default 20); timezone for a pivot without an offset (default UTC).
         Returns: per (service, operation): self-time p50 before -> after with a robust z, self p95, duration p50, error rate before -> after ('unknown' when spans have no status), spans per minute with a z, and up to 3 slowest trace ids after the pivot; a 'rose from zero' group; per edge (caller -> callee): call latency, network time and callee errors before -> after with z; coverage per service."""
         return await runner.run_tool(
