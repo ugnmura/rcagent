@@ -7,7 +7,7 @@ import {DialogAudio} from './components';
 import {coldOpen, DRAMATIZATION_LABEL, reveal} from './content';
 import {BarSubtitles, BlackFades, FilmFacecam, Grain, Letterbox, LETTERBOX, NameTag, PushIn, ramp, Vignette} from './film';
 import {BenchShot, EndCard, IntroShot, StarShot} from './shots2';
-import {CounterShot, FactShot, FlowShot, LogStorm, TitleCaption} from './shots';
+import {CounterShot, FactShot, FlowDiagramShot, LogStorm, TemplatesShot, TitleCaption} from './shots';
 import {color, font} from './theme';
 import {CLOSE_PARTS, cueFrames, DIALOG_LEAD_SECONDS, END_CARD_SECONDS, FPS, secondsToFrames} from './timeline';
 
@@ -139,6 +139,7 @@ export const RevealScene: React.FC<SceneProps> = ({assets, frames}) => {
 	const timing = cueFrames(reveal.cues, frames);
 	const counterFrom = timing[reveal.headlineFromCue][0];
 	const factFrom = timing[reveal.factFromCue][0];
+	const templatesFrom = timing[reveal.templatesFromCue][0];
 	const flowFrom = timing[reveal.flowFromCue][0];
 	const corner = spring({frame: frame - counterFrom, fps, config: {damping: 200}, durationInFrames: 22});
 	// Opens on black after the dead line; the facecam fades up as the narration starts.
@@ -148,11 +149,14 @@ export const RevealScene: React.FC<SceneProps> = ({assets, frames}) => {
 			<Shot from={counterFrom} to={factFrom} name="counter">
 				<CounterShot />
 			</Shot>
-			<Shot from={factFrom} to={flowFrom} name="4.7 million">
+			<Shot from={factFrom} to={templatesFrom} name="4.7 million">
 				<FactShot />
 			</Shot>
-			<Shot from={flowFrom} to={frames} name="flow line">
-				<FlowShot />
+			<Shot from={templatesFrom} to={flowFrom} name="templates (Drain3)">
+				<TemplatesShot />
+			</Shot>
+			<Shot from={flowFrom} to={frames} name="how it works">
+				<FlowDiagramShot />
 			</Shot>
 			<FilmFacecam assetKey="s1" assets={assets} corner={corner} />
 			<FilmFinish />

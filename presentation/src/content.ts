@@ -101,6 +101,44 @@ export const reveal = {
 	// 4.7 million: WI intro (4,747,963 BGL entries, 2005-06-03 to 2006-01-04); "seven months": script
 	fact: {value: '4.7 million', label: 'log lines · seven months'},
 	flow: ['Question', 'Agent picks a tool', 'SereneDB searches / counts', 'Evidence', 'Answer'],
+	/** Who does each flow step, shown above its box. */
+	flowOwners: ['you', 'Claude', 'SereneDB', 'SereneDB', 'Claude'],
+	/** Second line under each flow box, from the README diagram (README.md, top). */
+	flowDetails: [
+		'engineer · team lead · manager',
+		'tool descriptions say when to use each',
+		'full text, exact counts, trends, nearby events',
+		'queries, filters, truncation, margins',
+		'facts, hypotheses, next steps per role',
+	],
+	/** Raw lines → masked in SereneDB (SQL regexp_replace) → merged by Drain3 into templates (ADR 0002 on main).
+	 * Example lines and templates: the BGL survey in the transcript, step 11; headline numbers: Loghub-2.0. */
+	templates: {
+		raw: [
+			{line: 'data TLB error interrupt', masked: 'data TLB error interrupt', t: 0},
+			{line: 'instruction address: 0x00004ed8', masked: 'instruction address: <HEX>', t: 2},
+			{line: 'data storage interrupt', masked: 'data storage interrupt', t: 1},
+			{line: 'program interrupt: illegal instruction......0', masked: 'program interrupt: illegal instruction......<NUM>', t: 3},
+			{line: 'data TLB error interrupt', masked: 'data TLB error interrupt', t: 0},
+			{line: 'data storage interrupt', masked: 'data storage interrupt', t: 1},
+			{line: 'instruction address: 0x00004ed8', masked: 'instruction address: <HEX>', t: 2},
+			{line: 'data TLB error interrupt', masked: 'data TLB error interrupt', t: 0},
+		],
+		cards: [
+			{id: 'T1', text: 'data TLB error interrupt'},
+			{id: 'T95', text: 'data storage interrupt'},
+			{id: 'T28', text: 'instruction address: <HEX>'},
+			{id: 'T83', text: 'program interrupt: <*> <*>'},
+		],
+		title: 'Templating',
+		poweredBy: 'Drain3 + SereneDB regex · ultrafast',
+		// Loghub-2.0 (github.com/logpai/loghub-2.0), BGL row: 4,631,261 annotated logs, 320 templates
+		headline: '4.6 million lines → 320 templates',
+		note: 'Blue Gene/L log from Loghub',
+		source: 'Source: Loghub-2.0, BGL: 4,631,261 annotated lines, 320 templates',
+	},
+	/** Caption under the How-it-works diagram (README on main, "How it works"). */
+	flowCaption: 'Claude never sees the raw logs.',
 	cues: [
 		'Saturday, 11 June 2005, Lawrence Livermore National Laboratory.',
 		'Blue Gene/L, then the fastest supercomputer on Earth.',
@@ -110,6 +148,9 @@ export const reveal = {
 		// 4.7 million: WI intro (4,747,963 BGL entries, 2005-06-03 to 2006-01-04)
 		'That machine wrote 4.7 million log lines in seven months.',
 		'No human reads that. No AI prompt holds it either.',
+		'We call it templating: Drain3 and SereneDB regex fold the lines into templates.',
+		// Loghub-2.0, BGL: 4,631,261 annotated lines, 320 templates
+		"On Loghub's Blue Gene/L log, 4.6 million lines come down to 320 templates.",
 		'So we flipped it. The AI does not read the logs.',
 		'SereneDB searches and counts every line, exactly.',
 		'Claude asks the questions and explains the answers,',
@@ -120,8 +161,10 @@ export const reveal = {
 	headlineFromCue: 2,
 	/** Index of the cue from which the 4.7 million shot shows. */
 	factFromCue: 4,
-	/** Index of the cue from which the flow line shows ("So we flipped it."). */
-	flowFromCue: 6,
+	/** Index of the cue from which the templates shot shows ("Drain3 folds them…"). */
+	templatesFromCue: 6,
+	/** Index of the cue from which the How-it-works diagram shows ("So we flipped it."). */
+	flowFromCue: 8,
 };
 
 // ---------------------------------------------------------------- 2 engineer (slide 2)

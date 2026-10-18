@@ -159,6 +159,200 @@ export const FactShot: React.FC<{done?: boolean}> = ({done}) => {
 	);
 };
 
+/** Templating: SereneDB regex masks the variable values, Drain3 merges the rest into a handful of templates; shown as one step. */
+export const TemplatesShot: React.FC<{done?: boolean}> = ({done}) => {
+	const frame = useCurrentFrame();
+	const {fps} = useVideoConfig();
+	const {raw, cards, title, poweredBy, headline, note, source} = reveal.templates;
+	const mask = done ? 1 : ramp(frame, 26, 44);
+	const fold = done ? 1 : ramp(frame, 56, 86, ease);
+	const big = done ? 1 : spring({frame: frame - 96, fps, config: {damping: 200}, durationInFrames: 20});
+	const LX = 130;
+	const RX = 1090;
+	const top = 250;
+	const cardY = (t: number) => top + 30 + t * 120;
+	return (
+		<AbsoluteFill style={{fontFamily: font.sans}}>
+			<div style={{position: 'absolute', left: LX, top: 110, opacity: done ? 1 : ramp(frame, 0, 12)}}>
+				<div style={{fontSize: 56, fontWeight: 800, color: color.text}}>{title}</div>
+				<div style={{fontSize: 30, fontWeight: 600, color: color.accent, marginTop: 6}}>{poweredBy}</div>
+			</div>
+			{raw.map((r, i) => {
+				const y0 = top + i * 62;
+				const y = y0 + (cardY(r.t) + 22 - y0) * fold;
+				const x = LX + (RX + 24 - LX) * fold;
+				const appear = done ? 1 : ramp(frame, i * 3, i * 3 + 10);
+				return (
+					<div key={i} style={{position: 'absolute', left: x, top: y, whiteSpace: 'pre', fontFamily: font.mono, fontSize: 30, color: mask > 0.5 && r.line !== r.masked ? color.accent : '#c9d1d9', opacity: appear * (1 - fold)}}>
+						{mask > 0.5 ? r.masked : r.line}
+					</div>
+				);
+			})}
+			{cards.map((c, t) => {
+				const s = done ? 1 : spring({frame: frame - (70 + t * 6), fps, config: {damping: 200}, durationInFrames: 18});
+				return (
+					<div
+						key={c.id}
+						style={{
+							position: 'absolute',
+							left: RX,
+							top: cardY(t),
+							width: 700,
+							height: 96,
+							boxSizing: 'border-box',
+							padding: '0 26px',
+							display: 'flex',
+							alignItems: 'center',
+							gap: 20,
+							borderRadius: 16,
+							border: `2px solid ${t === 0 ? color.accent : color.line}`,
+							background: t === 0 ? '#2a2215' : color.panel,
+							opacity: s,
+							transform: `scale(${0.9 + 0.1 * s})`,
+						}}
+					>
+						<div style={{fontFamily: font.mono, fontSize: 24, color: color.muted, width: 60}}>{c.id}</div>
+						<div style={{flex: 1, fontFamily: font.mono, fontSize: 26, color: color.text}}>{c.text}</div>
+					</div>
+				);
+			})}
+			<div style={{position: 'absolute', left: LX, top: top + 120, opacity: big, transform: `translateY(${(1 - big) * 20}px)`}}>
+				<div style={{fontSize: 76, fontWeight: 800, color: color.text, letterSpacing: -1, lineHeight: 1.1, width: 860}}>{headline}</div>
+				<div style={{fontSize: 30, color: color.muted, marginTop: 18}}>{note}</div>
+			</div>
+			<div style={{position: 'absolute', left: LX, bottom: 120, fontFamily: font.mono, fontSize: 24, color: color.muted, opacity: done ? 1 : ramp(frame, 70, 84)}}>
+				{source}
+			</div>
+		</AbsoluteFill>
+	);
+};
+
+// The README "How it works" diagram (docs/img/flow.svg on main), redrawn in its dark-mode colours and built step by step.
+const FD = {fg: '#e6edf3', mut: '#9198a1', ln: '#e6edf3', box: '#151b23', boxLine: '#3d444d', ev: '#d29922', evt: '#e3b341', evBox: '#2e2a1a', evBoxLine: '#9e6a03'};
+const FD_BOXES = [
+	{x: 20, name: 'You'},
+	{x: 340, name: 'Claude'},
+	{x: 660, name: 'MCP tools'},
+	{x: 980, name: 'SereneDB'},
+];
+const FD_REQUEST = [
+	{x1: 200, x2: 336, label: 'question'},
+	{x1: 520, x2: 656, label: 'tool call'},
+	{x1: 840, x2: 976, label: 'SQL'},
+];
+const FD_ANSWER = [
+	{x1: 980, x2: 844, label: '', id: ''},
+	{x1: 660, x2: 524, label: '', id: 'Q46'},
+	{x1: 340, x2: 204, label: '', id: '[Q46]'},
+];
+
+export const FlowDiagramShot: React.FC<{done?: boolean}> = ({done}) => {
+	const frame = useCurrentFrame();
+	const {fps} = useVideoConfig();
+	const pop = (at: number) => (done ? 1 : spring({frame: frame - at, fps, config: {damping: 200}, durationInFrames: 16}));
+	const draw = (at: number, len = 14) => (done ? 1 : ramp(frame, at, at + len));
+	// request: boxes and arrows left to right, then the answer comes back right to left, then the evidence
+	const boxAt = (i: number) => 6 + i * 22;
+	const reqAt = (i: number) => boxAt(i) + 12;
+	// the Templating box pops above MCP tools once the tool call has arrived there
+	const tmplAt = reqAt(2) + 14;
+	const ansAt = (i: number) => tmplAt + 30 + i * 18;
+	const saveAt = ansAt(2) + 22;
+	const checkAt = saveAt + 26;
+	const scale = 1760 / 1180;
+	const mono = font.mono;
+	return (
+		<AbsoluteFill style={{justifyContent: 'center', alignItems: 'center'}}>
+			<svg viewBox="0 -80 1180 410" width={1180 * scale} height={410 * scale} style={{fontFamily: font.sans, overflow: 'visible', marginTop: -70}}>
+				<defs>
+					<marker id="fd-ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+						<path d="M0 1 L10 5 L0 9 z" fill={FD.ln} />
+					</marker>
+					<marker id="fd-ahe" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+						<path d="M0 1 L10 5 L0 9 z" fill={FD.ev} />
+					</marker>
+				</defs>
+				{FD_BOXES.map((b, i) => {
+					const s = pop(boxAt(i));
+					return (
+						<g key={b.name} opacity={s} transform={`translate(${b.x + 90} 88) scale(${0.85 + 0.15 * s}) translate(${-b.x - 90} -88)`}>
+							<rect x={b.x} y={40} width={180} height={96} rx={10} fill={FD.box} stroke={i === 3 ? FD.ev : FD.boxLine} strokeWidth={i === 3 ? 2.2 : 1.5} />
+							<text x={b.x + 90} y={95} textAnchor="middle" fill={FD.fg} fontSize={22} fontWeight={700}>
+								{b.name}
+							</text>
+						</g>
+					);
+				})}
+				{FD_REQUEST.map((r, i) => {
+					const d = draw(reqAt(i));
+					return (
+						<g key={r.label} opacity={d > 0 ? 1 : 0}>
+							<line x1={r.x1} y1={70} x2={r.x1 + (r.x2 - r.x1) * d} y2={70} stroke={FD.ln} strokeWidth={1.8} markerEnd={d > 0.95 ? 'url(#fd-ah)' : undefined} />
+							<text x={(r.x1 + r.x2) / 2} y={58} textAnchor="middle" fill={FD.fg} fontSize={16} opacity={d}>
+								{r.label}
+							</text>
+						</g>
+					);
+				})}
+				{FD_ANSWER.map((r, i) => {
+					const d = draw(ansAt(i));
+					return (
+						<g key={r.label} opacity={d > 0 ? 1 : 0}>
+							<line x1={r.x1} y1={110} x2={r.x1 + (r.x2 - r.x1) * d} y2={110} stroke={FD.ev} strokeWidth={2.2} markerEnd={d > 0.95 ? 'url(#fd-ahe)' : undefined} />
+							<text x={(r.x1 + r.x2) / 2} y={132} textAnchor="middle" fill={FD.evt} fontSize={16} fontWeight={700} opacity={d}>
+								{r.label}
+								{r.id ? (
+									<tspan fontFamily={mono} fontWeight={700}>
+										{r.id}
+									</tspan>
+								) : null}
+							</text>
+						</g>
+					);
+				})}
+				{/* templating (Drain3 + SereneDB regex) sits with the MCP tools */}
+				<g opacity={pop(tmplAt)}>
+					<line x1={750} y1={40} x2={750} y2={-14} stroke={FD.ev} strokeWidth={1.8} strokeDasharray="5 4" />
+					<rect x={660} y={-66} width={180} height={52} rx={8} fill={FD.evBox} stroke={FD.evBoxLine} strokeWidth={1.4} />
+					<text x={750} y={-33} textAnchor="middle" fill={FD.fg} fontSize={20} fontWeight={700}>
+						Templating
+					</text>
+				</g>
+				{/* every query is saved as evidence */}
+				<g opacity={draw(saveAt) > 0 ? 1 : 0}>
+					<line x1={750} y1={136} x2={750} y2={136 + 80 * draw(saveAt)} stroke={FD.ev} strokeWidth={1.8} strokeDasharray="5 4" markerEnd={draw(saveAt) > 0.95 ? 'url(#fd-ahe)' : undefined} />
+
+				</g>
+				<g opacity={pop(saveAt + 10)}>
+					<rect x={560} y={220} width={380} height={76} rx={10} fill={FD.evBox} stroke={FD.evBoxLine} strokeWidth={1.5} />
+					<text x={750} y={265} textAnchor="middle" fill={FD.fg} fontSize={20} fontWeight={700}>
+						Evidence <tspan fontFamily={mono}>Q46</tspan>
+					</text>
+				</g>
+				{/* and you can check any number */}
+				<g opacity={draw(checkAt, 20) > 0 ? 1 : 0}>
+					<path
+						d="M110 136 V258 H556"
+						fill="none"
+						stroke={FD.ev}
+						strokeWidth={1.8}
+						strokeDasharray="5 4"
+						pathLength={1}
+						style={{clipPath: `inset(0 ${(1 - draw(checkAt, 20)) * 100}% 0 0)`}}
+						markerEnd={draw(checkAt, 20) > 0.95 ? 'url(#fd-ahe)' : undefined}
+					/>
+					<text x={128} y={248} fill={FD.evt} fontSize={16} opacity={draw(checkAt + 10)}>
+						<tspan fontFamily={mono}>show_evidence</tspan>
+					</text>
+				</g>
+			</svg>
+			<div style={{position: 'absolute', bottom: 150, width: '100%', textAlign: 'center', fontFamily: font.sans, fontSize: 40, fontWeight: 600, color: color.text, opacity: done ? 1 : ramp(frame, checkAt + 20, checkAt + 34)}}>
+				{reveal.flowCaption}
+			</div>
+		</AbsoluteFill>
+	);
+};
+
 const FLOW_W = 300;
 const FLOW_GAP = 44;
 const FLOW_H = 150;
@@ -215,6 +409,48 @@ export const FlowShot: React.FC<{done?: boolean; y?: number; scale?: number}> = 
 					>
 						{step}
 					</div>
+				);
+			})}
+			{steps.map((step, i) => {
+				const s = done ? 1 : ramp(frame, arrive(i) + 4, arrive(i) + 16);
+				const ours = reveal.flowOwners[i] === 'SereneDB';
+				const left = cx(i) - ((FLOW_W + FLOW_GAP) * scale) / 2;
+				const width = (FLOW_W + FLOW_GAP) * scale;
+				return (
+					<React.Fragment key={`${step}-labels`}>
+						<div
+							style={{
+								position: 'absolute',
+								left,
+								width,
+								top: y - (FLOW_H * scale) / 2 - 52 * scale,
+								textAlign: 'center',
+								fontSize: 26 * scale,
+								fontWeight: 700,
+								letterSpacing: '0.1em',
+								textTransform: 'uppercase',
+								color: ours ? color.accent : color.muted,
+								opacity: s,
+							}}
+						>
+							{reveal.flowOwners[i]}
+						</div>
+						<div
+							style={{
+								position: 'absolute',
+								left: left + 10 * scale,
+								width: width - 20 * scale,
+								top: y + (FLOW_H * scale) / 2 + 18 * scale,
+								textAlign: 'center',
+								fontSize: 24 * scale,
+								lineHeight: 1.3,
+								color: color.muted,
+								opacity: s,
+							}}
+						>
+							{reveal.flowDetails[i]}
+						</div>
+					</React.Fragment>
 				);
 			})}
 		</AbsoluteFill>
