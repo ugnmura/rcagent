@@ -20,7 +20,7 @@ export const END_CARD_SECONDS = 9;
 
 /** Fixed-length scenes without an asset: the intro card before the cold open, the star gag at the very end. */
 export const INTRO_SECONDS = 3;
-export const STAR_SECONDS = 4;
+export const STAR_SECONDS = 6;
 
 /** Silence the facecam takes start and end with (handoff 3), excluded from subtitle timing. */
 export const TAKE_PADDING_SECONDS = 1;

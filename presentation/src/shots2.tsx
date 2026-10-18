@@ -1,7 +1,7 @@
 // Shots for the intro card, scenes 3–7 and the star gag. Same rules as shots.tsx: one idea per shot, local
 // frames, `done` draws the final built state for the slides PDF.
 import React from 'react';
-import {AbsoluteFill, Img, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
+import {AbsoluteFill, Audio, Img, interpolate, interpolateColors, random, Sequence, spring, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
 import {isComplete, type Benchmarks} from './benchmarks';
 import {benchmarks as benchContent, close, evidence, intro, manager, REPO_URL, star, teamLead} from './content';
 import {ease, easeOut, ramp} from './film';
@@ -439,76 +439,270 @@ const RepoIcon: React.FC = () => (
 	</svg>
 );
 
-/** A generic repo pill; a cursor clicks Star; it flips to Starred with a pop. No count, no logo. */
-export const StarShot: React.FC = () => {
-	const frame = useCurrentFrame();
-	const {fps} = useVideoConfig();
-	const pill = spring({frame: frame - 2, fps, config: {damping: 200}, durationInFrames: 18});
-	const CLICK = 46;
-	const move = ramp(frame, 14, CLICK - 4, ease);
-	const pressed = frame >= CLICK - 2 && frame < CLICK + 4;
-	const starred = frame >= CLICK;
-	const pop = spring({frame: frame - CLICK, fps, config: {damping: 8, stiffness: 260, mass: 0.5}});
-	const cap = ramp(frame, CLICK + 14, CLICK + 30);
-	// Button centre in frame coordinates (pill centred at 960,480).
-	const target = {x: 1252, y: 494};
-	const cursor = {x: interpolate(move, [0, 1], [1620, target.x]), y: interpolate(move, [0, 1], [900, target.y])};
-	return (
-		<AbsoluteFill style={{fontFamily: font.sans, background: '#030405'}}>
+const GOLD = '#e3b341';
+const STAR_PATH = 'M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.751.751 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z';
+
+const StarIcon: React.FC<{size: number; filled: boolean}> = ({size, filled}) => (
+	<svg width={size} height={size} viewBox="0 0 16 16" style={{display: 'block', overflow: 'visible'}}>
+		<path d={STAR_PATH} fill={filled ? GOLD : 'none'} stroke={filled ? GOLD : '#9198a1'} strokeWidth={filled ? 0 : 1.4} strokeLinejoin="round" />
+	</svg>
+);
+
+/** Four-point twinkle. */
+const Sparkle: React.FC<{size: number; color: string}> = ({size, color: c}) => (
+	<svg width={size} height={size} viewBox="-10 -10 20 20" style={{display: 'block'}}>
+		<path d="M0 -10 C1 -2 2 -1 10 0 C2 1 1 2 0 10 C-1 2 -2 1 -10 0 C-2 -1 -1 -2 0 -10 Z" fill={c} />
+	</svg>
+);
+
+/** Particles, shockwave rings and flash, drawn around the star's centre (0,0); `t` = frames since the click. */
+const Burst: React.FC<{t: number}> = ({t}) => {
+	if (t < 0) return null;
+	const N = 34;
+	const parts = Array.from({length: N}, (_, i) => {
+		const a = (i / N) * Math.PI * 2 + (random(`a${i}`) - 0.5) * 0.5;
+		const v = 13 + random(`v${i}`) * 20;
+		const life = 20 + random(`l${i}`) * 26;
+		if (t > life) return null;
+		const drag = 0.88;
+		const d = (v * (1 - Math.pow(drag, t))) / (1 - drag);
+		const x = Math.cos(a) * d;
+		const y = Math.sin(a) * d + 0.12 * t * t;
+		const k = 1 - t / life;
+		const size = (5 + random(`s${i}`) * 11) * (0.4 + 0.6 * k);
+		const c = i % 3 === 0 ? '#fff6d8' : i % 3 === 1 ? '#ffd76a' : GOLD;
+		const glyph = i % 5 === 0;
+		return (
+			<div
+				key={i}
+				style={{
+					position: 'absolute',
+					left: x,
+					top: y,
+					transform: `translate(-50%,-50%) rotate(${t * 14 * (random(`r${i}`) - 0.5)}deg)`,
+					opacity: Math.min(1, k * 1.6),
+					filter: `drop-shadow(0 0 ${size * 0.8}px ${c})`,
+				}}
+			>
+				{glyph ? (
+					<svg width={size * 2.2} height={size * 2.2} viewBox="0 0 16 16" style={{display: 'block'}}>
+						<path d={STAR_PATH} fill={c} />
+					</svg>
+				) : (
+					<div style={{width: size, height: size, borderRadius: '50%', background: c}} />
+				)}
+			</div>
+		);
+	});
+	const ring = (delay: number, max: number, w: number) => {
+		const p = ramp(t, delay, delay + 22, easeOut);
+		if (p <= 0 || p >= 1) return null;
+		const r = max * p;
+		return (
 			<div
 				style={{
 					position: 'absolute',
-					left: 960 - 440,
-					top: 480 - 60,
-					width: 880,
-					height: 120,
-					boxSizing: 'border-box',
-					display: 'flex',
-					alignItems: 'center',
-					gap: 22,
-					padding: '0 30px',
-					borderRadius: 16,
-					background: '#0d1117',
-					border: '2px solid #30363d',
-					opacity: pill,
-					transform: `scale(${0.94 + 0.06 * pill})`,
+					left: -r,
+					top: -r,
+					width: 2 * r,
+					height: 2 * r,
+					borderRadius: '50%',
+					border: `${w * (1 - p)}px solid ${GOLD}`,
+					opacity: 1 - p,
+					boxShadow: `0 0 ${30 * (1 - p)}px ${GOLD}`,
 				}}
-			>
-				<RepoIcon />
-				<div style={{flex: 1, fontSize: 44, color: '#4493f8', fontWeight: 600}}>
-					{star.repo.owner} / <span style={{fontWeight: 800}}>{star.repo.name}</span>
-				</div>
+			/>
+		);
+	};
+	const flash = Math.max(0, 1 - t / 12);
+	return (
+		<div style={{position: 'absolute', left: '50%', top: '50%', width: 0, height: 0, pointerEvents: 'none'}}>
+			<div
+				style={{
+					position: 'absolute',
+					left: -700,
+					top: -700,
+					width: 1400,
+					height: 1400,
+					borderRadius: '50%',
+					background: 'radial-gradient(circle, rgba(255,215,106,0.55) 0%, rgba(227,179,65,0.18) 25%, rgba(227,179,65,0) 60%)',
+					opacity: flash,
+				}}
+			/>
+			{ring(0, 380, 12)}
+			{ring(5, 240, 7)}
+			{parts}
+		</div>
+	);
+};
+
+/** Sparkles around the pill after the burst: [x, y, delay after the click, size]. */
+const SPARKLES = [
+	[560, 360, 6, 46],
+	[1380, 380, 12, 38],
+	[700, 590, 18, 30],
+	[1460, 560, 9, 42],
+	[1040, 330, 22, 26],
+	[1200, 640, 15, 34],
+];
+
+/** A generic repo pill; the cursor glides in, hovers, presses Star; the star spins up gold with a burst. No count, no logo. */
+export const StarShot: React.FC = () => {
+	const frame = useCurrentFrame();
+	const {fps} = useVideoConfig();
+	const CLICK = 52;
+	const t = frame - CLICK;
+	const starred = t >= 0;
+
+	const pill = spring({frame: frame - 2, fps, config: {damping: 200}, durationInFrames: 18});
+
+	// Cursor: curved glide that decelerates onto the button, small hover settle, then drifts off after the click.
+	const target = {x: 1252, y: 494};
+	const glide = ramp(frame, 10, CLICK - 12, easeOut);
+	const from = {x: 1720, y: 1010};
+	const ctrl = {x: 1640, y: 560};
+	const q = (a: number, b: number, c: number) => (1 - glide) * (1 - glide) * a + 2 * (1 - glide) * glide * b + glide * glide * c;
+	const settle = Math.sin(ramp(frame, CLICK - 14, CLICK - 4) * Math.PI) * 6;
+	const leave = ramp(frame, CLICK + 16, CLICK + 40);
+	const cursor = {x: q(from.x, ctrl.x, target.x) + settle + 70 * leave, y: q(from.y, ctrl.y, target.y) + settle * 0.5 + 90 * leave};
+	const hover = ramp(frame, CLICK - 12, CLICK - 6);
+
+	// Press: squash down into the click, spring back past rest on release.
+	const down = ramp(frame, CLICK - 5, CLICK, easeOut);
+	const up = spring({frame: t, fps, config: {damping: 9, stiffness: 320, mass: 0.6}});
+	const btnScale = starred ? 0.86 + 0.14 * up : 1 - 0.14 * down;
+	const cursorScale = starred ? 0.78 + 0.22 * up : 1 - 0.22 * down;
+
+	// Star: spins in from small, overshoots big, keeps a soft glow.
+	const s = spring({frame: t, fps, config: {damping: 7, stiffness: 170, mass: 0.7}});
+	const kick = starred ? Math.exp(-t / 7) : 0;
+	const starScale = starred ? 0.3 + 0.7 * s + 0.9 * kick : 1;
+	const starRot = starred ? (1 - s) * -288 : 0;
+	const glow = starred ? 0.35 + 0.65 * Math.exp(-t / 14) : 0;
+
+	// Camera: a short punch-in and shake on the click.
+	const punch = 1 + 0.045 * kick;
+	const shake = t >= 0 && t < 8 ? kick * 9 : 0;
+	const sx = (random(`sx${frame}`) - 0.5) * shake;
+	const sy = (random(`sy${frame}`) - 0.5) * shake;
+
+	// Sparkles that twinkle around the pill after the burst.
+	const sparkles = SPARKLES.map(([x, y, d, sz], i) => {
+		const p = ramp(t, d, d + 22, (v) => v);
+		if (!starred || p <= 0 || p >= 1) return null;
+		const tw = Math.sin(p * Math.PI);
+		return (
+			<div key={i} style={{position: 'absolute', left: x, top: y, transform: `translate(-50%,-50%) scale(${tw}) rotate(${p * 90}deg)`, opacity: tw, filter: `drop-shadow(0 0 10px ${GOLD})`}}>
+				<Sparkle size={sz} color={i % 2 ? '#fff6d8' : '#ffd76a'} />
+			</div>
+		);
+	});
+
+	// Sound: whoosh on the glide, click on the press, impact and chime on the star, a ping per sparkle.
+	const sfx = (name: string, from: number, volume: number) => (
+		<Sequence key={`${name}${from}`} from={from} layout="none">
+			<Audio src={staticFile(`assets/sfx/${name}.wav`)} volume={volume} />
+		</Sequence>
+	);
+	const sound = [
+		sfx('whoosh', 8, 0.35),
+		sfx('click', CLICK - 3, 0.8),
+		sfx('impact', CLICK, 0.7),
+		sfx('chime', CLICK, 0.6),
+		...SPARKLES.map(([, , d], i) => sfx('twinkle', CLICK + d + 6, 0.18 + 0.06 * (i % 2))),
+	];
+
+	// Caption comes in late, once the burst has settled.
+	const cap = ramp(frame, CLICK + 52, CLICK + 76, easeOut);
+
+	return (
+		<AbsoluteFill style={{fontFamily: font.sans, background: '#030405'}}>
+			{sound}
+			<AbsoluteFill style={{transform: `translate(${sx}px, ${sy}px) scale(${punch})`, transformOrigin: `${target.x}px ${target.y}px`}}>
 				<div
 					style={{
+						position: 'absolute',
+						left: 960 - 440,
+						top: 480 - 60,
+						width: 880,
+						height: 120,
+						boxSizing: 'border-box',
 						display: 'flex',
 						alignItems: 'center',
-						gap: 14,
-						padding: '14px 28px',
-						borderRadius: 12,
-						border: '2px solid #3d444d',
-						background: pressed ? '#30363d' : '#21262d',
-						fontSize: 38,
-						fontWeight: 600,
-						color: '#f0f6fc',
-						transform: `scale(${pressed ? 0.95 : 1})`,
+						gap: 22,
+						padding: '0 30px',
+						borderRadius: 16,
+						background: '#0d1117',
+						border: `2px solid ${starred ? `rgba(227,179,65,${0.25 + 0.5 * glow})` : '#30363d'}`,
+						boxShadow: starred ? `0 0 ${80 * glow}px rgba(227,179,65,${0.35 * glow})` : 'none',
+						opacity: pill,
+						transform: `scale(${0.94 + 0.06 * pill})`,
 					}}
 				>
-					<span
+					<RepoIcon />
+					<div style={{flex: 1, fontSize: 44, color: '#4493f8', fontWeight: 600}}>
+						{star.repo.owner} / <span style={{fontWeight: 800}}>{star.repo.name}</span>
+					</div>
+					<div
 						style={{
-							color: starred ? '#e3b341' : '#9198a1',
-							display: 'inline-block',
-							transform: `scale(${starred ? 1 + 0.5 * Math.max(0, 1 - pop) * (pop > 0 ? 1 : 0) + 0.0 : 1}) rotate(${starred ? (1 - Math.min(1, pop)) * -40 : 0}deg)`,
+							display: 'flex',
+							alignItems: 'center',
+							gap: 14,
+							padding: '14px 28px',
+							borderRadius: 12,
+							border: `2px solid ${starred ? 'rgba(227,179,65,0.55)' : interpolateColors(hover, [0, 1], ['#3d444d', '#8b949e'])}`,
+							background: down > 0.5 && !starred ? '#30363d' : starred ? '#2a2414' : interpolateColors(hover, [0, 1], ['#21262d', '#292e36']),
+							fontSize: 38,
+							fontWeight: 600,
+							color: '#f0f6fc',
+							transform: `scale(${btnScale})`,
 						}}
 					>
-						{starred ? '★' : '☆'}
-					</span>
-					{starred ? 'Starred' : 'Star'}
+						<div style={{position: 'relative', width: 38, height: 38}}>
+							<div
+								style={{
+									position: 'absolute',
+									inset: 0,
+									transform: `scale(${starScale}) rotate(${starRot}deg)`,
+									filter: starred ? `drop-shadow(0 0 ${6 + 22 * glow}px rgba(255,215,106,${0.5 + 0.5 * glow}))` : 'none',
+								}}
+							>
+								<StarIcon size={38} filled={starred} />
+							</div>
+							<Burst t={t} />
+						</div>
+						{starred ? 'Starred' : 'Star'}
+					</div>
 				</div>
-			</div>
-			<div style={{position: 'absolute', left: cursor.x, top: cursor.y, transform: `scale(${pressed ? 0.88 : 1})`, transformOrigin: '0 0'}}>
+				{sparkles}
+			</AbsoluteFill>
+			<div
+				style={{
+					position: 'absolute',
+					left: cursor.x,
+					top: cursor.y,
+					transform: `scale(${cursorScale})`,
+					transformOrigin: '0 0',
+					opacity: 1 - leave,
+					filter: 'drop-shadow(0 6px 10px rgba(0,0,0,0.6))',
+				}}
+			>
 				<Cursor />
 			</div>
-			<div style={{position: 'absolute', left: 0, right: 0, top: 640, textAlign: 'center', fontSize: 48, color: color.text, opacity: cap}}>
+			<div
+				style={{
+					position: 'absolute',
+					left: 0,
+					right: 0,
+					top: 640,
+					textAlign: 'center',
+					fontSize: 48,
+					color: color.text,
+					opacity: cap,
+					transform: `translateY(${18 * (1 - cap)}px)`,
+					filter: `blur(${6 * (1 - cap)}px)`,
+				}}
+			>
 				{star.caption}
 			</div>
 		</AbsoluteFill>
