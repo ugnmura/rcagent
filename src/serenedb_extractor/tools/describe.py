@@ -18,6 +18,7 @@ from serenedb_extractor.query.filters import (
     diagnose_empty,
     parse_time_range,
     role_sql,
+    shown_zone,
     time_clause,
 )
 from serenedb_extractor.query import cost, sampling
@@ -25,6 +26,7 @@ from serenedb_extractor.query.stats import role_columns
 from serenedb_extractor.query import indexcover
 from serenedb_extractor.setup.roles import resolve_column, role_column, role_lines
 from serenedb_extractor.setup.sniff import readable, relation_columns
+from serenedb_extractor.timezones import is_utc
 
 SAMPLE_ROWS = 10_000
 TOP_N = 8
@@ -86,6 +88,16 @@ def _top_values_indexed(
     return shown + more, index
 
 
+def _zone_line(lt: LogTable) -> str:
+    """The log table's own time zone: what results show unless a timezone is given."""
+    if is_utc(lt.timezone):
+        return f"time zone: {lt.timezone}"
+    return (
+        f"time zone: {lt.timezone} (not UTC): the log's local time, which results show with its UTC offset "
+        "unless timezone is given (timezone='UTC' for UTC)"
+    )
+
+
 def _time_range_line(db: Database, lt: LogTable, cols: dict[str, str], tr: TimeRange) -> str:
     if lt.roles.timestamp is None:
         return "time range: unknown (no timestamp field)"
@@ -127,6 +139,7 @@ def _describe_one(ctx: AppContext, lt: LogTable, tr: TimeRange, top: _TopSources
     out.append("  roles:")
     out += role_lines(lt.roles, "    ")
     out.append(f"  entries: {lt.row_count:,}" if lt.row_count is not None else "  entries: not counted")
+    out.append("  " + _zone_line(lt))
     out.append("  " + _time_range_line(db, lt, cols, tr))
     idx = [n for n in (lt.filter_index_name, lt.search_index_name) if n]
     ts_cols = role_columns(lt.roles.timestamp)
@@ -320,10 +333,10 @@ def describe_logs(
     find_values: dict[str, str] | None = None,
     start: str | None = None,
     end: str | None = None,
-    timezone: str = "UTC",
+    timezone: str | None = None,
     confirmed_cost: str | None = None,
 ) -> str:
-    tr = parse_time_range(start, end, timezone)
+    parse_time_range(start, end, timezone or "UTC")  # a bad time or zone is explained before any query
     if log_table is None:
         tables = ctx.store.list_log_tables()
         if not tables:
@@ -335,17 +348,26 @@ def describe_logs(
             raise UserFacingError(f"Say which log table to look in. Known log tables: {', '.join(t.name for t in tables)}.")
     else:
         tables = [ctx.store.get_log_table(log_table)]
-    period = tr.describe() if tr.bounded else None
+    # Each log table is read and shown in its own zone unless one is given.
+    ranges = {lt.name: parse_time_range(start, end, shown_zone(lt, timezone)) for lt in tables}
+    tr = ranges[tables[0].name]
+    one_zone = len({r.tz for r in ranges.values()}) == 1
+    tz = tr.tz if one_zone else "each log table's own time zone (see its time zone line)"
+    period = None
+    if tr.bounded:
+        period = tr.describe() if one_zone else (
+            f"{start or 'the beginning'} to {end or 'the end'} in each log table's own time zone"
+        )
     if find_values:
         lt = tables[0]
         with readable(f"the source of log table '{lt.name}'"):
             kind, sample, lines = _find_values(ctx, lt, find_values, tr, confirmed_cost)
-        return fmt.how_measured(kind, period=period, sample=sample, tz=timezone) + "\n" + "\n".join(lines)
+        return fmt.how_measured(kind, period=period, sample=sample, tz=tz) + "\n" + "\n".join(lines)
     body: list[str] = []
     top = _TopSources()
     for lt in tables:
         with readable(f"the source of log table '{lt.name}'"):
-            body += _describe_one(ctx, lt, tr, top)
+            body += _describe_one(ctx, lt, ranges[lt.name], top)
     via = ", ".join(sorted(top.indexes)) or None
     base = "catalog and metadata, a time range from Parquet statistics or a column scan"
     if top.sampled:
@@ -357,5 +379,5 @@ def describe_logs(
         kind, top_sample = base + "; top values are exact, read from an index", None
     else:
         kind, top_sample = base, None
-    header = fmt.how_measured(kind, period=period, sample=top_sample, index_used=via, tz=timezone)
+    header = fmt.how_measured(kind, period=period, sample=top_sample, index_used=via, tz=tz)
     return header + "\n" + "\n".join(body)

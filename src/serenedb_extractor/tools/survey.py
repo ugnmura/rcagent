@@ -28,6 +28,7 @@ from serenedb_extractor.query.filters import (
     diagnose_empty,
     parse_time_range,
     role_sql,
+    shown_zone,
     time_clause,
     ts_tz_sql,
 )
@@ -241,10 +242,11 @@ def survey(
     exclude: list[str] | None = None,
     sample_size: int | None = None,
     limit: int | None = None,
-    timezone: str = "UTC",
+    timezone: str | None = None,
     confirmed_cost: str | None = None,
 ) -> str:
     lt = ctx.store.get_log_table(log_table)
+    timezone = shown_zone(lt, timezone)
     tr: TimeRange = parse_time_range(start, end, timezone)
     f = Filters.from_dict(filters)
     hidden, exclusion_notes = resolve_exclusions(ctx, lt.name, exclude)

@@ -14,14 +14,16 @@ hypothesis, never a fact.
 - If a step answers TOO EXPENSIVE or times out, say so plainly and offer the options it gave (narrow the \
 period or services, build an index, or run it anyway at the stated cost). Never repeat it with \
 confirmed_cost without the user's OK, and never narrow the user's scope silently.
-- Say which time zone you used (UTC unless the user said otherwise).
+- Times are in each log table's own time zone (describe_logs names it) unless you pass timezone; outside UTC, \
+times carry their UTC offset. Say which zone each time is in and, when it is not UTC, give UTC too \
+(09:30:00-07:00 is 16:30:00 UTC). Times the user gives in another zone (e.g. UTC) go in with timezone set to it.
 """
 
 SERVER_INSTRUCTIONS = f"""\
 This server lets you analyze large logs in SereneDB and explain the findings to people in plain language.
 
 How to work:
-- Start with describe_logs: it lists the log tables, their field roles, time range, context scopes and top values.
+- Start with describe_logs: it lists the log tables, their field roles, time zone, time range, context scopes and top values.
 - Infer the log table, period and focus from the user's words. Ask in plain language only for what you cannot \
 infer, and state your assumptions (period, time zone, filters) before you dive in.
 - Check value spellings with describe_logs (find_values) before filtering: a level or service spelled \

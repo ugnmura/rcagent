@@ -17,6 +17,7 @@ from serenedb_extractor.query.filters import (
     TimeRange,
     build_where,
     role_sql,
+    shown_zone,
     time_clause,
     ts_compare,
 )
@@ -290,10 +291,11 @@ def get_context(
     before: int = DEFAULT_SIDE,
     after: int = DEFAULT_SIDE,
     filters: dict[str, Any] | None = None,
-    timezone: str = "UTC",
+    timezone: str | None = None,
     confirmed_cost: str | None = None,
 ) -> str:
     lt = ctx.store.get_log_table(log_table)
+    timezone = shown_zone(lt, timezone)
     if window_minutes <= 0:
         raise UserFacingError("window_minutes must be greater than 0.")
     before, after = max(before, 0), max(after, 0)

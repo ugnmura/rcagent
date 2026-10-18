@@ -160,11 +160,12 @@ def setup_log_table(
     existing = _existing(ctx, name)
     if existing is not None:
         return _rerun(ctx, existing, source, roles, timezone)
+    if timezone is not None:
+        get_zone(timezone)
     zone = timezone or "UTC"
-    get_zone(zone)
     rs = resolve_source(source, ctx.settings, None)
     if rs.kind == "raw_text":
-        return _setup_raw(ctx, name, rs, source, roles, line_format, zone, (build_filter_index, build_search_index))
+        return _setup_raw(ctx, name, rs, source, roles, line_format, timezone, (build_filter_index, build_search_index))
     if localfiles.copy_needed(rs):
         return _setup_outside(ctx, name, rs, source, roles, zone, (build_filter_index, build_search_index))
     info = sniff(ctx.db, rs, source)
@@ -234,6 +235,21 @@ def _size_lines(rs: ResolvedSource) -> list[str]:
     return out + localfiles.large_input_notes(rs)
 
 
+def setup_zone(given: str | None, line_format: str | None) -> tuple[str, str]:
+    """(zone, why) for reading zoneless times: the one given, else the line format's own, else UTC."""
+    if given:
+        return given, "given by you"
+    fmt_def = LINE_FORMATS.get(line_format or "")
+    if fmt_def is not None and fmt_def.zone:
+        return fmt_def.zone, f"the {fmt_def.name} line format's zone: {fmt_def.zone_why}"
+    return "UTC", "the default"
+
+
+def _zone_line(zone: str, why: str) -> str:
+    """The setup summary's time-zone line; a default UTC is stated without a reason, as before."""
+    return f"time zone for timestamps without one: {zone}" + ("" if why == "the default" else f" ({why})")
+
+
 def _chosen_format(ctx: AppContext, rs: ResolvedSource, source: str, line_format: str | None) -> tuple[str, str]:
     """(format name, how it was chosen)."""
     if line_format:
@@ -244,7 +260,8 @@ def _chosen_format(ctx: AppContext, rs: ResolvedSource, source: str, line_format
 def _inspect_raw(ctx: AppContext, rs: ResolvedSource, source: str, line_format: str | None) -> str:
     head = rawcopy.raw_head(ctx, rs, source)
     name, how = _chosen_format(ctx, rs, source, line_format)
-    entries = list(parse_entries(head, name, "UTC"))[:5]
+    zone, zone_why = setup_zone(None, name)
+    entries = list(parse_entries(head, name, zone))[:5]
     lines = [
         fmt.how_measured(
             "read only the first lines of the file; nothing was created or changed", sample="the first lines"
@@ -254,6 +271,7 @@ def _inspect_raw(ctx: AppContext, rs: ResolvedSource, source: str, line_format: 
         *_size_lines(rs),
         f"line format: {name} ({how}); known formats: {', '.join(LINE_FORMATS)}",
         "pattern: " + LINE_FORMATS[name].describes,
+        _zone_line(zone, zone_why) + "; setup can be given another (timezone)",
         "columns of the copied table: " + ", ".join(f"{c} {t}" for c, t in rawcopy.RAW_COLUMNS),
         "proposed field roles (confirm or correct):",
         "  message: message",
@@ -348,7 +366,8 @@ def _register_copied(
 
 
 def _copied_summary(
-    ctx: AppContext, lt: LogTable, rs: ResolvedSource, extra: list[str], build: tuple[bool, bool], how: str
+    ctx: AppContext, lt: LogTable, rs: ResolvedSource, extra: list[str], build: tuple[bool, bool], how: str,
+    zone_why: str = "the default",
 ) -> str:
     index_lines, read_data = _index_section(ctx, lt, *build)
     lines = [
@@ -357,7 +376,7 @@ def _copied_summary(
         f"The copy is {lt.relation} ({lt.row_count:,} entries); the original file was not changed.",
         *_size_lines(rs),
         *extra,
-        f"time zone for timestamps without one: {lt.timezone}",
+        _zone_line(lt.timezone, zone_why),
         "field roles:",
         *role_lines(lt.roles, "  "),
         "The template catalog starts empty.",
@@ -373,11 +392,12 @@ def _setup_raw(
     source: str,
     roles: dict[str, Any] | None,
     line_format: str | None,
-    zone: str,
+    timezone: str | None,
     build: tuple[bool, bool] = (False, False),
 ) -> str:
     given = validate_roles(roles, dict(rawcopy.RAW_COLUMNS)) if roles else {}
     fmt_name, how = _chosen_format(ctx, rs, source, line_format)
+    zone, zone_why = setup_zone(timezone, fmt_name)
     with readable(source):
         result = rawcopy.copy_raw(ctx, name, rs, source, fmt_name, zone)
     final = _merge(result.roles, given) if given else result.roles
@@ -395,7 +415,9 @@ def _setup_raw(
             f"{n:,} {'line' if n == 1 else 'lines'} had bytes that are not valid UTF-8; "
             "they were replaced with the character �"
         )
-    return _copied_summary(ctx, lt, rs, extra, build, "every line of the file was read and parsed; entries were copied into a table")
+    return _copied_summary(
+        ctx, lt, rs, extra, build, "every line of the file was read and parsed; entries were copied into a table", zone_why
+    )
 
 
 def _setup_outside(

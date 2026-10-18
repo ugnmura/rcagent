@@ -11,7 +11,7 @@ from serenedb_extractor.catalog.models import LogTable
 from serenedb_extractor.db import Database, quote_ident
 from serenedb_extractor.errors import UserFacingError
 from serenedb_extractor.setup.paths import pct, resolve_source, sql_literal
-from serenedb_extractor.timezones import get_zone  # noqa: F401  (re-exported)
+from serenedb_extractor.timezones import get_zone, is_utc, offset_text  # noqa: F401  (get_zone re-exported)
 from serenedb_extractor.setup.roles import is_temporal, resolve_column, role_column
 
 FILTER_ROLES = ("level", "service", "host", "component", "trace")
@@ -48,7 +48,9 @@ class TimeRange:
         return self.start is not None or self.end is not None
 
     def fmt(self, dt: datetime) -> str:
-        return dt.astimezone(get_zone(self.tz)).strftime(_FMT)
+        """A time in this range's zone; outside UTC with its UTC offset (2005-06-03 16:17:40-07:00)."""
+        local = dt.astimezone(get_zone(self.tz))
+        return local.strftime(_FMT) + ("" if is_utc(self.tz) else offset_text(local))
 
     def describe(self) -> str:
         if not self.bounded:
@@ -67,6 +69,11 @@ def _parse_moment(text: str, zone: ZoneInfo, what: str) -> datetime:
             f"I could not read {what} '{text}' as a time. Use a form like 2026-03-01 or 2026-03-01T12:30:00."
         ) from None
     return (dt.replace(tzinfo=zone) if dt.tzinfo is None else dt).astimezone(UTC)
+
+
+def shown_zone(lt: LogTable, given: str | None) -> str:
+    """The zone a tool reads and shows times in: the one asked for, else the log table's own."""
+    return given or lt.timezone
 
 
 def parse_time_range(start: str | None, end: str | None, tz: str = "UTC") -> TimeRange:
