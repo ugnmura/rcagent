@@ -310,14 +310,20 @@ export const evidence = {
 export const benchmarks = {
 	title: 'Same questions, graded blind',
 	todo: 'Numbers pending: final benchmark run',
+	placeholder: 'PLACEHOLDER NUMBERS · benchmarks still running',
+	setup: {questions: 'sealed questions', runs: 'runs each', blind: 'graded blind'},
+	costTitle: 'Cost per answer',
+	andTop: 'with the top score:',
+	perAnswer: 'per answer',
+	rca: {ac1: 'right root cause, first guess', ac3: 'in the top three', logsOnly: 'logs only', withMetrics: 'with metric + trace tools'},
+	cheaper: 'cheaper per answer than',
 	cues: [
-		'We did not guess which design works.',
-		'We built three, gave them the same sealed questions for all three roles,',
-		'and a grader scored the answers without knowing which design wrote them.',
-		'Ours came out on top, and it was the cheapest per answer.',
-		'What lost? A broad toolbox with many tools:',
-		'more calls, more cost, a lower score.',
-		'A lean server without an index: close, but behind.',
+		'How did we get here? Same sealed questions, graded blind, at every step.',
+		'We started small: seven fixed tools.',
+		'Then more tools: eighteen. A better score, but every answer cost twice as much.',
+		'Then Drain3: it finds the log templates when a question comes in, and Claude gets eight core tools plus run_sql.',
+		'The best score, and the cheapest answer: three times cheaper.',
+		'And it is not only logs. On 116 held-out microservice incidents it names the right root cause first 96 percent of the time.',
 	],
 };
 

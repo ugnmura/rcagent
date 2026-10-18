@@ -2,7 +2,8 @@
 // frames, `done` draws the final built state for the slides PDF.
 import React from 'react';
 import {AbsoluteFill, Audio, Img, interpolate, interpolateColors, random, Sequence, spring, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
-import {isComplete, type Benchmarks} from './benchmarks';
+import {DesignLabel} from './bench';
+import {hasNumbers, type Benchmarks} from './benchmarks';
 import {benchmarks as benchContent, close, evidence, intro, manager, REPO_URL, star, teamLead} from './content';
 import {ease, easeOut, ramp} from './film';
 import {RED} from './shots';
@@ -347,7 +348,7 @@ export const TodoStamp: React.FC<{scale?: number; style?: React.CSSProperties}> 
 export const BenchShot: React.FC<{done?: boolean; benchmarks: Benchmarks | null; footnote?: boolean}> = ({done, benchmarks, footnote}) => {
 	const frame = useCurrentFrame();
 	const designs = benchmarks?.designs ?? [];
-	const complete = benchmarks !== null && isComplete(benchmarks);
+	const complete = benchmarks !== null && hasNumbers(benchmarks);
 	const max = complete ? Math.max(...designs.map((d) => d.score_pct ?? 0), 1) : 1;
 	const W = 940;
 	const title = done ? 1 : ramp(frame, 0, 14);
@@ -361,9 +362,7 @@ export const BenchShot: React.FC<{done?: boolean; benchmarks: Benchmarks | null;
 					const share = complete ? (d.score_pct ?? 0) / max : 1;
 					return (
 						<div key={d.name} style={{display: 'flex', alignItems: 'center', gap: 32}}>
-							<div style={{width: 680, textAlign: 'right', fontSize: 40, fontWeight: d.ours ? 800 : 500, color: d.ours ? color.accent : color.text}}>
-								{d.name}
-							</div>
+							<DesignLabel d={d} width={680} size={42} />
 							<div style={{width: W}}>
 								<div
 									style={{
@@ -395,7 +394,7 @@ export const BenchShot: React.FC<{done?: boolean; benchmarks: Benchmarks | null;
 				})}
 			</div>
 			{footnote && benchmarks ? (
-				<div style={{position: 'absolute', bottom: 80, fontSize: 30, color: complete ? color.muted : color.placeholder}}>{benchmarks.footnote}</div>
+				<div style={{position: 'absolute', bottom: 80, fontSize: 30, color: benchmarks.final ? color.muted : color.placeholder}}>{benchmarks.footnote}</div>
 			) : null}
 			{complete ? null : (
 				<div style={{position: 'absolute', right: 260, top: 760, opacity: stamp, transform: `scale(${1.6 - 0.6 * stamp})`}}>

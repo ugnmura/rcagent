@@ -56,18 +56,31 @@ a one-line answer and its next step. At the end all three are lit, with a quick 
 
 *A real Claude Code session with the serenedb-extractor MCP server, cut and sped up, shown muted as a screen inside the film; B narrates it live in the corner (take `s-demo.mp4`, ≈ 15–25 s).*
 
-## 1:50 – 2:05 · Benchmarks (slide 4)
+## 1:50 – 2:18 · Benchmarks (slide 4)
 
-*Slide: title "Same questions, graded blind". Three bars, one per design, ours highlighted.*
+*Video, two calm shots to talk over (plain fades, no sound effects): the three steps appear one column at a
+time as you name them (pipeline, score, "+N pts"), about 4 s apart; then cost per answer per step with "+93%",
+"−67%" and the caption "3× cheaper … with the top score". Slide: the three designs in
+the same order. Numbers in the video come from `benchmarks.json`; say the final ones.*
 
-> We didn't guess which design works. Three designs, the same sealed questions, graded blind. Ours scored
-> highest, and it was the cheapest per answer. *[TODO: final score and cost.]*
+> How did we get here? Same sealed questions, graded blind, at every step. We started small: seven fixed tools.
+> Then more tools: eighteen. A better score, but every answer cost twice as much. Then Drain3: it finds the log
+> templates when a question comes in, and Claude gets eight core tools plus run_sql. The best score, and the
+> cheapest answer: three times cheaper. *[TODO: final scores, costs and the multiple.]*
+>
+> And it is not only logs. With metric and trace tools, on 116 held-out microservice incidents from RCAEval, it
+> names the right root cause first 96 percent of the time, and in the top three 99 percent.
+
+*Third shot (final numbers, RCAEval report `results/rca/REPORT-2026-10-18.md` on OrFrederick/serenedb-bench
+`bench/R-OrFrederick`): 96.3% AC@1, 99.1% AC@3 (arm T, k=3, 348 trials, Claude Sonnet); on the 48-case test set
+logs only 56% → 100% with metric and trace tools, $0.54 → $0.30 per answer. The metric and trace tools are PR #40
+(`feat/metrics-traces`), not yet on main.*
 
 **TODO when all runs finish:**
 
 - [ ] Final score and cost per answer for each design
 - [ ] Pick the commit we present, and use that version's numbers
-- [ ] RCAEval result for metrics and traces, if it lands in time
+- [x] RCAEval result for metrics and traces (third shot of the benchmark scene)
 - [ ] Slide footnote: model, number of questions, runs per question, blind grader
 
 ## 2:05 – 2:30 · Close (slide 5)

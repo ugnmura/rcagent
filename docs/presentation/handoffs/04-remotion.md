@@ -46,14 +46,16 @@ final state of its video shots.
   {
     "final": false,
     "footnote": "TODO: model, questions, runs per question, blind grader",
+    "questions": 30,
+    "runs": 5,
     "designs": [
-      {"name": "Ours: template catalog + evidence", "score_pct": null, "usd_per_answer": null, "ours": true},
-      {"name": "Lean server, no index", "score_pct": null, "usd_per_answer": null, "ours": false},
-      {"name": "Broad toolbox", "score_pct": null, "usd_per_answer": null, "ours": false}
+      {"name": "Drain3 + SQL (ours)", "detail": "Drain3 templates per question · 8 core tools + run_sql", "short": "Drain3 + SQL", "score_pct": null, "usd_per_answer": null, "ours": true},
+      {"name": "7 fixed tools", "detail": "fixed query tools · no Drain3 templates", "short": "7 fixed tools", "score_pct": null, "usd_per_answer": null, "ours": false},
+      {"name": "18 fixed tools", "detail": "fixed query tools · no Drain3 templates", "short": "18 fixed tools", "score_pct": null, "usd_per_answer": null, "ours": false}
     ]
   }
   ```
-  While `final` is false or a value is null, the slide shows a visible "TODO" stamp instead of numbers.
+  While a value is null, the slide shows a visible "TODO" stamp instead of numbers; while `final` is false, filled numbers carry a pink PLACEHOLDER tag. "7 fixed tools" was v2 (the lean toolkit), "18 fixed tools" was v1 (the full toolkit).
   Commit this file with nulls; never put guessed numbers in it.
 
 ## Timing
