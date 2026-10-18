@@ -157,15 +157,19 @@ How setup stays fast on a remote source:
 After setup, every tool checks the predicted cost first. A big scope is answered from a **block sample** of whole
 row groups (said so, with a margin), or the tool asks before reading more.
 
-**Measured on the real S3 file** (`part_000`, about 1 billion rows, one shared 16-CPU / 128 GB HPC node, details
-and raw logs in [HUGE_DATASETS.md](HUGE_DATASETS.md)):
+**Measured on the real S3 files** at commit `b51daa1` (one shared 16-CPU / 128 GB HPC node, details and raw logs
+in [HUGE_DATASETS.md](HUGE_DATASETS.md)):
 
 | Step | Time |
 |---|---|
-| `setup_log_table` on the S3 URL (metadata only, nothing downloaded) | 1.97 s |
-| `create_index(kind="search")` over all ~1B rows (index build time) | 69.9 s |
-| `search_logs` "error", 60 s window, **without index** (exact scan; median of 3) | 2.88 s |
-| `search_logs` "error", **whole billion-row file, with index** (median of 3) | 4.18 s |
+| `setup_log_table` on `part_000` (1B rows; metadata only, nothing downloaded) | 1.38 s |
+| `create_index(kind="search")` over all 1B rows (index build time; 37.5 GB) | 70.7 s |
+| `search_logs` "error", **whole billion-row file, with index** (exact; median of 3) | 2.32 s |
+| the same search **without index**, exact (`run_sql`, after confirming the cost) | 15.4 s |
+| `search_logs` "error", 60 s window, **without index** (exact; median of 3) | 1.71 s |
+| `setup_log_table` on `part_{000..009}` (10B rows) | 0.57 s |
+| `search_logs` "error", 60 s window over 10B rows (exact; median of 3, slowest window) | 3.49 s |
+| `count_logs` by service and level over all 10B rows (exact, after confirming the cost) | 31.8 s |
 
 ## The base corpus and the loader
 
@@ -485,8 +489,8 @@ This is a prototype:
   gets large.
 - **Gap detection needs an affordable scan of the timestamp column.** When even that is too expensive (a huge
   remote source over a long period), `trend` says gaps were not checked.
-- **TextBench timings are from one file at commit `6cad141`** on a shared HPC node
-  ([HUGE_DATASETS.md](HUGE_DATASETS.md)); multi-file sources (`part_{000..009}`) work but were not timed,
-  and later changes on `main` were not re-timed there.
+- **TextBench timings ran at commit `b51daa1`** on a shared HPC node ([HUGE_DATASETS.md](HUGE_DATASETS.md)); later
+  changes on `main` were not re-timed there. A survey of all ten files was refused as longer than the 600 s query
+  limit, and the cost guard's time predictions there were 1.7–23 times too high.
 - **A search index over 1 billion rows needs more than 64 GB of RAM**: the database server ran out of memory at
   64 GB and finished at 128 GB.
