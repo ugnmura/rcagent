@@ -50,28 +50,32 @@ In the worked investigation over BGL and OpenStack (4,955,599 entries, no index)
 took between 0.02 s and 1.97 s, 0.25 s at the median, including exact counts over the whole corpus. Each timing is
 in the [transcript](docs/worked-investigation-transcript.md); the machine it ran on was not recorded.
 
-### Templating next to published log parsers
+### Templating: better grouping than Drain on the full Loghub-2.0 data
 
-How well log lines are grouped into templates (GA: share of lines in the right group; FGA: F1 over groups;
-higher is better). Our rows score every labelled line of Loghub-2.0's full BGL (4,631,261 lines, 320 templates)
-and OpenStack (207,632 lines, 48 templates) with the team's own scorer. The parser rows are **copied from the
-Loghub-2.0 paper's results**
-([`effectiveness_results.csv`](https://github.com/logpai/loghub-2.0/blob/ac4aad2ea86f561e5a0acbc6587fa28b487259f9/RQs_experiments/RQ2/effectiveness_results.csv),
-full-dataset column): same labelled lines, but their scorer and preprocessing, and we did not rerun them. Read
-them as a reference point, not a head-to-head result.
+How well log lines are grouped into templates, over every labelled line of Loghub-2.0's full BGL (4,631,261 lines,
+320 templates) and OpenStack (207,632 lines, 48 templates). GA is the share of lines in exactly the right group; FGA
+is the F1 score over groups, so it punishes splitting one template into many. Higher is better for both.
 
 | Approach | BGL GA | BGL FGA | OpenStack GA | OpenStack FGA |
 |---|---|---|---|---|
-| **This server** (`6cad141`) | 0.929 | **0.745** | 0.355 | 0.682 |
+| **This server** (`6cad141`, SQL masking then Drain) | 0.929 | **0.745** | 0.355 | 0.682 |
 | Full / lean toolkit (regex mask chain¹) | **0.939** | 0.694 | **1.000** | **1.000** |
-| Drain (published) | 0.919 | 0.624 | 0.752 | 0.007 |
-| AEL (published) | 0.915 | 0.587 | 0.743 | 0.682 |
-| IPLoM (published) | 0.896 | 0.692 | 0.375 | 0.029 |
-| Spell (published) | 0.677 | 0.016 | 0.781 | 0.001 |
-| UniParser (published, trained) | 0.549 | 0.641 | **1.000** | **1.000** |
-| LogPPT (published, trained) | 0.311 | 0.519 | 0.534 | 0.929 |
+| Drain (the standard parser), Loghub-2.0's tuned settings | 0.919 | 0.624 | 0.752 | 0.007 |
+| *AEL (published)* | *0.915* | *0.587* | *0.743* | *0.682* |
+| *IPLoM (published)* | *0.896* | *0.692* | *0.375* | *0.029* |
+| *UniParser (published, trained model)* | *0.549* | *0.641* | *1.000* | *1.000* |
+| *LogPPT (published, trained model)* | *0.311* | *0.519* | *0.534* | *0.929* |
 
-Our OpenStack GA is low because GET, POST and DELETE request lines fall into one template.
+All rows in plain type were run with the same scorer on 2026-10-18 (drain3 0.9.11 for Drain). The
+italic rows are copied from the Loghub-2.0 paper's results
+([`effectiveness_results.csv`](https://github.com/logpai/loghub-2.0/blob/ac4aad2ea86f561e5a0acbc6587fa28b487259f9/RQs_experiments/RQ2/effectiveness_results.csv),
+full-dataset column) and were not rerun. They are comparable: our run of Drain with Loghub's settings gives the
+paper's Drain numbers to three decimals on both datasets (BGL 0.919 / 0.624, OpenStack 0.752 / 0.007).
+
+The extractor has the best BGL FGA of every approach here, trained models included: its templates match the
+real ones one to one more often. On OpenStack it ties AEL, the best published parser without training, on FGA,
+but its GA is low because GET, POST and DELETE request lines fall into one template.
+
 ¹ The full toolkit's default also matches regexes generated from the Loghub-2.0 templates, which would score
 the labels against themselves; that tier is off in this row, so both toolkits give the same result.
 
