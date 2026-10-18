@@ -53,6 +53,10 @@ The two models answered different question sets, so this is not a head-to-head.
 
 Claude sees query results, never raw logs. Each query is saved as `Q<n>`, and `show_evidence` shows its SQL.
 
+To group messages into kinds, SereneDB masks values (`<NUM>`, `<PATH>`, …) in SQL and counts identical masked
+messages. [Drain3](https://github.com/logpai/Drain3) then merges groups that differ only in plain words. Each
+template keeps a stable ID (`T1`, `T2`, …) that later tools accept.
+
 
 ## Quick start
 
@@ -104,7 +108,7 @@ Then run `claude` in this folder and ask (the role commands live in `.claude/com
 ## Worked investigation: one corpus, three roles
 
 One question per role, all about BGL (4,747,963 entries). Only the team lead's whole-corpus count also covers
-OpenStack, since the brief asks for one aggregation over the whole base corpus. 25 tool calls, median 0.25 s, no
+OpenStack, since the brief asks for one aggregation over the whole base corpus. 25 tool calls, median 0.49 s, no
 index. `[step n]` points to the [transcript](docs/worked-investigation-transcript.md) with every call, result and
 query. Full write-up: [docs/worked-investigation.md](docs/worked-investigation.md). BGL times are US Pacific.
 
